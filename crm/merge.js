@@ -15,6 +15,7 @@ const { createInteraction } = require('./schema');
 const {
     normalizePhone,
     normalizeEmail,
+    emailKey,
     normalizeName,
     recencyScore,
     frequencyScore,
@@ -418,7 +419,9 @@ function applyOverrides(index) {
             if (!a.phones.includes(p)) { a.phones.push(p); index.byPhone[p] = a; }
         }
         for (const e of b.emails) {
-            if (!a.emails.includes(e)) { a.emails.push(e); index.byEmail[e] = a; }
+            if (!a.emails.includes(e)) { a.emails.push(e); }
+            const ek = emailKey(e);
+            if (ek) index.byEmail[ek] = a;
         }
         if (!a.name && b.name) a.name = b.name;
 

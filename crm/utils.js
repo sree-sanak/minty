@@ -34,6 +34,35 @@ function normalizeEmail(email) {
     return email.toLowerCase().trim();
 }
 
+/**
+ * Canonical key for the email index: lowercased, plus-addressing stripped,
+ * and dots removed from the local part for Gmail/Googlemail addresses.
+ * Ensures "j.doe+work@gmail.com" and "jdoe@gmail.com" hit the same bucket.
+ * Returns null for empty/invalid input.
+ */
+const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+
+function emailKey(email) {
+    if (!email) return null;
+    const trimmed = email.toLowerCase().trim();
+    const at = trimmed.lastIndexOf('@');
+    if (at < 1) return null; // no local part or no @
+    let local = trimmed.slice(0, at);
+    const domain = trimmed.slice(at + 1);
+    if (!domain || !domain.includes('.')) return null; // no valid domain
+
+    // Strip plus-addressing (user+tag → user) — supported by Gmail, Outlook, Fastmail, etc.
+    const plus = local.indexOf('+');
+    if (plus > 0) local = local.slice(0, plus);
+
+    // Gmail treats dots in the local part as insignificant
+    if (GMAIL_DOMAINS.has(domain)) {
+        local = local.replace(/\./g, '');
+    }
+
+    return `${local}@${domain}`;
+}
+
 // Normalize a name to "firstname lastname" (first two words, lowercased).
 // Used for fuzzy cross-source name matching.
 function normalizeName(name) {
@@ -109,8 +138,8 @@ class ContactIndex {
             if (k && this.byPhone[k]) return this.byPhone[k];
         }
         for (const e of emails) {
-            const n = normalizeEmail(e);
-            if (n && this.byEmail[n]) return this.byEmail[n];
+            const k = emailKey(e);
+            if (k && this.byEmail[k]) return this.byEmail[k];
         }
         if (name) {
             const key = name.toLowerCase().trim();
@@ -127,8 +156,8 @@ class ContactIndex {
             if (k) this.byPhone[k] = contact;
         }
         for (const e of contact.emails) {
-            const n = normalizeEmail(e);
-            if (n) this.byEmail[n] = contact;
+            const k = emailKey(e);
+            if (k) this.byEmail[k] = contact;
         }
         if (contact.name) {
             const key = contact.name.toLowerCase().trim();
@@ -150,10 +179,11 @@ class ContactIndex {
         }
         for (const e of other.emails) {
             const n = normalizeEmail(e);
+            const k = emailKey(e);
             if (n && !winner.emails.includes(n)) {
                 winner.emails.push(n);
-                this.byEmail[n] = winner;
             }
+            if (k) this.byEmail[k] = winner;
         }
         if (!winner.name && other.name) {
             winner.name = other.name;
@@ -189,10 +219,11 @@ class ContactIndex {
         }
         for (const e of emails) {
             const n = normalizeEmail(e);
+            const k = emailKey(e);
             if (n && !c.emails.includes(n)) {
                 c.emails.push(n);
-                this.byEmail[n] = c;
             }
+            if (k) this.byEmail[k] = c;
         }
         if (!c.name && name) {
             c.name = name;
@@ -469,6 +500,7 @@ module.exports = {
     normalizePhone,
     phoneKey,
     normalizeEmail,
+    emailKey,
     normalizeName,
     recencyScore,
     frequencyScore,

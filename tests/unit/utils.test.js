@@ -8,6 +8,7 @@ const {
     normalizePhone,
     phoneKey,
     normalizeEmail,
+    emailKey,
     normalizeName,
     atomicWriteJsonSync,
 } = require('../../crm/utils');
@@ -90,6 +91,61 @@ test('normalizeEmail: trims whitespace', () => {
 
 test('normalizeEmail: already normalized email unchanged', () => {
     assert.equal(normalizeEmail('user@example.com'), 'user@example.com');
+});
+
+// ---------------------------------------------------------------------------
+// emailKey
+// ---------------------------------------------------------------------------
+
+test('emailKey: returns null for null/undefined/empty input', () => {
+    assert.equal(emailKey(null), null);
+    assert.equal(emailKey(undefined), null);
+    assert.equal(emailKey(''), null);
+});
+
+test('emailKey: returns null for strings without valid @ or domain', () => {
+    assert.equal(emailKey('nodomain'), null);
+    assert.equal(emailKey('@nodomain'), null);
+    assert.equal(emailKey('user@'), null);
+    assert.equal(emailKey('user@x'), null); // no dot in domain
+});
+
+test('emailKey: lowercases and trims', () => {
+    assert.equal(emailKey('  User@Example.COM  '), 'user@example.com');
+});
+
+test('emailKey: strips plus-addressing', () => {
+    assert.equal(emailKey('user+work@example.com'), 'user@example.com');
+    assert.equal(emailKey('alice+newsletter@outlook.com'), 'alice@outlook.com');
+});
+
+test('emailKey: strips dots from Gmail local part', () => {
+    assert.equal(emailKey('j.doe@gmail.com'), 'jdoe@gmail.com');
+    assert.equal(emailKey('j.o.h.n@gmail.com'), 'john@gmail.com');
+});
+
+test('emailKey: strips dots from googlemail.com local part', () => {
+    assert.equal(emailKey('j.doe@googlemail.com'), 'jdoe@googlemail.com');
+});
+
+test('emailKey: does NOT strip dots from non-Gmail domains', () => {
+    assert.equal(emailKey('j.doe@outlook.com'), 'j.doe@outlook.com');
+    assert.equal(emailKey('first.last@company.co.uk'), 'first.last@company.co.uk');
+});
+
+test('emailKey: combined Gmail dots + plus-addressing', () => {
+    assert.equal(emailKey('j.doe+work@gmail.com'), 'jdoe@gmail.com');
+    assert.equal(emailKey('J.Doe+SPAM@Gmail.COM'), 'jdoe@gmail.com');
+});
+
+test('emailKey: does not strip plus when + is first char', () => {
+    // Edge case: local part starts with + (unlikely but defensive)
+    assert.equal(emailKey('+tag@example.com'), '+tag@example.com');
+});
+
+test('emailKey: uses last @ for edge cases', () => {
+    // Pathological but valid: local part can contain @
+    assert.equal(emailKey('weird@local@example.com'), 'weird@local@example.com');
 });
 
 // ---------------------------------------------------------------------------
