@@ -20,6 +20,7 @@ const {
     frequencyScore,
     channelScore,
     ContactIndex,
+    atomicWriteJsonSync,
 } = require('./utils');
 
 const DATA = process.env.CRM_DATA_DIR || path.join(__dirname, '../data');
@@ -579,16 +580,10 @@ function run() {
     const now = new Date().toISOString();
     index.contacts.forEach(c => { c.updatedAt = now; });
 
-    fs.writeFileSync(
-        path.join(outDir, 'contacts.json'),
-        JSON.stringify(index.contacts, null, 2)
-    );
+    atomicWriteJsonSync(path.join(outDir, 'contacts.json'), index.contacts);
     console.log(`\nUnified contacts: ${index.contacts.length} → data/unified/contacts.json`);
 
-    fs.writeFileSync(
-        path.join(outDir, 'interactions.json'),
-        JSON.stringify(interactions, null, 2)
-    );
+    atomicWriteJsonSync(path.join(outDir, 'interactions.json'), interactions);
     console.log(`Unified interactions: ${interactions.length} → data/unified/interactions.json`);
 }
 
@@ -597,5 +592,12 @@ if (require.main === module) {
 }
 
 module.exports = {
+    waStableId,
+    liStableId,
+    buildPhoneBridge,
+    buildInteractionIndex,
+    getContactInteractionStats,
     loadWhatsAppRosters,
+    computeRelationshipScores,
+    applyOverrides,
 };

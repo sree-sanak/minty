@@ -501,4 +501,20 @@ function run() {
     });
 }
 
-run();
+if (require.main === module) {
+    run();
+}
+
+module.exports = {
+    COMMON_NAMES,
+    INSTITUTION_ABBREVS,
+    RELATION_WORDS,
+    cleanWaName,
+    cleanLiName,
+    cleanBySource,
+    lev,
+    fuzzyMatch,
+    inferCountryFromPhone,
+    scoreGenericPair,
+    matchGroups,
+};

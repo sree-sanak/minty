@@ -1,11 +1,15 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
     normalizePhone,
     phoneKey,
     normalizeEmail,
     normalizeName,
+    atomicWriteJsonSync,
 } = require('../../crm/utils');
 
 // ---------------------------------------------------------------------------
@@ -108,4 +112,29 @@ test('normalizeName: handles single word', () => {
 
 test('normalizeName: trims and collapses whitespace', () => {
     assert.equal(normalizeName('  Alice   Bob  '), 'alice bob');
+});
+
+// ---------------------------------------------------------------------------
+// atomicWriteJsonSync
+// ---------------------------------------------------------------------------
+
+test('atomicWriteJsonSync: writes valid formatted JSON', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-utils-'));
+    const target = path.join(dir, 'contacts.json');
+
+    atomicWriteJsonSync(target, [{ id: 'c1', name: 'Alice' }]);
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), [{ id: 'c1', name: 'Alice' }]);
+    assert.match(fs.readFileSync(target, 'utf8'), /\n  \{/);
+});
+
+test('atomicWriteJsonSync: replaces existing file and leaves no temp file behind', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-utils-'));
+    const target = path.join(dir, 'interactions.json');
+    fs.writeFileSync(target, JSON.stringify([{ id: 'old' }]));
+
+    atomicWriteJsonSync(target, [{ id: 'new' }]);
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), [{ id: 'new' }]);
+    assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp.')), []);
 });

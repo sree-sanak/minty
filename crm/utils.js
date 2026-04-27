@@ -434,6 +434,17 @@ function rankContactsForGoal(contacts, goalText, limit = 5) {
         .slice(0, limit);
 }
 
+/**
+ * Atomic JSON write: writes to a temp file in the same directory, then renames.
+ * Prevents partial/corrupt files if the process crashes mid-write.
+ */
+function atomicWriteJsonSync(filePath, data) {
+    const fs = require('fs');
+    const tmp = filePath + '.tmp.' + process.pid;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, filePath);
+}
+
 module.exports = {
     normalizePhone,
     phoneKey,
@@ -451,4 +462,5 @@ module.exports = {
     healthRingOffset,
     scoreContactForGoal,
     rankContactsForGoal,
+    atomicWriteJsonSync,
 };
