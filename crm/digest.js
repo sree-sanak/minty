@@ -27,7 +27,7 @@ const path = require('path');
 
 const { buildWarmIntroBriefs } = require('./people-graph');
 
-const DATA = path.join(__dirname, '../data');
+const DATA = process.env.CRM_DATA_DIR || path.join(__dirname, '../data');
 const CONTACTS_PATH     = path.join(DATA, 'unified/contacts.json');
 const INTERACTIONS_PATH = path.join(DATA, 'unified/interactions.json');
 const INSIGHTS_PATH     = path.join(DATA, 'unified/insights.json');
@@ -147,3 +147,5 @@ function run() {
 }
 
 run();
+
+module.exports = { contactSummary };
