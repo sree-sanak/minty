@@ -138,3 +138,29 @@ test('atomicWriteJsonSync: replaces existing file and leaves no temp file behind
     assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), [{ id: 'new' }]);
     assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp.')), []);
 });
+
+test('atomicWriteJsonSync: creates missing parent directory', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-utils-'));
+    const target = path.join(base, 'nested', 'deep', 'data.json');
+
+    atomicWriteJsonSync(target, { synthetic: true });
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { synthetic: true });
+});
+
+test('atomicWriteJsonSync: preserves existing target and cleans temp on write failure', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-utils-'));
+    const target = path.join(dir, 'precious.json');
+    fs.writeFileSync(target, JSON.stringify({ keep: 'me' }));
+
+    // Create a circular reference to force JSON.stringify to throw
+    const circular = {};
+    circular.self = circular;
+
+    assert.throws(() => atomicWriteJsonSync(target, circular));
+
+    // Original file must survive
+    assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { keep: 'me' });
+    // No temp files left behind
+    assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp.')), []);
+});

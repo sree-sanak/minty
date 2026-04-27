@@ -440,9 +440,29 @@ function rankContactsForGoal(contacts, goalText, limit = 5) {
  */
 function atomicWriteJsonSync(filePath, data) {
     const fs = require('fs');
+    const path = require('path');
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
     const tmp = filePath + '.tmp.' + process.pid;
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    let fd;
+    try {
+        fd = fs.openSync(tmp, 'w');
+        fs.writeSync(fd, JSON.stringify(data, null, 2), undefined, 'utf8');
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        fd = undefined;
+    } catch (err) {
+        if (fd !== undefined) try { fs.closeSync(fd); } catch (_) {}
+        try { fs.unlinkSync(tmp); } catch (_) {}
+        throw err;
+    }
     fs.renameSync(tmp, filePath);
+    // fsync parent directory for rename durability (Linux)
+    try {
+        const dfd = fs.openSync(dir, 'r');
+        fs.fsyncSync(dfd);
+        fs.closeSync(dfd);
+    } catch (_) { /* best-effort — may fail on some platforms */ }
 }
 
 module.exports = {
