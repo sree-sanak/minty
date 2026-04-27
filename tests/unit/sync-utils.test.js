@@ -53,6 +53,26 @@ test('formatSyncAge: 2 months ago', () => {
     assert.equal(formatSyncAge(iso, NOW), '2 months ago');
 });
 
+test('formatSyncAge: 1 month ago', () => {
+    const iso = new Date(NOW - 35 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 month ago');
+});
+
+test('formatSyncAge: 1 year ago', () => {
+    const iso = new Date(NOW - 370 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 year ago');
+});
+
+test('formatSyncAge: 2 years ago', () => {
+    const iso = new Date(NOW - 800 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '2 years ago');
+});
+
+test('formatSyncAge: 18 months shows as 1 year ago', () => {
+    const iso = new Date(NOW - 548 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 year ago');
+});
+
 test('formatSyncAge: future timestamp returns "just now"', () => {
     const iso = new Date(NOW + 5000).toISOString();
     assert.equal(formatSyncAge(iso, NOW), 'just now');
