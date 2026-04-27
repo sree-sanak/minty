@@ -598,6 +598,7 @@ module.exports = {
     waStableId,
     liStableId,
     buildPhoneBridge,
+    buildInteractions,
     buildInteractionIndex,
     getContactInteractionStats,
     loadWhatsAppRosters,
