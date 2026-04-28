@@ -237,3 +237,128 @@ test('[Metrics] computeAllMetrics skips interactions without _contactId', () => 
 test('[Metrics] computeAllMetrics with empty array returns empty object', () => {
     assert.deepEqual(computeAllMetrics([], SELF), {});
 });
+
+// ---------------------------------------------------------------------------
+// scoreEngagement — deterministic tier tests
+// ---------------------------------------------------------------------------
+
+test('[Metrics] scoreEngagement: all nulls → neutral baseline (30)', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: null, initiationRate: null });
+    assert.equal(s, 30); // 15 + 9 + 6
+});
+
+test('[Metrics] scoreEngagement: perfect metrics → 100', () => {
+    // replyRate 1.0 → 50, latency < 1h → 30, initiationRate 0.5 → 20
+    const s = scoreEngagement({ replyRate: 1.0, medianReplyLatencyHours: 0.5, initiationRate: 0.5 });
+    assert.equal(s, 100);
+});
+
+test('[Metrics] scoreEngagement: zero reply rate → latency + initiation only', () => {
+    const s = scoreEngagement({ replyRate: 0, medianReplyLatencyHours: 0.5, initiationRate: 0.5 });
+    assert.equal(s, 50); // 0 + 30 + 20
+});
+
+test('[Metrics] scoreEngagement: latency tier < 1h → 30', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: 0.5, initiationRate: null });
+    assert.equal(s, 51); // 15 + 30 + 6
+});
+
+test('[Metrics] scoreEngagement: latency tier 1-6h → 24', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: 3, initiationRate: null });
+    assert.equal(s, 45); // 15 + 24 + 6
+});
+
+test('[Metrics] scoreEngagement: latency tier 6-24h → 18', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: 12, initiationRate: null });
+    assert.equal(s, 39); // 15 + 18 + 6
+});
+
+test('[Metrics] scoreEngagement: latency tier 24-72h → 10', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: 48, initiationRate: null });
+    assert.equal(s, 31); // 15 + 10 + 6
+});
+
+test('[Metrics] scoreEngagement: latency tier > 72h → 3', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: 100, initiationRate: null });
+    assert.equal(s, 24); // 15 + 3 + 6
+});
+
+test('[Metrics] scoreEngagement: one-sided initiation (0.0) penalised', () => {
+    // initiationRate 0.0 → dist 0.5 → 20 - 20 = 0
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: null, initiationRate: 0 });
+    assert.equal(s, 24); // 15 + 9 + 0
+});
+
+test('[Metrics] scoreEngagement: one-sided initiation (1.0) penalised', () => {
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: null, initiationRate: 1.0 });
+    assert.equal(s, 24); // 15 + 9 + 0
+});
+
+test('[Metrics] scoreEngagement: slightly off-center initiation (0.4) → partial credit', () => {
+    // dist = 0.1, 20 - 4 = 16
+    const s = scoreEngagement({ replyRate: null, medianReplyLatencyHours: null, initiationRate: 0.4 });
+    assert.equal(s, 40); // 15 + 9 + 16
+});
+
+// ---------------------------------------------------------------------------
+// labelMetrics — formatting edge cases
+// ---------------------------------------------------------------------------
+
+test('[Metrics] labelMetrics: sub-minute latency floors to 1m', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: 0.001, userMessages: 0,
+        initiationRate: null, theyStarted: 0, youStarted: 0 };
+    const chips = labelMetrics(m);
+    assert.ok(chips.includes('1m avg'));
+});
+
+test('[Metrics] labelMetrics: 30-minute latency → "30m avg"', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: 0.5, userMessages: 0,
+        initiationRate: null, theyStarted: 0, youStarted: 0 };
+    const chips = labelMetrics(m);
+    assert.ok(chips.includes('30m avg'));
+});
+
+test('[Metrics] labelMetrics: 36-hour latency → "2d avg"', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: 36, userMessages: 0,
+        initiationRate: null, theyStarted: 0, youStarted: 0 };
+    const chips = labelMetrics(m);
+    assert.ok(chips.includes('2d avg'));
+});
+
+test('[Metrics] labelMetrics: initiationRate > 0.7 with enough starts → "they reach out"', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: null, userMessages: 0,
+        initiationRate: 0.8, theyStarted: 4, youStarted: 1 };
+    const chips = labelMetrics(m);
+    assert.ok(chips.includes('they reach out'));
+});
+
+test('[Metrics] labelMetrics: initiationRate between 0.3 and 0.7 → "balanced"', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: null, userMessages: 0,
+        initiationRate: 0.5, theyStarted: 3, youStarted: 3 };
+    const chips = labelMetrics(m);
+    assert.ok(chips.includes('balanced'));
+});
+
+test('[Metrics] labelMetrics: < 3 conversation starts suppresses initiation label', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: null, userMessages: 0,
+        initiationRate: 0.5, theyStarted: 1, youStarted: 1 };
+    const chips = labelMetrics(m);
+    assert.ok(!chips.some(c => c.includes('balanced') || c.includes('reach out')));
+});
+
+test('[Metrics] labelMetrics: all metrics present → 3 chips', () => {
+    const m = { replyRate: 0.9, medianReplyLatencyHours: 0.25, userMessages: 10,
+        initiationRate: 0.5, theyStarted: 5, youStarted: 5 };
+    const chips = labelMetrics(m);
+    assert.equal(chips.length, 3);
+    assert.ok(chips[0].includes('90%'));
+    assert.ok(chips[1].includes('m avg'));
+    assert.ok(chips[2] === 'balanced');
+});
+
+test('[Metrics] labelMetrics: no data → empty chips', () => {
+    const m = { replyRate: null, medianReplyLatencyHours: null, userMessages: 0,
+        initiationRate: null, theyStarted: 0, youStarted: 0 };
+    const chips = labelMetrics(m);
+    assert.deepEqual(chips, []);
+});
