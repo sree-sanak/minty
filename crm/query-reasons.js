@@ -269,5 +269,7 @@ module.exports = {
     buildReasons,
     annotateResults,
     collectContactText,
+    explainKeywordMatch,
+    titleCase,
     TERM_EXPANSIONS,
 };

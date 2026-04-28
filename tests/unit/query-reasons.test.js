@@ -11,6 +11,9 @@ const {
     extractFreeTerms,
     buildReasons,
     annotateResults,
+    collectContactText,
+    explainKeywordMatch,
+    titleCase,
     TERM_EXPANSIONS,
 } = require('../../crm/query-reasons');
 
@@ -107,4 +110,119 @@ test('[Reasons] TERM_EXPANSIONS contains expected domain terms', () => {
     assert.ok(TERM_EXPANSIONS['payments']);
     assert.ok(TERM_EXPANSIONS['fintech']);
     assert.ok(TERM_EXPANSIONS['raise']);
+});
+
+// ---- titleCase ----
+
+test('[Reasons] titleCase capitalises each word', () => {
+    assert.equal(titleCase('hello world'), 'Hello World');
+});
+
+test('[Reasons] titleCase handles single word', () => {
+    assert.equal(titleCase('founder'), 'Founder');
+});
+
+test('[Reasons] titleCase returns empty string for null/undefined', () => {
+    assert.equal(titleCase(null), '');
+    assert.equal(titleCase(undefined), '');
+});
+
+test('[Reasons] titleCase handles extra whitespace', () => {
+    // split(/\s+/) collapses multiple spaces
+    assert.equal(titleCase('series  a'), 'Series A');
+});
+
+// ---- collectContactText ----
+
+test('[Reasons] collectContactText aggregates name, company, title fields', () => {
+    const c = { name: 'Alice', company: 'Hooli', title: 'CTO' };
+    const text = collectContactText(c);
+    assert.ok(text.includes('alice'));
+    assert.ok(text.includes('hooli'));
+    assert.ok(text.includes('cto'));
+});
+
+test('[Reasons] collectContactText includes LinkedIn and Apollo metadata', () => {
+    const c = {
+        name: 'Bob',
+        sources: { linkedin: { company: 'Stripe', position: 'Engineer' } },
+        apollo: { headline: 'Payments expert', industry: 'Fintech', location: 'SF' },
+    };
+    const text = collectContactText(c);
+    assert.ok(text.includes('stripe'));
+    assert.ok(text.includes('engineer'));
+    assert.ok(text.includes('payments expert'));
+    assert.ok(text.includes('fintech'));
+});
+
+test('[Reasons] collectContactText includes Google Contacts org/title', () => {
+    const c = {
+        name: 'Carol',
+        sources: { googleContacts: { org: 'Acme Corp', title: 'VP Sales' } },
+    };
+    const text = collectContactText(c);
+    assert.ok(text.includes('acme corp'));
+    assert.ok(text.includes('vp sales'));
+});
+
+test('[Reasons] collectContactText returns empty string for null', () => {
+    assert.equal(collectContactText(null), '');
+});
+
+test('[Reasons] collectContactText skips undefined fields without crashing', () => {
+    const text = collectContactText({ name: 'Dan' });
+    assert.equal(text, 'dan');
+});
+
+// ---- explainKeywordMatch ----
+
+test('[Reasons] explainKeywordMatch returns Company label for company match', () => {
+    const c = { company: 'Stripe' };
+    assert.equal(explainKeywordMatch(c, 'stripe'), 'Company: Stripe');
+});
+
+test('[Reasons] explainKeywordMatch returns Title label for title match', () => {
+    const c = { title: 'VP Engineering' };
+    assert.equal(explainKeywordMatch(c, 'engineering'), 'Title: VP Engineering');
+});
+
+test('[Reasons] explainKeywordMatch returns LinkedIn company for linkedin source match', () => {
+    const c = { sources: { linkedin: { company: 'Revolut', position: 'Designer' } } };
+    assert.equal(explainKeywordMatch(c, 'revolut'), 'LinkedIn company: Revolut');
+});
+
+test('[Reasons] explainKeywordMatch returns LinkedIn title for linkedin position match', () => {
+    const c = { sources: { linkedin: { company: 'Acme', position: 'ML Engineer' } } };
+    assert.equal(explainKeywordMatch(c, 'ml engineer'), 'LinkedIn title: ML Engineer');
+});
+
+test('[Reasons] explainKeywordMatch returns Headline for Apollo headline match', () => {
+    const c = { apollo: { headline: 'Fintech founder' } };
+    assert.equal(explainKeywordMatch(c, 'fintech'), 'Headline: Fintech founder');
+});
+
+test('[Reasons] explainKeywordMatch returns Industry for Apollo industry match', () => {
+    const c = { apollo: { industry: 'Financial Services' } };
+    assert.equal(explainKeywordMatch(c, 'financial'), 'Industry: Financial Services');
+});
+
+test('[Reasons] explainKeywordMatch returns null when no field matches', () => {
+    const c = { company: 'Hooli', title: 'CEO' };
+    assert.equal(explainKeywordMatch(c, 'quantum'), null);
+});
+
+test('[Reasons] explainKeywordMatch returns null for null contact', () => {
+    assert.equal(explainKeywordMatch(null, 'test'), null);
+});
+
+test('[Reasons] explainKeywordMatch prefers first matching field (Company before Title)', () => {
+    // If company contains the term, it should return Company even if title also matches
+    const c = { company: 'Stripe Payments', title: 'Stripe Integration Lead' };
+    const result = explainKeywordMatch(c, 'stripe');
+    assert.ok(result.startsWith('Company:'));
+});
+
+test('[Reasons] explainKeywordMatch is case-insensitive', () => {
+    const c = { company: 'STRIPE' };
+    assert.equal(explainKeywordMatch(c, 'Stripe'), 'Company: STRIPE');
 });
