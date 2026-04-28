@@ -184,6 +184,31 @@ test('[Search] limit caps result count', () => {
     assert.equal(r.results.length, 10);
 });
 
+test('[Search] parseQuery: short prefix (a*) strips star and becomes token', () => {
+    // "a*" is too short for prefix mode (need > 2 chars including star body).
+    // The * should be stripped so we don't search for literal "a*".
+    const clauses = parseQuery('a*');
+    assert.equal(clauses.length, 1);
+    assert.equal(clauses[0].kind, 'token');
+    assert.equal(clauses[0].value, 'a'); // NOT "a*"
+});
+
+test('[Search] parseQuery: 2-char prefix body (ab*) qualifies as prefix', () => {
+    const clauses = parseQuery('ab*');
+    assert.equal(clauses.length, 1);
+    assert.equal(clauses[0].kind, 'prefix');
+    assert.equal(clauses[0].value, 'ab');
+});
+
+test('[Search] short prefix token still matches as substring', () => {
+    const interactions = [
+        mkInter({ body: 'Meeting with Alice about the A round' }),
+    ];
+    // "a*" should match "a" as a regular token (substring), not literal "a*"
+    const r = searchInteractions(interactions, 'a*');
+    assert.ok(r.results.length > 0, 'short prefix should fall back to token match');
+});
+
 test('[Search] dominantTokens drops stop-words and hapaxes', () => {
     const text = 'fundraise round round investor seed round the the and but';
     const toks = dominantTokens(text, { min: 2, topN: 5 });

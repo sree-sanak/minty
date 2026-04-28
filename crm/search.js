@@ -61,7 +61,10 @@ function parseQuery(raw) {
         } else if (text.endsWith('*') && text.length > 2) {
             out.push({ kind: 'prefix', value: text.slice(0, -1).toLowerCase(), negated });
         } else {
-            out.push({ kind: 'token', value: text.toLowerCase(), negated });
+            // Strip trailing * from tokens too short for prefix mode so we don't
+            // search for the literal asterisk (which would never match anything).
+            const val = text.endsWith('*') ? text.slice(0, -1).toLowerCase() : text.toLowerCase();
+            if (val) out.push({ kind: 'token', value: val, negated });
         }
     }
     return out;
