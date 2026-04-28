@@ -356,6 +356,26 @@ test('[NetworkQuery]: describeQuery — no filters', () => {
     assert.ok(typeof desc === 'string' && desc.length > 0);
 });
 
+test('[NetworkQuery]: describeQuery — title-cases multi-word locations', () => {
+    const parsed = { locations: ['san francisco'], roles: ['founder'], intent: 'find' };
+    const desc = describeQuery(parsed);
+    assert.ok(desc.includes('San Francisco'), `expected "San Francisco" but got: ${desc}`);
+});
+
+test('[NetworkQuery]: describeQuery — title-cases multiple multi-word locations', () => {
+    const parsed = { locations: ['new york', 'tel aviv'], roles: [], intent: 'intro' };
+    const desc = describeQuery(parsed);
+    assert.ok(desc.includes('New York'), `expected "New York" but got: ${desc}`);
+    assert.ok(desc.includes('Tel Aviv'), `expected "Tel Aviv" but got: ${desc}`);
+});
+
+test('[NetworkQuery]: describeQuery — collapses extra spaces in location names', () => {
+    const parsed = { locations: ['new  york'], roles: [], intent: 'find' };
+    const desc = describeQuery(parsed);
+    assert.ok(desc.includes('New York'), `expected "New York" but got: ${desc}`);
+    assert.ok(!desc.includes('New  York'), `expected collapsed spaces but got: ${desc}`);
+});
+
 // ---------------------------------------------------------------------------
 // phoneToLocation
 // ---------------------------------------------------------------------------

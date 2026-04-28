@@ -670,7 +670,7 @@ function filterIndex(index, parsed) {
 function describeQuery(parsed) {
     const parts = [];
     if (parsed.roles.length > 0)     parts.push(parsed.roles.join('/') + 's');
-    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(' or '));
+    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => l.split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')).join(' or '));
     const intentLabel = {
         meet:      'sorted by who you should meet',
         reconnect: 'sorted by longest since you spoke',
