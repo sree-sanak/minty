@@ -483,6 +483,38 @@ test('cleanWaName: relation word as only word kept', () => {
     assert.equal(r.firstName, 'uncle');
 });
 
+test('cleanWaName: strips trailing emoji', () => {
+    const r = cleanWaName('Sam Jones 🎉');
+    assert.equal(r.firstName, 'sam');
+    assert.equal(r.lastName, 'jones');
+    assert.equal(r.cleaned, 'sam jones');
+});
+
+test('cleanWaName: strips mid-name emoji', () => {
+    const r = cleanWaName('Sam 🦔 Jones');
+    assert.equal(r.firstName, 'sam');
+    assert.equal(r.lastName, 'jones');
+});
+
+test('cleanLiName: strips trailing emoji', () => {
+    const r = cleanLiName('Alex Rivera 🚀');
+    assert.equal(r.firstName, 'alex');
+    assert.equal(r.lastName, 'rivera');
+    assert.equal(r.cleaned, 'alex rivera');
+});
+
+test('cleanLiName: strips mid-name emoji', () => {
+    const r = cleanLiName('Alex 🌟 Rivera');
+    assert.equal(r.firstName, 'alex');
+    assert.equal(r.lastName, 'rivera');
+});
+
+test('cleanWaName: emoji-only trailing word stripped without losing real name', () => {
+    const r = cleanWaName('Priya 🎂');
+    assert.equal(r.firstName, 'priya');
+    assert.equal(r.lastName, null);
+});
+
 // ---------------------------------------------------------------------------
 // Confidence thresholds
 // ---------------------------------------------------------------------------
