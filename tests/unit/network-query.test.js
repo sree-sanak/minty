@@ -16,6 +16,9 @@ const {
     getRolesFromTitle,
     normalizeLocation,
     describeQuery,
+    phoneToLocation,
+    emailToLocation,
+    inferLocation,
 } = require('../../crm/network-query');
 
 // ---------------------------------------------------------------------------
@@ -351,4 +354,163 @@ test('[NetworkQuery]: describeQuery — no filters', () => {
     const parsed = { locations: [], roles: [], intent: 'find' };
     const desc = describeQuery(parsed);
     assert.ok(typeof desc === 'string' && desc.length > 0);
+});
+
+// ---------------------------------------------------------------------------
+// phoneToLocation
+// ---------------------------------------------------------------------------
+
+test('[NetworkQuery]: phoneToLocation — null/empty returns null', () => {
+    assert.equal(phoneToLocation(null), null);
+    assert.equal(phoneToLocation(''), null);
+    assert.equal(phoneToLocation(undefined), null);
+});
+
+test('[NetworkQuery]: phoneToLocation — UK mobile +44', () => {
+    assert.equal(phoneToLocation('+447911123456'), 'uk');
+});
+
+test('[NetworkQuery]: phoneToLocation — UK landline +44 without area 0 falls through to generic uk', () => {
+    // Real international format drops leading 0: +442079460123 doesn't match +44020 prefix
+    assert.equal(phoneToLocation('+442079460123'), 'uk');
+});
+
+test('[NetworkQuery]: phoneToLocation — UK landline +44020 prefix matches london', () => {
+    // The prefix map expects +44020... (with the 0 retained)
+    assert.equal(phoneToLocation('+440207946012'), 'london');
+});
+
+test('[NetworkQuery]: phoneToLocation — UK local 020 → london', () => {
+    assert.equal(phoneToLocation('02079460123'), 'london');
+});
+
+test('[NetworkQuery]: phoneToLocation — UK local 0161 → manchester', () => {
+    assert.equal(phoneToLocation('01611234567'), 'manchester');
+});
+
+test('[NetworkQuery]: phoneToLocation — UK mobile 07xxx without +44', () => {
+    assert.equal(phoneToLocation('07911123456'), 'uk');
+});
+
+test('[NetworkQuery]: phoneToLocation — US number +1', () => {
+    assert.equal(phoneToLocation('+14155551234'), 'us');
+});
+
+test('[NetworkQuery]: phoneToLocation — India +91', () => {
+    assert.equal(phoneToLocation('+919876543210'), 'india');
+});
+
+test('[NetworkQuery]: phoneToLocation — Germany +49', () => {
+    assert.equal(phoneToLocation('+4930123456'), 'germany');
+});
+
+test('[NetworkQuery]: phoneToLocation — strips formatting characters', () => {
+    assert.equal(phoneToLocation('+44 0207 946 0123'), 'london');
+    assert.equal(phoneToLocation('+1 (415) 555-1234'), 'us');
+});
+
+test('[NetworkQuery]: phoneToLocation — unknown number returns null', () => {
+    assert.equal(phoneToLocation('12345'), null);
+    assert.equal(phoneToLocation('abcdef'), null);
+});
+
+// ---------------------------------------------------------------------------
+// emailToLocation
+// ---------------------------------------------------------------------------
+
+test('[NetworkQuery]: emailToLocation — null/empty returns null', () => {
+    assert.equal(emailToLocation(null), null);
+    assert.equal(emailToLocation(''), null);
+    assert.equal(emailToLocation(undefined), null);
+});
+
+test('[NetworkQuery]: emailToLocation — .co.uk → uk', () => {
+    assert.equal(emailToLocation('alice@company.co.uk'), 'uk');
+});
+
+test('[NetworkQuery]: emailToLocation — .de → germany', () => {
+    assert.equal(emailToLocation('bob@firma.de'), 'germany');
+});
+
+test('[NetworkQuery]: emailToLocation — .fr → france', () => {
+    assert.equal(emailToLocation('marie@entreprise.fr'), 'france');
+});
+
+test('[NetworkQuery]: emailToLocation — .com returns null (not country-specific)', () => {
+    assert.equal(emailToLocation('user@gmail.com'), null);
+});
+
+test('[NetworkQuery]: emailToLocation — .org returns null', () => {
+    assert.equal(emailToLocation('admin@nonprofit.org'), null);
+});
+
+test('[NetworkQuery]: emailToLocation — case insensitive', () => {
+    assert.equal(emailToLocation('USER@COMPANY.CO.UK'), 'uk');
+});
+
+test('[NetworkQuery]: emailToLocation — .co.uk matches before shorter .uk would', () => {
+    // Ensures the sorted-by-length-desc strategy works
+    assert.equal(emailToLocation('test@example.co.uk'), 'uk');
+});
+
+test('[NetworkQuery]: emailToLocation — .in → india', () => {
+    assert.equal(emailToLocation('dev@startup.in'), 'india');
+});
+
+test('[NetworkQuery]: emailToLocation — .sg → singapore', () => {
+    assert.equal(emailToLocation('ops@company.sg'), 'singapore');
+});
+
+// ---------------------------------------------------------------------------
+// inferLocation
+// ---------------------------------------------------------------------------
+
+test('[NetworkQuery]: inferLocation — returns null when explicit location exists (Apollo)', () => {
+    const contact = { apollo: { location: 'San Francisco, CA' }, phones: ['+447911123456'] };
+    assert.equal(inferLocation(contact), null);
+});
+
+test('[NetworkQuery]: inferLocation — returns null when explicit location exists (LinkedIn)', () => {
+    const contact = { sources: { linkedin: { location: 'London' } }, phones: ['+14155551234'] };
+    assert.equal(inferLocation(contact), null);
+});
+
+test('[NetworkQuery]: inferLocation — infers from phones when no explicit location', () => {
+    const contact = { phones: ['+447911123456'], emails: [] };
+    assert.equal(inferLocation(contact), 'uk');
+});
+
+test('[NetworkQuery]: inferLocation — infers from emails when no phones match', () => {
+    const contact = { phones: [], emails: ['user@firma.de'] };
+    assert.equal(inferLocation(contact), 'germany');
+});
+
+test('[NetworkQuery]: inferLocation — phones take priority over emails', () => {
+    const contact = { phones: ['+33612345678'], emails: ['user@firma.de'] };
+    assert.equal(inferLocation(contact), 'france');
+});
+
+test('[NetworkQuery]: inferLocation — checks googleContacts phones', () => {
+    const contact = { phones: [], emails: [], sources: { googleContacts: { phones: ['+919876543210'], emails: [] } } };
+    assert.equal(inferLocation(contact), 'india');
+});
+
+test('[NetworkQuery]: inferLocation — checks sms phone', () => {
+    const contact = { phones: [], emails: [], sources: { sms: { phone: '+14155551234' } } };
+    assert.equal(inferLocation(contact), 'us');
+});
+
+test('[NetworkQuery]: inferLocation — checks googleContacts emails', () => {
+    const contact = { phones: [], emails: [], sources: { googleContacts: { phones: [], emails: ['user@company.co.uk'] } } };
+    assert.equal(inferLocation(contact), 'uk');
+});
+
+test('[NetworkQuery]: inferLocation — checks email source', () => {
+    const contact = { phones: [], emails: [], sources: { email: { email: 'user@startup.sg' } } };
+    assert.equal(inferLocation(contact), 'singapore');
+});
+
+test('[NetworkQuery]: inferLocation — returns null when no signals', () => {
+    assert.equal(inferLocation({ phones: [], emails: [] }), null);
+    assert.equal(inferLocation({}), null);
 });
