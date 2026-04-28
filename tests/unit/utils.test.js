@@ -118,9 +118,14 @@ test('emailKey: lowercases and trims', () => {
     assert.equal(emailKey('  User@Example.COM  '), 'user@example.com');
 });
 
-test('emailKey: strips plus-addressing', () => {
-    assert.equal(emailKey('user+work@example.com'), 'user@example.com');
-    assert.equal(emailKey('alice+newsletter@outlook.com'), 'alice@outlook.com');
+test('emailKey: strips plus-addressing for Gmail only', () => {
+    assert.equal(emailKey('user+work@gmail.com'), 'user@gmail.com');
+    assert.equal(emailKey('alice+newsletter@googlemail.com'), 'alice@googlemail.com');
+});
+
+test('emailKey: preserves plus-addressing for non-Gmail domains', () => {
+    assert.equal(emailKey('user+work@example.com'), 'user+work@example.com');
+    assert.equal(emailKey('alice+newsletter@outlook.com'), 'alice+newsletter@outlook.com');
 });
 
 test('emailKey: strips dots from Gmail local part', () => {

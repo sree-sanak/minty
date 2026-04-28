@@ -35,8 +35,8 @@ function normalizeEmail(email) {
 }
 
 /**
- * Canonical key for the email index: lowercased, plus-addressing stripped,
- * and dots removed from the local part for Gmail/Googlemail addresses.
+ * Canonical key for the email index: lowercased, with Gmail/Googlemail
+ * plus-addressing stripped and dots removed from the local part.
  * Ensures "j.doe+work@gmail.com" and "jdoe@gmail.com" hit the same bucket.
  * Returns null for empty/invalid input.
  */
@@ -51,12 +51,12 @@ function emailKey(email) {
     const domain = trimmed.slice(at + 1);
     if (!domain || !domain.includes('.')) return null; // no valid domain
 
-    // Strip plus-addressing (user+tag → user) — supported by Gmail, Outlook, Fastmail, etc.
-    const plus = local.indexOf('+');
-    if (plus > 0) local = local.slice(0, plus);
-
-    // Gmail treats dots in the local part as insignificant
     if (GMAIL_DOMAINS.has(domain)) {
+        // Gmail treats plus tags and dots in the local part as insignificant.
+        // Keep plus tags for non-Gmail domains: some organizations use them as
+        // real routed addresses, and collapsing them can merge distinct people.
+        const plus = local.indexOf('+');
+        if (plus > 0) local = local.slice(0, plus);
         local = local.replace(/\./g, '');
     }
 

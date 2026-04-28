@@ -143,12 +143,19 @@ test('ContactIndex: Gmail dot-insensitive dedup', () => {
     assert.equal(idx.contacts.length, 1);
 });
 
-test('ContactIndex: plus-addressing dedup', () => {
+test('ContactIndex: Gmail plus-addressing dedup', () => {
     const idx = new ContactIndex();
-    const first = idx.upsert([], ['alice@example.com'], 'Alice');
-    const second = idx.upsert([], ['alice+newsletter@example.com'], null);
-    assert.equal(first, second, 'plus-addressing should not split contacts');
+    const first = idx.upsert([], ['alice@gmail.com'], 'Alice');
+    const second = idx.upsert([], ['alice+newsletter@gmail.com'], null);
+    assert.equal(first, second, 'Gmail plus-addressing should not split contacts');
     assert.equal(idx.contacts.length, 1);
+});
+
+test('ContactIndex: non-Gmail plus-addressing is NOT deduped', () => {
+    const idx = new ContactIndex();
+    idx.upsert([], ['sales+alice@example.com'], 'Alice');
+    idx.upsert([], ['sales+bob@example.com'], 'Bob');
+    assert.equal(idx.contacts.length, 2, 'non-Gmail plus tags can route to distinct people');
 });
 
 test('ContactIndex: Gmail dots + plus combined dedup', () => {
