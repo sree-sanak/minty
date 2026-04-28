@@ -17,6 +17,36 @@ const ENABLED = Boolean(DSN);
 let Sentry = null;
 let ready = false;
 
+/** Strip PII from a Sentry event before it leaves the machine. */
+function scrubEvent(event) {
+    if (event.request) {
+        delete event.request.cookies;
+        delete event.request.data;
+        delete event.request.query_string;
+        if (event.request.headers) {
+            for (const k of Object.keys(event.request.headers)) {
+                const lk = k.toLowerCase();
+                if (lk === 'authorization' || lk === 'cookie' || lk.startsWith('x-')) {
+                    delete event.request.headers[k];
+                }
+            }
+        }
+        if (event.request.url) {
+            try {
+                const u = new URL(event.request.url);
+                u.search = '';
+                event.request.url = u.toString();
+            } catch {}
+        }
+    }
+    if (event.user) {
+        delete event.user.email;
+        delete event.user.ip_address;
+        delete event.user.username;
+    }
+    return event;
+}
+
 function init() {
     if (!ENABLED || ready) return;
     try {
@@ -31,34 +61,7 @@ function init() {
         environment: process.env.MINTY_ERROR_ENV || process.env.NODE_ENV || 'development',
         sendDefaultPii: false,
         tracesSampleRate: 0,
-        beforeSend(event) {
-            if (event.request) {
-                delete event.request.cookies;
-                delete event.request.data;
-                delete event.request.query_string;
-                if (event.request.headers) {
-                    for (const k of Object.keys(event.request.headers)) {
-                        const lk = k.toLowerCase();
-                        if (lk === 'authorization' || lk === 'cookie' || lk.startsWith('x-')) {
-                            delete event.request.headers[k];
-                        }
-                    }
-                }
-                if (event.request.url) {
-                    try {
-                        const u = new URL(event.request.url);
-                        u.search = '';
-                        event.request.url = u.toString();
-                    } catch {}
-                }
-            }
-            if (event.user) {
-                delete event.user.email;
-                delete event.user.ip_address;
-                delete event.user.username;
-            }
-            return event;
-        },
+        beforeSend: scrubEvent,
     });
     ready = true;
     let dsnHost = 'unknown-host';
@@ -83,4 +86,4 @@ function captureException(err, context) {
     }
 }
 
-module.exports = { init, captureException, ENABLED };
+module.exports = { init, captureException, scrubEvent, ENABLED };
