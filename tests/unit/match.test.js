@@ -495,3 +495,47 @@ test('scoreGenericPair: confidence thresholds are correct', () => {
     assert.equal(r.confidence, 'confirmed');
     assert.ok(r.score >= 70);
 });
+
+// ---------------------------------------------------------------------------
+// matchGroups — B-side deduplication (multiple A contacts competing for same B)
+// ---------------------------------------------------------------------------
+
+test('matchGroups: when multiple A contacts match same B, keeps those within 15 pts of best', () => {
+    // Two WA contacts with same first name but different last names competing for one LI contact
+    const wa1 = waContact('Zarquon Smith');       // exact first + exact last → high score
+    const wa2 = waContact('Zarquon Jones');       // exact first + last mismatch → lower score
+    const li = liContact('Zarquon Smith');
+
+    const bestScore = scoreGenericPair(wa1, 'whatsapp', li, 'linkedin').score;
+    const weakerScore = scoreGenericPair(wa2, 'whatsapp', li, 'linkedin').score;
+    assert.equal(bestScore, 80);
+    assert.equal(weakerScore, 20);
+
+    const result = matchGroups([wa1, wa2], 'whatsapp', [li], 'linkedin');
+
+    // wa1 is best-per-A for wa1, wa2 is best-per-A for wa2 (only one B candidate)
+    // Then B-side dedup: both map to same B, best score wins.
+    // Gap > 15, so only wa1 should survive.
+    assert.equal(result.matches.length, 1);
+    assert.equal(result.matches[0].aId, wa1.id);
+});
+
+test('matchGroups: B-side dedup keeps close competitors (within 15 pts)', () => {
+    // Two WA contacts whose scores are close enough both survive B-side dedup
+    const wa1 = waContact('Zarquon Smith');       // exact first + exact last = 80
+    const wa2 = waContact('Zarquon Smyth');       // exact first + fuzzy last = 70
+    const li = liContact('Zarquon Smith');
+
+    const bestScore = scoreGenericPair(wa1, 'whatsapp', li, 'linkedin').score;
+    const closeScore = scoreGenericPair(wa2, 'whatsapp', li, 'linkedin').score;
+    assert.equal(bestScore, 80);
+    assert.equal(closeScore, 70);
+
+    const result = matchGroups([wa1, wa2], 'whatsapp', [li], 'linkedin');
+
+    // Score difference is 10 (within 15), so both kept.
+    assert.equal(result.matches.length, 2);
+    const ids = result.matches.map(m => m.aId);
+    assert.ok(ids.includes(wa1.id));
+    assert.ok(ids.includes(wa2.id));
+});
