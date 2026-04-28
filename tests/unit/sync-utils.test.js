@@ -8,7 +8,7 @@ const { formatSyncAge, getSyncDotState, getOverallSyncHealth } = require('../../
 // formatSyncAge
 // ---------------------------------------------------------------------------
 
-const NOW = Date.now();
+const NOW = Date.parse('2026-04-28T12:00:00.000Z'); // Pinned for deterministic age calculations.
 
 test('formatSyncAge: null returns "never"', () => {
     assert.equal(formatSyncAge(null, NOW), 'never');
