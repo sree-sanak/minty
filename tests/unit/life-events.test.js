@@ -115,3 +115,131 @@ test('[Events] snippet is bounded and readable', () => {
     const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
     assert.ok(e[0].snippet.length < 150);
 });
+
+// ---------------------------------------------------------------------------
+// detectBirthday — alternate formats and label branches
+// ---------------------------------------------------------------------------
+
+test('[Events] birthday with --MM-DD format (no year) is detected', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '--04-25' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.kind, 'birthday');
+    assert.equal(b.daysAway, 5);
+});
+
+test('[Events] birthday with MM-DD format (no year prefix) is detected', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '04-25' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.kind, 'birthday');
+    assert.equal(b.daysAway, 5);
+});
+
+test('[Events] birthday today shows "Birthday today" label', () => {
+    // Use midnight so same-day comparison doesn't wrap to next year
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-20' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.label, 'Birthday today');
+    assert.equal(b.daysAway, 0);
+});
+
+test('[Events] birthday tomorrow shows "Birthday tomorrow" label', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-21' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.label, 'Birthday tomorrow');
+    assert.equal(b.daysAway, 1);
+});
+
+test('[Events] birthday with no sources returns null', () => {
+    const c = { id: 'c_1', name: 'X' };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday with empty googleContacts returns null', () => {
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: {} } };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday with invalid string returns null', () => {
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: 'not-a-date' } } };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday wraps to next year if date already passed', () => {
+    // April 10 is before April 20 (NOW), so next occurrence is April 10 next year
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-10' } } };
+    const b = detectBirthday(c, { now: NOW, within: 400 });
+    assert.ok(b);
+    assert.ok(b.daysAway > 300, 'should wrap to next year, got ' + b.daysAway);
+});
+
+// ---------------------------------------------------------------------------
+// detectAnnouncementEvents — untested pattern kinds
+// ---------------------------------------------------------------------------
+
+test('[Events] detects promotion announcements', () => {
+    const msgs = [msg('them', 'got promoted to VP of Engineering last week')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'job_change');
+    assert.equal(e[0].label, 'Promotion');
+});
+
+test('[Events] detects life moment — engagement', () => {
+    const msgs = [msg('them', 'we got engaged over the weekend!')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'life_moment');
+});
+
+test('[Events] detects reconnection pattern', () => {
+    const msgs = [msg('them', 'great to catch up after such a long time!')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'reconnection');
+});
+
+test('[Events] detects acquisition announcement', () => {
+    const msgs = [msg('them', 'big news — we got acquired by Microsoft')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'milestone');
+    assert.equal(e[0].label, 'Acquisition');
+});
+
+test('[Events] skips messages with very short body', () => {
+    const msgs = [msg('them', 'hi')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 0);
+});
+
+test('[Events] detectJobChange returns null when linkedin company is missing', () => {
+    const c = {
+        id: 'c_1', name: 'X',
+        sources: { linkedin: { position: 'Engineer' } },
+        apollo: { employmentHistory: [{ organization_name: 'Google' }] },
+    };
+    assert.equal(detectJobChange(c), null);
+});
+
+test('[Events] detectJobChange returns null when apollo history is missing', () => {
+    const c = {
+        id: 'c_1', name: 'X',
+        sources: { linkedin: { company: 'Stripe' } },
+    };
+    assert.equal(detectJobChange(c), null);
+});
+
+test('[Events] detectAllEvents skips group contacts', () => {
+    const group = { id: 'g_1', name: 'Family Chat', isGroup: true };
+    const ixn = { g_1: [msg('them', 'joining Stripe next month')] };
+    const events = detectAllEvents({ contacts: [group], interactionsByContactId: ixn, now: NOW });
+    assert.equal(events.length, 0);
+});
