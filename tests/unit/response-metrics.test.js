@@ -7,10 +7,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
     computeContactMetrics,
+    computeAllMetrics,
     pairMessages,
+    groupByThread,
     scoreEngagement,
     labelMetrics,
     isFromSelf,
+    median,
 } = require('../../crm/response-metrics');
 
 function mk(ts, from, opts = {}) {
@@ -146,4 +149,91 @@ test('[Metrics] different chat threads are separate', () => {
     assert.equal(m.userMessages, 2);
     assert.equal(m.contactReplies, 1);
     assert.equal(m.replyRate, 0.5);
+});
+
+// --- median ---
+
+test('[Metrics] median of empty array returns 0', () => {
+    assert.equal(median([]), 0);
+});
+
+test('[Metrics] median of single element returns that element', () => {
+    assert.equal(median([42]), 42);
+});
+
+test('[Metrics] median of odd-length array returns middle value', () => {
+    assert.equal(median([3, 1, 2]), 2);
+    assert.equal(median([10, 30, 20, 50, 40]), 30);
+});
+
+test('[Metrics] median of even-length array returns average of two middles', () => {
+    assert.equal(median([1, 2, 3, 4]), 2.5);
+    assert.equal(median([10, 20]), 15);
+});
+
+test('[Metrics] median does not mutate the input array', () => {
+    const arr = [3, 1, 2];
+    median(arr);
+    assert.deepEqual(arr, [3, 1, 2]);
+});
+
+// --- groupByThread ---
+
+test('[Metrics] groupByThread groups by contactId|chatId|source', () => {
+    const interactions = [
+        mk('2026-01-01T00:00:00Z', 'me', { chatId: 'c1', source: 'whatsapp', contactId: 'a' }),
+        mk('2026-01-02T00:00:00Z', 'them', { chatId: 'c1', source: 'whatsapp', contactId: 'a' }),
+        mk('2026-01-03T00:00:00Z', 'me', { chatId: 'c2', source: 'gmail', contactId: 'a' }),
+    ];
+    const threads = groupByThread(interactions);
+    const keys = Object.keys(threads);
+    assert.equal(keys.length, 2);
+    assert.equal(threads['a|c1|whatsapp'].length, 2);
+    assert.equal(threads['a|c2|gmail'].length, 1);
+});
+
+test('[Metrics] groupByThread skips interactions without _contactId', () => {
+    const interactions = [
+        { timestamp: '2026-01-01', from: 'me', chatId: 'c1', source: 'wa' },
+        mk('2026-01-01T00:00:00Z', 'me', { contactId: 'a' }),
+    ];
+    const threads = groupByThread(interactions);
+    assert.equal(Object.keys(threads).length, 1);
+});
+
+test('[Metrics] groupByThread falls back when chatId is missing', () => {
+    const interactions = [
+        { timestamp: '2026-01-01', from: 'me', source: 'gmail', _contactId: 'b' },
+        { timestamp: '2026-01-02', from: 'them', source: 'gmail', _contactId: 'b' },
+    ];
+    const threads = groupByThread(interactions);
+    assert.equal(Object.keys(threads).length, 1);
+    assert.equal(threads['b||gmail'].length, 2);
+});
+
+// --- computeAllMetrics ---
+
+test('[Metrics] computeAllMetrics returns metrics keyed by contactId', () => {
+    const interactions = [
+        mk('2026-04-10T10:00:00Z', 'me', { contactId: 'alice' }),
+        mk('2026-04-10T10:05:00Z', 'them', { contactId: 'alice' }),
+        mk('2026-04-11T10:00:00Z', 'me', { contactId: 'bob' }),
+    ];
+    const result = computeAllMetrics(interactions, SELF);
+    assert.ok(result.alice);
+    assert.ok(result.bob);
+    assert.equal(result.alice.replyRate, 1);
+    assert.equal(result.bob.replyRate, 0);
+});
+
+test('[Metrics] computeAllMetrics skips interactions without _contactId', () => {
+    const interactions = [
+        { timestamp: '2026-01-01', from: 'me', chatId: 'c1', source: 'wa' },
+    ];
+    const result = computeAllMetrics(interactions, SELF);
+    assert.deepEqual(result, {});
+});
+
+test('[Metrics] computeAllMetrics with empty array returns empty object', () => {
+    assert.deepEqual(computeAllMetrics([], SELF), {});
 });
