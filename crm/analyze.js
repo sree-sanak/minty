@@ -197,4 +197,7 @@ function run() {
     console.log('by reading the interaction data for contacts where analyzedAt is null.');
 }
 
-run();
+// Export pure functions for testing
+module.exports = { buildIndex, getContactInteractions, computeSourceSplit, extractKeywords };
+
+if (require.main === module) run();
