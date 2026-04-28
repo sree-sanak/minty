@@ -376,6 +376,18 @@ test('[NetworkQuery]: describeQuery — collapses extra spaces in location names
     assert.ok(!desc.includes('New  York'), `expected collapsed spaces but got: ${desc}`);
 });
 
+test('[NetworkQuery]: describeQuery — uppercases short abbreviation locations (UK, US, UAE)', () => {
+    assert.ok(describeQuery({ locations: ['uk'], roles: [], intent: 'find' }).includes('UK'));
+    assert.ok(describeQuery({ locations: ['us'], roles: [], intent: 'find' }).includes('US'));
+    assert.ok(describeQuery({ locations: ['uae'], roles: [], intent: 'find' }).includes('UAE'));
+    // Should not break normal title-casing
+    assert.ok(describeQuery({ locations: ['london'], roles: [], intent: 'find' }).includes('London'));
+});
+
+test('[NetworkQuery]: describeQuery — uppercases abbreviation words in multi-word locations', () => {
+    assert.ok(describeQuery({ locations: ['washington dc'], roles: [], intent: 'find' }).includes('Washington DC'));
+});
+
 // ---------------------------------------------------------------------------
 // phoneToLocation
 // ---------------------------------------------------------------------------

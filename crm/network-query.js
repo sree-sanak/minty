@@ -667,10 +667,19 @@ function filterIndex(index, parsed) {
  * @param {{ locations: string[], roles: string[], intent: string }} parsed
  * @returns {string}
  */
+const UPPERCASE_LOCATIONS = new Set(['uk', 'us', 'usa', 'uae', 'dc', 'nz', 'hk', 'sg']);
+
+function titleCaseLocation(loc) {
+    return loc.split(/\s+/)
+        .filter(Boolean)
+        .map(w => UPPERCASE_LOCATIONS.has(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+}
+
 function describeQuery(parsed) {
     const parts = [];
     if (parsed.roles.length > 0)     parts.push(parsed.roles.join('/') + 's');
-    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => l.split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')).join(' or '));
+    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => titleCaseLocation(l)).join(' or '));
     const intentLabel = {
         meet:      'sorted by who you should meet',
         reconnect: 'sorted by longest since you spoke',
