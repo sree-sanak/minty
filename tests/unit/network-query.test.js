@@ -514,3 +514,96 @@ test('[NetworkQuery]: inferLocation — returns null when no signals', () => {
     assert.equal(inferLocation({ phones: [], emails: [] }), null);
     assert.equal(inferLocation({}), null);
 });
+
+// ---------------------------------------------------------------------------
+// extractContactFields
+// ---------------------------------------------------------------------------
+
+test('[NetworkQuery]: extractContactFields — extracts all fields from a rich contact', () => {
+    const contact = {
+        id: 'c1',
+        name: 'Alice Chen',
+        apollo: { headline: 'VP of Engineering', location: 'San Francisco, CA' },
+        sources: { linkedin: { company: 'Acme Corp' } },
+        phones: [], emails: [],
+        relationshipScore: 85,
+        daysSinceContact: 3,
+        interactionCount: 42,
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.id, 'c1');
+    assert.equal(result.name, 'Alice Chen');
+    assert.equal(result.title, 'VP of Engineering');
+    assert.equal(result.company, 'Acme Corp');
+    assert.equal(result.city, 'san francisco');
+    assert.deepEqual(result.roles, ['engineer', 'operator']);
+    assert.equal(result.seniority, 'vp');
+    assert.equal(result.relationshipScore, 85);
+    assert.equal(result.daysSinceContact, 3);
+    assert.equal(result.interactionCount, 42);
+});
+
+test('[NetworkQuery]: extractContactFields — falls back through title sources', () => {
+    // linkedin position is second priority after apollo headline
+    const contact = {
+        id: 'c2', name: 'Bob',
+        sources: { linkedin: { position: 'Software Engineer', company: 'StartupCo' } },
+        phones: [], emails: [],
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.title, 'Software Engineer');
+    assert.equal(result.company, 'StartupCo');
+});
+
+test('[NetworkQuery]: extractContactFields — falls back to googleContacts for title and org', () => {
+    const contact = {
+        id: 'c3', name: 'Carol',
+        sources: { googleContacts: { title: 'Product Manager', org: 'BigCo' } },
+        phones: [], emails: [],
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.title, 'Product Manager');
+    assert.equal(result.company, 'BigCo');
+});
+
+test('[NetworkQuery]: extractContactFields — falls back to employmentHistory for company', () => {
+    const contact = {
+        id: 'c4', name: 'Dan',
+        apollo: { headline: 'Designer', employmentHistory: [{ organization_name: 'DesignCo' }] },
+        phones: [], emails: [],
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.company, 'DesignCo');
+});
+
+test('[NetworkQuery]: extractContactFields — handles minimal/empty contact', () => {
+    const result = extractContactFields({ id: 'c5', phones: [], emails: [] });
+    assert.equal(result.id, 'c5');
+    assert.equal(result.name, '');
+    assert.equal(result.title, '');
+    assert.equal(result.company, '');
+    assert.equal(result.city, null);
+    assert.deepEqual(result.roles, []);
+    assert.equal(result.relationshipScore, 0);
+    assert.equal(result.daysSinceContact, null);
+    assert.equal(result.interactionCount, 0);
+});
+
+test('[NetworkQuery]: extractContactFields — infers location from phone when no text location', () => {
+    const contact = {
+        id: 'c6', name: 'Eve',
+        phones: ['+44 7911 123456'], emails: [],
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.city, 'uk');
+});
+
+test('[NetworkQuery]: extractContactFields — text location takes priority over phone inference', () => {
+    const contact = {
+        id: 'c7', name: 'Frank',
+        apollo: { location: 'New York' },
+        phones: ['+44 7911 123456'], emails: [],
+    };
+    const result = extractContactFields(contact);
+    assert.equal(result.city, 'new york');
+});
