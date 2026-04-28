@@ -22,7 +22,7 @@ function daysToTimePhrase(days) {
     if (days === null || days === undefined) return 'a while';
     if (days < 7)   return 'recently';
     if (days < 21)  return 'a couple weeks';
-    if (days < 60)  return 'a few months'; // "a few weeks" sounds off at 30d
+    if (days < 60)  return 'about a month';
     if (days < 120) return 'a couple months';
     if (days < 365) return 'a few months';
     return 'a while';

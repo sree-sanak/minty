@@ -29,6 +29,18 @@ test('reconnect/daysToTimePhrase: 14 days → "a couple weeks"', () => {
     assert.equal(daysToTimePhrase(14), 'a couple weeks');
 });
 
+test('reconnect/daysToTimePhrase: 25 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(25), 'about a month');
+});
+
+test('reconnect/daysToTimePhrase: 30 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(30), 'about a month');
+});
+
+test('reconnect/daysToTimePhrase: 45 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(45), 'about a month');
+});
+
 test('reconnect/daysToTimePhrase: 60 days → "a couple months"', () => {
     assert.equal(daysToTimePhrase(60), 'a couple months');
 });
