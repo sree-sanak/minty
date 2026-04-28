@@ -11,6 +11,7 @@ const {
     resolveMentions,
     buildMentionIndex,
     renderNotesHtml,
+    escapeHtml,
 } = require('../../crm/mentions');
 
 function mk(id, name, notes = null) {
@@ -27,7 +28,8 @@ test('[Mentions] findMentionCandidates supports multi-word + quoted handles', ()
     const c1 = findMentionCandidates('met @alex chen at the meetup');
     assert.ok(c1.some(x => x.handle.startsWith('alex')));
     const c2 = findMentionCandidates("note: @\"Priya D'Souza\" joins Tuesday");
-    assert.ok(c2.length >= 0); // at least doesn't crash; quoted handle may or may not capture
+    assert.equal(c2.length, 1);
+    assert.equal(c2[0].handle, "Priya D'Souza");
 });
 
 test('[Mentions] findMentionCandidates ignores email addresses', () => {
@@ -110,4 +112,71 @@ test('[Mentions] snippet in backlink includes context around mention', () => {
     const idx = buildMentionIndex(contacts);
     const entry = idx.c_2[0];
     assert.ok(entry.snippet.includes('priya'));
+});
+
+// ---------------------------------------------------------------------------
+// resolveHandle — untested confidence paths
+// ---------------------------------------------------------------------------
+
+test('[Mentions] resolveHandle — startsWith confidence when unique prefix', () => {
+    const contacts = [mk('c_1', 'Alexandra Chen'), mk('c_2', 'Bob Jones')];
+    const r = resolveHandle('alexandr', contacts);
+    assert.ok(r);
+    assert.equal(r.contact.id, 'c_1');
+    assert.equal(r.confidence, 'startsWith');
+});
+
+test('[Mentions] resolveHandle — ambiguous confidence when multiple exact full matches', () => {
+    const contacts = [mk('c_1', 'Alex Chen'), mk('c_2', 'Alex Chen')];
+    const r = resolveHandle('alex chen', contacts);
+    assert.ok(r);
+    assert.equal(r.confidence, 'ambiguous');
+});
+
+test('[Mentions] resolveHandle — substring confidence when unique substring match', () => {
+    const contacts = [mk('c_1', 'Maria-José Fernandez'), mk('c_2', 'Bob Jones')];
+    const r = resolveHandle('josé', contacts);
+    assert.ok(r);
+    assert.equal(r.contact.id, 'c_1');
+    assert.equal(r.confidence, 'substring');
+});
+
+test('[Mentions] resolveHandle — returns null for non-unique substring', () => {
+    const contacts = [mk('c_1', 'Alex Chen-Smith'), mk('c_2', 'Jordan Chen-Park')];
+    const r = resolveHandle('chen', contacts);
+    assert.equal(r, null);
+});
+
+test('[Mentions] resolveHandle — null/empty inputs return null', () => {
+    assert.equal(resolveHandle('', [mk('c_1', 'Alex')]), null);
+    assert.equal(resolveHandle(null, [mk('c_1', 'Alex')]), null);
+    assert.equal(resolveHandle('alex', []), null);
+    assert.equal(resolveHandle('alex', null), null);
+});
+
+// ---------------------------------------------------------------------------
+// escapeHtml — security-relevant, must prevent XSS
+// ---------------------------------------------------------------------------
+
+test('[Mentions] escapeHtml escapes all HTML-sensitive characters', () => {
+    assert.equal(escapeHtml('<script>alert("xss")</script>'),
+        '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;');
+});
+
+test('[Mentions] escapeHtml handles ampersands', () => {
+    assert.equal(escapeHtml('A & B'), 'A &amp; B');
+});
+
+test('[Mentions] escapeHtml escapes single quotes for attribute-safe reuse', () => {
+    assert.equal(escapeHtml("Alice's intro"), 'Alice&#39;s intro');
+});
+
+test('[Mentions] escapeHtml handles null and empty', () => {
+    assert.equal(escapeHtml(null), '');
+    assert.equal(escapeHtml(''), '');
+    assert.equal(escapeHtml(undefined), '');
+});
+
+test('[Mentions] escapeHtml passes through safe text unchanged', () => {
+    assert.equal(escapeHtml('Hello World 123'), 'Hello World 123');
 });
