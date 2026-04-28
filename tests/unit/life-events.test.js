@@ -6,10 +6,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
+    EVENT_PATTERNS,
     detectAnnouncementEvents,
     detectBirthday,
     detectJobChange,
     detectAllEvents,
+    rankEvents,
 } = require('../../crm/life-events');
 
 const NOW = new Date('2026-04-20T12:00:00Z').getTime();
@@ -242,4 +244,80 @@ test('[Events] detectAllEvents skips group contacts', () => {
     const ixn = { g_1: [msg('them', 'joining Stripe next month')] };
     const events = detectAllEvents({ contacts: [group], interactionsByContactId: ixn, now: NOW });
     assert.equal(events.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// rankEvents — direct tests for the scoring / sort function
+// ---------------------------------------------------------------------------
+
+test('[Events] rankEvents: empty array returns empty', () => {
+    assert.deepStrictEqual(rankEvents([]), []);
+});
+
+test('[Events] rankEvents: higher weight wins when timestamps are equal', () => {
+    const ts = '2026-04-18T00:00:00Z';
+    const low  = { kind: 'reconnection', weight: 2, timestamp: ts };
+    const high = { kind: 'funding',      weight: 6, timestamp: ts };
+    const sorted = rankEvents([low, high]);
+    assert.equal(sorted[0].kind, 'funding');
+    assert.equal(sorted[1].kind, 'reconnection');
+});
+
+test('[Events] rankEvents: more recent event wins when weights are equal', () => {
+    const old   = { kind: 'a', weight: 4, timestamp: '2026-01-01T00:00:00Z' };
+    const fresh = { kind: 'b', weight: 4, timestamp: '2026-04-18T00:00:00Z' };
+    const sorted = rankEvents([old, fresh]);
+    assert.equal(sorted[0].kind, 'b');
+    assert.equal(sorted[1].kind, 'a');
+});
+
+test('[Events] rankEvents: null timestamp is treated as very old', () => {
+    const noTs   = { kind: 'x', weight: 4, timestamp: null };
+    const recent = { kind: 'y', weight: 4, timestamp: '2026-04-18T00:00:00Z' };
+    const sorted = rankEvents([noTs, recent]);
+    assert.equal(sorted[0].kind, 'y');
+});
+
+test('[Events] rankEvents: does not mutate original array', () => {
+    const a = { kind: 'a', weight: 1, timestamp: '2026-04-18T00:00:00Z' };
+    const b = { kind: 'b', weight: 5, timestamp: '2026-04-18T00:00:00Z' };
+    const input = [a, b];
+    const sorted = rankEvents(input);
+    assert.notStrictEqual(sorted, input, 'rankEvents should return a new array');
+    assert.equal(input[0].kind, 'a', 'original first item should be unchanged');
+    assert.equal(input[1].kind, 'b', 'original second item should be unchanged');
+});
+
+// ---------------------------------------------------------------------------
+// EVENT_PATTERNS export — structural sanity
+// ---------------------------------------------------------------------------
+
+test('[Events] EVENT_PATTERNS is exported and each entry has required fields', () => {
+    assert.ok(Array.isArray(EVENT_PATTERNS));
+    assert.ok(EVENT_PATTERNS.length > 0);
+    for (const p of EVENT_PATTERNS) {
+        assert.ok(p.kind, 'each pattern needs a kind');
+        assert.ok(p.label, 'each pattern needs a label');
+        assert.ok(p.regex instanceof RegExp, 'each pattern needs a regex');
+        assert.ok(typeof p.weight === 'number' && p.weight > 0, 'each pattern needs a positive weight');
+    }
+});
+
+// ---------------------------------------------------------------------------
+// detectAnnouncementEvents — subject-line matching path
+// ---------------------------------------------------------------------------
+
+test('[Events] detects announcement in subject line (not just body)', () => {
+    const msgs = [msg('them', 'See details inside', { subject: 'We just launched on Product Hunt!' })];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'milestone');
+});
+
+test('[Events] detects location move pattern', () => {
+    const msgs = [msg('them', 'Hey, I am relocating to San Francisco next month')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'life_moment');
+    assert.equal(e[0].label, 'Location move');
 });
