@@ -44,8 +44,9 @@ function buildEmailIndex(contacts) {
     for (const c of (contacts || [])) {
         if (c.isGroup) continue;
         for (const e of (c.emails || [])) {
-            if (e && e.email) {
-                index.set(e.email.toLowerCase().trim(), c);
+            const addr = typeof e === 'string' ? e : (e && e.email);
+            if (addr && addr.includes('@')) {
+                index.set(addr.toLowerCase().trim(), c);
             }
         }
     }
