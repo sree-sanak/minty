@@ -146,6 +146,8 @@ function run() {
     console.log('\nNow ask Claude Code to fill in weekSummary by reading the digest data.');
 }
 
-run();
+if (require.main === module) {
+    run();
+}
 
-module.exports = { contactSummary };
+module.exports = { contactSummary, run };
