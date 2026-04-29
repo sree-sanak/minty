@@ -136,6 +136,27 @@ describe('agent-retrieval: queryNetwork()', () => {
             assert.ok(typeof r.suggestedAction === 'string' && r.suggestedAction.length > 0, 'action is non-empty string');
         }
     });
+
+    it('evidenceBacked is true only when evidence exists', () => {
+        const out = queryNetwork('Who can help me with EU crypto insurance distribution?', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.ok(out.results.length >= 1, 'returns at least 1 result');
+        for (const r of out.results) {
+            assert.equal(typeof r.evidenceBacked, 'boolean', 'evidenceBacked is boolean');
+            assert.equal(r.evidenceBacked, r.evidence.length > 0, 'evidenceBacked mirrors evidence presence');
+        }
+    });
+
+    it('evidenceBacked is false for generic fallback results with no evidence', () => {
+        const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS });
+        const unsupported = out.results.find(r => r.evidence.length === 0);
+        assert.ok(unsupported, 'generic query keeps at least one low-evidence fallback result');
+        assert.equal(unsupported.evidenceBacked, false);
+    });
+
+    it('impossible query returns empty results', () => {
+        const out = queryNetwork('quantum physics researchers in Antarctica', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.deepEqual(out.results, [], 'impossible query returns empty');
+    });
 });
 
 // ---------------------------------------------------------------------------
