@@ -70,16 +70,27 @@ To make Minty useful inside Hermes with real contacts immediately, sync contacts
 
 ```bash
 cd /root/.hermes/workspace/minty
+npm run memory:refresh
+```
+
+For a manual step-by-step refresh:
+
+```bash
+cd /root/.hermes/workspace/minty
 npm run google-contacts:hermes
 npm run merge
+npm run gbrain:export
 ```
 
 For multiple Google profiles:
 
 ```bash
-MINTY_GOOGLE_TOKEN_FILES="work=/root/.hermes/google_token.json,personal=/root/.hermes/google-personal/google_token.json" npm run google-contacts:hermes
+MINTY_GOOGLE_TOKEN_FILES="work=/...json" npm run google-contacts:hermes
 npm run merge
+npm run gbrain:export
 ```
+
+`npm run memory:refresh` is Sree's personal Hermes dogfood loop: sync Google Contacts, rebuild unified network data, export privacy-safe GBrain relationship memory, import it into private GBrain when available, and smoke-test the Minty MCP server. Generated real data under `data/` and GBrain exports are private local files and must not be committed.
 
 ## Example Hermes workflow
 

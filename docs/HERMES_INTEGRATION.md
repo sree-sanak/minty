@@ -19,15 +19,19 @@ npm run seed:demo
 # Real contacts from an existing Hermes Google Workspace OAuth token
 npm run google-contacts:hermes
 npm run merge
+npm run gbrain:export
 ```
 
 For multiple Hermes Google profiles:
 
 ```bash
-MINTY_GOOGLE_TOKEN_FILES="work=/root/.hermes/google_token.json,personal=/root/.hermes/google-personal/google_token.json" \
+MINTY_GOOGLE_TOKEN_FILES="work=/...json" \
   npm run google-contacts:hermes
 npm run merge
+npm run gbrain:export
 ```
+
+`npm run gbrain:export` writes privacy-safe relationship-memory JSONL and Markdown under `data/gbrain/` for private-brain ingestion. It intentionally omits direct emails, phone numbers, and raw contact records.
 
 ### 2. Register the MCP server
 
