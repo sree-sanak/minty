@@ -214,6 +214,45 @@ test('[NetworkQuery]: normalizeLocation — null for no match', () => {
     assert.equal(normalizeLocation(null), null);
 });
 
+test('[NetworkQuery]: normalizeLocation — city takes priority over country', () => {
+    // "London, United Kingdom" should resolve to city "london", not country "uk"
+    const loc = normalizeLocation('London, United Kingdom');
+    assert.equal(loc, 'london');
+});
+
+test('[NetworkQuery]: normalizeLocation — country fallback when no city matches', () => {
+    // A location string that mentions a country but no recognized city
+    const loc = normalizeLocation('Small Town, India');
+    assert.equal(loc, 'india');
+});
+
+test('[NetworkQuery]: normalizeLocation — case insensitive', () => {
+    assert.equal(normalizeLocation('BERLIN, Germany'), 'berlin');
+    assert.equal(normalizeLocation('SAN FRANCISCO, CA'), 'san francisco');
+});
+
+test('[NetworkQuery]: normalizeLocation — recognizes city aliases', () => {
+    assert.equal(normalizeLocation('Bay Area, California'), 'san francisco');
+    assert.equal(normalizeLocation('Silicon Valley'), 'san francisco');
+    assert.equal(normalizeLocation('Brooklyn, NY'), 'new york');
+});
+
+test('[NetworkQuery]: normalizeLocation — returns null for unrecognized location', () => {
+    assert.equal(normalizeLocation('Mars Colony'), null);
+    assert.equal(normalizeLocation('Unknown Place'), null);
+});
+
+test('[NetworkQuery]: normalizeLocation — multi-word city alias matched correctly', () => {
+    // "mountain view" is a san francisco alias — should not partially match "mountain"
+    assert.equal(normalizeLocation('Mountain View, CA'), 'san francisco');
+});
+
+test('[NetworkQuery]: normalizeLocation — country only string', () => {
+    assert.equal(normalizeLocation('India'), 'india');
+    assert.equal(normalizeLocation('Germany'), 'germany');
+    assert.equal(normalizeLocation('United Kingdom'), 'uk');
+});
+
 // ---------------------------------------------------------------------------
 // buildMeetScore
 // ---------------------------------------------------------------------------

@@ -517,18 +517,26 @@ function normalizeLocation(locationStr) {
     if (!locationStr) return null;
     const lower = locationStr.toLowerCase();
 
+    function matchAtWordBoundary(str, alias) {
+        const idx = str.indexOf(alias);
+        if (idx === -1) return false;
+        const before = idx > 0 ? str[idx - 1] : '';
+        const after  = idx + alias.length < str.length ? str[idx + alias.length] : '';
+        return !/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after);
+    }
+
     // Pass 1: city-level matches only
     for (const alias of LOCATION_ALIASES_SORTED) {
         const canonical = LOCATION_ALIAS_MAP[alias];
         if (COUNTRY_CANONICALS.has(canonical)) continue;
-        if (lower.includes(alias)) return canonical;
+        if (matchAtWordBoundary(lower, alias)) return canonical;
     }
 
     // Pass 2: country-level fallback
     for (const alias of LOCATION_ALIASES_SORTED) {
         const canonical = LOCATION_ALIAS_MAP[alias];
         if (!COUNTRY_CANONICALS.has(canonical)) continue;
-        if (lower.includes(alias)) return canonical;
+        if (matchAtWordBoundary(lower, alias)) return canonical;
     }
 
     return null;
