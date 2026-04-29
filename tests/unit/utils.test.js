@@ -15,6 +15,8 @@ const {
     channelScore,
     relationshipScore,
     atomicWriteJsonSync,
+    healthRingColor,
+    healthRingOffset,
 } = require('../../crm/utils');
 
 // ---------------------------------------------------------------------------
@@ -345,3 +347,68 @@ test('atomicWriteJsonSync: preserves existing target and cleans temp on write fa
     // No temp files left behind
     assert.deepEqual(fs.readdirSync(dir).filter(name => name.includes('.tmp.')), []);
 });
+
+// ---------------------------------------------------------------------------
+// healthRingColor (characterization coverage)
+// ---------------------------------------------------------------------------
+
+test('healthRingColor: strong for scores >= 70', () => {
+    assert.equal(healthRingColor(70), 'strong');
+    assert.equal(healthRingColor(100), 'strong');
+});
+
+test('healthRingColor: good for scores 40-69', () => {
+    assert.equal(healthRingColor(40), 'good');
+    assert.equal(healthRingColor(69), 'good');
+});
+
+test('healthRingColor: warm for scores 20-39', () => {
+    assert.equal(healthRingColor(20), 'warm');
+    assert.equal(healthRingColor(39), 'warm');
+});
+
+test('healthRingColor: fading for scores 1-19', () => {
+    assert.equal(healthRingColor(1), 'fading');
+    assert.equal(healthRingColor(19), 'fading');
+});
+
+test('healthRingColor: none for score 0', () => {
+    assert.equal(healthRingColor(0), 'none');
+});
+
+test('healthRingColor: out-of-range scores follow tier comparisons', () => {
+    assert.equal(healthRingColor(-1), 'none');
+    assert.equal(healthRingColor(150), 'strong');
+});
+
+// ---------------------------------------------------------------------------
+// healthRingOffset (characterization coverage)
+// ---------------------------------------------------------------------------
+
+test('healthRingOffset: score 100 returns 0 (full ring)', () => {
+    assert.equal(healthRingOffset(100), 0);
+});
+
+test('healthRingOffset: score 0 returns full circumference (empty ring)', () => {
+    const C = 2 * Math.PI * 21;
+    assert.equal(healthRingOffset(0), parseFloat(C.toFixed(1)));
+});
+
+test('healthRingOffset: score 50 returns half circumference', () => {
+    const C = 2 * Math.PI * 21;
+    assert.equal(healthRingOffset(50), parseFloat((C * 0.5).toFixed(1)));
+});
+
+test('healthRingOffset: clamps negative scores to 0', () => {
+    assert.equal(healthRingOffset(-10), healthRingOffset(0));
+});
+
+test('healthRingOffset: clamps scores above 100', () => {
+    assert.equal(healthRingOffset(150), healthRingOffset(100));
+});
+
+test('healthRingOffset: null/undefined treated as 0', () => {
+    assert.equal(healthRingOffset(null), healthRingOffset(0));
+    assert.equal(healthRingOffset(undefined), healthRingOffset(0));
+});
+
