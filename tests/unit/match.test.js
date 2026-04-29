@@ -571,3 +571,66 @@ test('matchGroups: B-side dedup keeps close competitors (within 15 pts)', () => 
     assert.ok(ids.includes(wa1.id));
     assert.ok(ids.includes(wa2.id));
 });
+
+// ---------------------------------------------------------------------------
+// scoreGenericPair — fuzzy nickname match branch
+// ---------------------------------------------------------------------------
+
+test('scoreGenericPair: fuzzy nickname match (firstA ~ nickB)', () => {
+    // WA name "Jimmu" should fuzzy-match LI nickname "Jimmy" (lev=1, threshold=1).
+    // firstA='jimmu' ≠ firstB='robert', not fuzzy either → falls through to nickname checks.
+    // firstA='jimmu' ≠ nickB='jimmy' (not exact) → fuzzyMatch('jimmu','jimmy') → lev=1 → true
+    const wa = waContact('Jimmu');
+    const li = liContact('Robert (Jimmy) Patel');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.ok(r.score > 0, 'fuzzy nickname should produce a positive score');
+    assert.ok(r.reasons.some(r => r.includes('fuzzy-matches nickname')));
+});
+
+// ---------------------------------------------------------------------------
+// scoreGenericPair — lastA present, lastB missing
+// ---------------------------------------------------------------------------
+
+test('scoreGenericPair: last name present on A but missing on B penalizes slightly', () => {
+    const wa = waContact('Zarquon Smith');  // lastName='smith'
+    const li = liContact('Zarquon');         // lastName=null (single word)
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    // first name exact (40), no last name match/mismatch, but lastA && !lastB → -5
+    assert.ok(r.score > 0, 'should still have a positive score');
+
+    // Compare with both having last names — should score higher
+    const li2 = liContact('Zarquon Smith');
+    const r2 = scoreGenericPair(wa, 'whatsapp', li2, 'linkedin');
+    assert.ok(r2.score > r.score, 'having matching last name should score higher than missing last name');
+});
+
+// ---------------------------------------------------------------------------
+// scoreGenericPair — 'possible' confidence level
+// ---------------------------------------------------------------------------
+
+test('scoreGenericPair: possible confidence for first-name-only match with common name', () => {
+    // Exact first (40) - common name penalty (15) = 25 → 'possible' (20-44 range)
+    const wa = waContact('James');
+    const li = liContact('James');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.confidence, 'possible');
+    assert.ok(r.score >= 20 && r.score < 45, `score ${r.score} should be in possible range [20,45)`);
+});
+
+// ---------------------------------------------------------------------------
+// cleanWaName — edge cases for all-parenthesized and whitespace-only input
+// ---------------------------------------------------------------------------
+
+test('cleanWaName: name that is only parenthesized content returns nulls', () => {
+    const r = cleanWaName('(work friend)');
+    assert.equal(r.firstName, null);
+    assert.equal(r.lastName, null);
+    assert.equal(r.cleaned, null);
+});
+
+test('cleanWaName: whitespace-only input returns nulls', () => {
+    const r = cleanWaName('   ');
+    assert.equal(r.firstName, null);
+    assert.equal(r.lastName, null);
+    assert.equal(r.cleaned, null);
+});
