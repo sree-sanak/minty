@@ -226,3 +226,111 @@ test('[Reasons] explainKeywordMatch is case-insensitive', () => {
     const c = { company: 'STRIPE' };
     assert.equal(explainKeywordMatch(c, 'Stripe'), 'Company: STRIPE');
 });
+
+// ---- extractFreeTerms: bigram matching ----
+
+test('[Reasons] extractFreeTerms picks up known bigrams (e.g. "big tech")', () => {
+    const parsed = { raw: 'who works at big tech', roles: [], locations: [] };
+    const terms = extractFreeTerms(parsed.raw, parsed);
+    assert.ok(terms.includes('big tech'), 'should extract "big tech" bigram');
+});
+
+test('[Reasons] extractFreeTerms returns empty for empty/null input', () => {
+    assert.deepEqual(extractFreeTerms('', { roles: [], locations: [] }), []);
+    assert.deepEqual(extractFreeTerms(null, { roles: [], locations: [] }), []);
+});
+
+test('[Reasons] extractFreeTerms excludes tokens already in a matched bigram', () => {
+    const parsed = { raw: 'big tech people', roles: [], locations: [] };
+    const terms = extractFreeTerms(parsed.raw, parsed);
+    // "big tech" is a known bigram — individual tokens "big" and "tech" should not duplicate
+    assert.ok(terms.includes('big tech'));
+    assert.ok(!terms.includes('big'), 'individual "big" should be suppressed by bigram');
+    assert.ok(!terms.includes('tech'), 'individual "tech" should be suppressed by bigram');
+});
+
+// ---- buildReasons: warmth via regex ----
+
+test('[Reasons] buildReasons surfaces warmth when query contains "warm" even if intent is find', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 60 };
+    const parsed = { raw: 'warm contacts who work in finance', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    assert.ok(reasons.some(r => r.kind === 'warmth'));
+});
+
+test('[Reasons] buildReasons surfaces warmth when query contains "trust"', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 55 };
+    const parsed = { raw: 'someone I trust in design', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    assert.ok(reasons.some(r => r.kind === 'warmth'));
+});
+
+test('[Reasons] buildReasons does not surface warmth for low relationship score', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 30 };
+    const parsed = { raw: 'warm intro to a designer', roles: [], locations: [], intent: 'intro' };
+    const reasons = buildReasons(candidate, parsed, {});
+    assert.ok(!reasons.some(r => r.kind === 'warmth'));
+});
+
+// ---- buildReasons: recent label variants ----
+
+test('[Reasons] buildReasons shows "Today" for daysSinceContact=0', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 10, daysSinceContact: 0 };
+    const parsed = { raw: 'x', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    const recent = reasons.find(r => r.kind === 'recent');
+    assert.ok(recent);
+    assert.equal(recent.detail, 'Today');
+});
+
+test('[Reasons] buildReasons shows "Yesterday" for daysSinceContact=1', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 10, daysSinceContact: 1 };
+    const parsed = { raw: 'x', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    const recent = reasons.find(r => r.kind === 'recent');
+    assert.ok(recent);
+    assert.equal(recent.detail, 'Yesterday');
+});
+
+test('[Reasons] buildReasons shows recent at boundary daysSinceContact=14', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 10, daysSinceContact: 14 };
+    const parsed = { raw: 'x', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    assert.ok(reasons.some(r => r.kind === 'recent'));
+});
+
+test('[Reasons] buildReasons omits recent for daysSinceContact=15', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 10, daysSinceContact: 15 };
+    const parsed = { raw: 'x', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    assert.ok(!reasons.some(r => r.kind === 'recent'));
+});
+
+// ---- buildReasons: keyword cap ----
+
+test('[Reasons] buildReasons caps keyword reasons at 3', () => {
+    // Put the same query tokens across multiple indexed text fields so the cap is
+    // exercised by real keyword extraction rather than by synthetic reason data.
+    const candidate = {
+        id: 'c', roles: [], city: null, relationshipScore: 10,
+        company: 'fintech payments billing checkout',
+        sources: { linkedin: { company: 'fintech payments billing checkout', position: 'checkout billing' } },
+        apollo: { headline: 'fintech payments billing checkout subscription' },
+    };
+    const parsed = { raw: 'fintech payments billing checkout subscription', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {});
+    const kw = reasons.filter(r => r.kind === 'keyword');
+    assert.ok(kw.length > 0, 'setup should exercise real keyword matches');
+    assert.ok(kw.length <= 3, `keyword reasons should cap at 3, got ${kw.length}`);
+});
+
+// ---- buildReasons: topic match via raw query ----
+
+test('[Reasons] buildReasons matches topic against raw query when expansion misses', () => {
+    const candidate = { id: 'c', roles: [], city: null, relationshipScore: 10 };
+    const parsed = { raw: 'quantum computing research', roles: [], locations: [], intent: 'find' };
+    const reasons = buildReasons(candidate, parsed, {
+        insightsByContactId: { c: { topics: ['quantum computing'] } },
+    });
+    assert.ok(reasons.some(r => r.kind === 'topic'));
+});
