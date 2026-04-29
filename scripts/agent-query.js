@@ -45,8 +45,25 @@ function hasContacts(dir) {
     }
 }
 
-// Export helpers for testing
-module.exports = { resolveDataDir, hasContacts };
+/**
+ * Load contacts and insights from a resolved data directory.
+ * @param {string} dataDir - Path to data directory (contains unified/ subdir)
+ * @returns {{ contacts: object[], insights: object }}
+ */
+function loadData(dataDir) {
+    function loadJson(file) {
+        const p = path.join(dataDir, 'unified', file);
+        if (!fs.existsSync(p)) return file === 'insights.json' ? {} : [];
+        return JSON.parse(fs.readFileSync(p, 'utf8'));
+    }
+    return {
+        contacts: loadJson('contacts.json'),
+        insights: loadJson('insights.json'),
+    };
+}
+
+// Export helpers for testing and MCP server reuse
+module.exports = { resolveDataDir, hasContacts, loadData };
 
 if (require.main === module) {
     const query = process.argv.slice(2).join(' ').trim();
@@ -64,15 +81,7 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    // Load data
-    function loadJson(file) {
-        const p = path.join(dataDir, 'unified', file);
-        if (!fs.existsSync(p)) return file === 'insights.json' ? {} : [];
-        return JSON.parse(fs.readFileSync(p, 'utf8'));
-    }
-
-    const contacts = loadJson('contacts.json');
-    const insights = loadJson('insights.json');
+    const { contacts, insights } = loadData(dataDir);
 
     const result = queryNetwork(query, { contacts, insights, limit: 10 });
 
