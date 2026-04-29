@@ -291,7 +291,7 @@ function getSyncDotState(sourceState, sourceType = 'live', now = Date.now()) {
  * @param {Object} syncState - keys: whatsapp, email, googleContacts, linkedin, telegram, sms
  * @returns {{ state: 'ok'|'stale'|'error'|'idle', message: string }}
  */
-function getOverallSyncHealth(syncState) {
+function getOverallSyncHealth(syncState, now = Date.now()) {
     const LABELS = {
         whatsapp: 'WhatsApp', email: 'Email', googleContacts: 'Google Contacts',
         linkedin: 'LinkedIn', telegram: 'Telegram', sms: 'SMS',
@@ -312,7 +312,7 @@ function getOverallSyncHealth(syncState) {
     for (const [key, s] of Object.entries(syncState)) {
         if (!LABELS[key]) continue;
         const type = FILE_SOURCES.has(key) ? 'file' : 'live';
-        if (getSyncDotState(s, type) === 'stale') {
+        if (getSyncDotState(s, type, now) === 'stale') {
             return { state: 'stale', message: `${LABELS[key]} is outdated — refresh?` };
         }
     }

@@ -145,7 +145,7 @@ test('getOverallSyncHealth: all ok returns ok', () => {
     const result = getOverallSyncHealth({
         whatsapp: { status: 'ok', lastSyncAt: iso },
         email: { status: 'ok', lastSyncAt: iso },
-    });
+    }, NOW);
     assert.equal(result.state, 'ok');
     assert.equal(result.message, 'All sources current');
 });
