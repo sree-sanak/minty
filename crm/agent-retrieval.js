@@ -145,6 +145,7 @@ function queryNetwork(query, opts = {}) {
             label:  reason.label,
             detail: reason.detail || null,
         })),
+        evidenceBacked:    (r.reasons || []).length > 0,
         suggestedAction:   suggestAction(r, parsed.intent),
         daysSinceContact:  r.daysSinceContact ?? null,
         interactionCount:  r.interactionCount || 0,

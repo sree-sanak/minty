@@ -5,7 +5,23 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 echo "Refreshing Minty source data from Hermes Google profiles…"
-npm run google-contacts:hermes
+
+# Sree's Hermes setup can have separate work and personal OAuth profiles. The
+# People API may legitimately return contacts from only one of them, so include
+# every known local token profile by default without printing token paths.
+TOKEN_PROFILES=()
+if [ -f /root/.hermes/google_token.json ]; then
+  TOKEN_PROFILES+=("work=/root/.hermes/google_token.json")
+fi
+if [ -f /root/.hermes/google-personal/google_token.json ]; then
+  TOKEN_PROFILES+=("personal=/root/.hermes/google-personal/google_token.json")
+fi
+
+if [ "${#TOKEN_PROFILES[@]}" -gt 0 ]; then
+  MINTY_GOOGLE_TOKEN_FILES="$(IFS=,; echo "${TOKEN_PROFILES[*]}")" npm run google-contacts:hermes
+else
+  npm run google-contacts:hermes
+fi
 
 echo "Rebuilding Minty unified network data…"
 npm run merge
