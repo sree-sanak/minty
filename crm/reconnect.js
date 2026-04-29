@@ -155,7 +155,9 @@ function alternateOpener(draft, firstName) {
     // Replace first sentence with alternative opener + rest of draft
     const rest = draft.replace(/^[^.!?]+[.!?]+\s*/, '').trim();
     const opener = openers[idx];
-    return rest ? `${opener}${rest}` : opener.trim() + '.';
+    if (rest) return `${opener}${rest}`;
+    // Standalone: strip trailing punctuation/whitespace, add a clean period
+    return opener.replace(/[\s—.,]+$/, '') + '.';
 }
 
 /**

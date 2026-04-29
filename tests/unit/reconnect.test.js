@@ -212,3 +212,27 @@ test('reconnect/regenerateDraft: no null or undefined in output', () => {
     assert.ok(!result.includes('null'));
     assert.ok(!result.includes('undefined'));
 });
+
+// ---------------------------------------------------------------------------
+// alternateOpener — punctuation when draft is a single sentence
+// ---------------------------------------------------------------------------
+
+test('reconnect/alternateOpener: single-sentence draft never produces double periods', () => {
+    const result = alternateOpener('Only one sentence here.', 'Alex');
+    assert.ok(!result.includes('..'), `double period found in: "${result}"`);
+});
+
+test('reconnect/alternateOpener: single-sentence draft never produces em-dash then period', () => {
+    const cases = [
+        { input: 'X sentence.', expectedPrefix: 'Hi Alex!' },
+        { input: 'XX sentence.', expectedPrefix: 'Alex!' },
+        { input: ' sentence.', expectedPrefix: 'Hey Alex,' },
+    ];
+
+    for (const { input, expectedPrefix } of cases) {
+        const result = alternateOpener(input, 'Alex');
+        assert.ok(result.startsWith(expectedPrefix), `expected ${expectedPrefix} opener, got: "${result}"`);
+        assert.ok(!result.includes('—.'), `em-dash + period found in: "${result}"`);
+        assert.ok(!result.includes('..'), `double period found in: "${result}"`);
+    }
+});
