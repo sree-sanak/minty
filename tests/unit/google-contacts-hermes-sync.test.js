@@ -113,7 +113,7 @@ test('mergeByIdentity: merges duplicate contacts across profiles without droppin
 
 test('buildPeopleUrl: includes page size and source-backed field mask', () => {
   const url = buildPeopleUrl('abc', 250);
-  assert.match(url, /^https:\/\/people.googleapis.com\/v1\/people\/me\/connections\?/);
+  assert.match(url, /^https:\/\/people\.googleapis\.com\/v1\/people\/me\/connections\?/);
   assert.match(url, /pageToken=abc/);
   assert.match(url, /pageSize=250/);
   assert.match(url, /personFields=/);
