@@ -8,12 +8,12 @@ If you're an agent, read this file fully before writing any code. It's the contr
 
 ## What Minty is
 
-Minty is a **self-hosted personal CRM** (PRM) that unifies WhatsApp, Gmail, LinkedIn, Telegram, SMS, and Google Contacts locally. It is **not** a tool for "staying in touch." It's a tool for **activating your network toward specific goals**: a fundraise, a hire, a market entry, an introduction. See [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) for the full product thinking — read it, because it changes which features are "right" vs "wrong" to implement.
+Minty is **private network memory for AI workflows** with a self-hosted personal CRM UI. It unifies WhatsApp, Gmail, LinkedIn, Telegram, SMS, and Google Contacts locally, then lets humans and agents retrieve relationship context for specific goals: a fundraise, a hire, a market entry, an introduction. It is **not** a tool for "staying in touch." See [docs/PHILOSOPHY.md](./docs/PHILOSOPHY.md) for the full product thinking — read it, because it changes which features are "right" vs "wrong" to implement.
 
 **Right:** "I need to raise a seed round — who in my network can actually help?"
 **Wrong:** "You haven't spoken to Sarah in 60 days — reach out."
 
-Every feature must pass the test: *"Does this help the user activate their network toward a specific goal?"* If it just nudges them to talk to more people for maintenance's sake — cut it or reframe it.
+Every feature must pass the test: *"Does this help the user or their agent activate private network context toward a specific goal?"* If it just nudges them to talk to more people for maintenance's sake — cut it or reframe it. Prioritize read-only retrieval, MCP/CLI ergonomics, source-backed evidence, privacy-safe envelopes, and data freshness over social graph sharing or CRM busywork.
 
 ---
 

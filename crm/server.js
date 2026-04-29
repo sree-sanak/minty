@@ -23,6 +23,8 @@ const sourceProgress = require('../sources/_shared/progress');
 const notifications = require('./notifications');
 const userConfig = require('./config');
 const observability = require('./observability');
+const { atomicWriteJsonSync } = require('./utils');
+const { acquireLock } = require('../sources/linkedin/lock');
 
 observability.init();
 
@@ -180,6 +182,56 @@ function loadInsights(paths) {
     try { return JSON.parse(fs.readFileSync(paths.insights, 'utf8')); } catch { return {}; }
 }
 
+function safeLoadJson(filePath, fallback, label = path.basename(filePath)) {
+    try {
+        if (!fs.existsSync(filePath)) return fallback;
+        return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (e) {
+        const err = new Error(`Malformed local data file: ${label}`);
+        err.code = 'EMALFORMED_DATA';
+        err.file = label;
+        observability.captureException(e, { file: label, kind: 'malformed-json' });
+        console.warn(`[data] ${label} is malformed; using fallback for this request`);
+        return fallback;
+    }
+}
+
+function isSecureRequest(req) {
+    return req.headers['x-forwarded-proto'] === 'https' ||
+        req.headers['x-forwarded-ssl'] === 'on' ||
+        process.env.MINTY_TRUSTED_PROXY === '1';
+}
+
+function oauthStateCookie(value, maxAge, req) {
+    const secure = isSecureRequest(req) ? '; Secure' : '';
+    return `oauth_state=${value}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure}`;
+}
+
+function sanitizeSourceInfo(info) {
+    const clean = {};
+    if (!info || typeof info !== 'object' || Array.isArray(info)) return clean;
+    for (const [key, value] of Object.entries(info)) {
+        if (!/^[a-zA-Z0-9_-]{1,64}$/.test(key)) continue;
+        if (value == null) { clean[key] = value; continue; }
+        if (typeof value === 'string') { clean[key] = value.slice(0, 4096); continue; }
+        if (typeof value === 'number' && Number.isFinite(value)) { clean[key] = value; continue; }
+        if (typeof value === 'boolean') { clean[key] = value; continue; }
+        if (Array.isArray(value)) {
+            clean[key] = value.slice(0, 50).map((item) => {
+                if (item == null) return item;
+                if (typeof item === 'string') return item.slice(0, 4096);
+                if (typeof item === 'number' && Number.isFinite(item)) return item;
+                if (typeof item === 'boolean') return item;
+                if (typeof item === 'object' && !Array.isArray(item)) return sanitizeSourceInfo(item);
+                return null;
+            });
+            continue;
+        }
+        if (typeof value === 'object') clean[key] = sanitizeSourceInfo(value);
+    }
+    return clean;
+}
+
 function saveOverrides(overrides, paths) {
     fs.writeFileSync(paths.overrides, JSON.stringify(overrides, null, 2));
 }
@@ -223,7 +275,7 @@ const _interactionIndex = {};
 function getInteractionIndex(paths, uuid) {
     if (_interactionIndex[uuid]) return _interactionIndex[uuid];
 
-    const interactions = JSON.parse(fs.readFileSync(paths.interactions, 'utf8'));
+    const interactions = safeLoadJson(paths.interactions, [], 'interactions.json');
     const idx = { byChatId: {}, byFrom: {}, byEmail: {}, byLiName: {} };
 
     for (const i of interactions) {
@@ -465,8 +517,7 @@ function handleGoalRetro(req, res, [goalId], paths, uuid) {
     if (!goal) return json(res, { error: 'goal not found' }, 404);
 
     const contacts = loadContacts(paths);
-    const ixns = fs.existsSync(paths.interactions)
-        ? JSON.parse(fs.readFileSync(paths.interactions, 'utf8')) : [];
+    const ixns = safeLoadJson(paths.interactions, [], 'interactions.json');
     const { contactMap } = buildSearchIndex(paths, uuid);
     const byContact = {};
     for (const i of ixns) {
@@ -497,9 +548,7 @@ function handleGetLifeEvents(req, res, _params, paths) {
     const limit = Math.max(1, Math.min(50, Number(url.searchParams.get('limit')) || 12));
     try {
         const contacts = loadContacts(paths);
-        const interactions = fs.existsSync(paths.interactions)
-            ? JSON.parse(fs.readFileSync(paths.interactions, 'utf8'))
-            : [];
+        const interactions = safeLoadJson(paths.interactions, [], 'interactions.json');
 
         // Build interactionsByContactId using the existing searchIndex
         const { contactMap, contactById } = buildSearchIndex(paths, /*uuid*/ SINGLE_USER_UUID);
@@ -1097,7 +1146,7 @@ const _searchIndex = {}; // { [uuid]: { interactions: [{...}], contactMap: {chat
 function buildSearchIndex(paths, uuid) {
     if (_searchIndex[uuid]) return _searchIndex[uuid];
 
-    const interactions = JSON.parse(fs.readFileSync(paths.interactions, 'utf8'));
+    const interactions = safeLoadJson(paths.interactions, [], 'interactions.json');
     const contacts = loadContacts(paths).filter(c => !isGroupContact(c));
 
     // Map from various identifiers -> contactId (for linking results to contacts)
@@ -1130,7 +1179,7 @@ function handlePaletteSearch(req, res, params, paths, uuid) {
 
     const contacts = fs.existsSync(paths.contacts) ? loadContacts(paths) : [];
     const goals = fs.existsSync(paths.goals)
-        ? (safeLoadJson(paths.goals) || [])
+        ? safeLoadJson(paths.goals, [], 'goals.json')
         : [];
 
     let interactions = [];
@@ -1168,9 +1217,6 @@ function handlePaletteSearch(req, res, params, paths, uuid) {
     json(res, result);
 }
 
-function safeLoadJson(p) {
-    try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; }
-}
 
 function computeCompanyCounts(contacts) {
     const map = {};
@@ -1751,7 +1797,7 @@ function loadSourcesMeta() {
 }
 
 function saveSourcesMeta(meta) {
-    fs.writeFileSync(SOURCES_META_PATH, JSON.stringify(meta, null, 2));
+    atomicWriteJsonSync(SOURCES_META_PATH, meta);
     // Contains OAuth access + refresh tokens. Restrict to owner on POSIX;
     // on Windows this is a no-op but harmless.
     try { fs.chmodSync(SOURCES_META_PATH, 0o600); } catch { /* ignore */ }
@@ -1760,7 +1806,7 @@ function saveSourcesMeta(meta) {
 function updateUserSource(uuid, source, info) {
     const meta = loadSourcesMeta();
     if (!meta[source]) meta[source] = {};
-    meta[source] = { ...meta[source], ...info, updatedAt: new Date().toISOString() };
+    meta[source] = { ...sanitizeSourceInfo(meta[source]), ...sanitizeSourceInfo(info), updatedAt: new Date().toISOString() };
     saveSourcesMeta(meta);
 }
 
@@ -2014,7 +2060,7 @@ async function handleEmailDeviceStart(req, res, params, paths, uuid) {
         if (!userConfig.getGoogleClient(DATA).id) return json(res, { error: 'Google OAuth client ID not set — open Settings to configure' }, 400);
         const state = crypto.randomBytes(16).toString('hex');
         pendingOAuth[state] = { uuid, expiresAt: Date.now() + 10 * 60 * 1000, purpose: 'gmail' };
-        res.setHeader('Set-Cookie', `oauth_state=${state}; HttpOnly; Path=/; SameSite=Lax; Max-Age=600`);
+        res.setHeader('Set-Cookie', oauthStateCookie(state, 600, req));
         const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
             client_id: userConfig.getGoogleClient(DATA).id,
             redirect_uri: oauthCallbackUrl(req),
@@ -2138,7 +2184,7 @@ async function handleGoogleContactsOAuthStart(req, res, params, paths, uuid) {
     if (!userConfig.getGoogleClient(DATA).id) return json(res, { error: 'Google OAuth client ID not set — open Settings to configure' }, 400);
     const state = crypto.randomBytes(16).toString('hex');
     pendingOAuth[state] = { uuid, expiresAt: Date.now() + 10 * 60 * 1000, purpose: 'google-contacts' };
-    res.setHeader('Set-Cookie', `oauth_state=${state}; HttpOnly; Path=/; SameSite=Lax; Max-Age=600`);
+    res.setHeader('Set-Cookie', oauthStateCookie(state, 600, req));
     const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
         client_id: userConfig.getGoogleClient(DATA).id,
         redirect_uri: oauthCallbackUrl(req),
@@ -2217,7 +2263,7 @@ async function handleOAuthCallback(req, res) {
     delete pendingOAuth[state];
     const { uuid } = pending;
     // Clear the one-shot CSRF cookie
-    res.setHeader('Set-Cookie', 'oauth_state=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0');
+    res.setHeader('Set-Cookie', oauthStateCookie('', 0, req));
 
     // Exchange code for tokens
     let tokens;
@@ -2733,6 +2779,8 @@ function handleSyncProgress(req, res, params, paths, uuid) {
 
 async function exportWhatsapp(client, waDir, onProgress = () => {}, opts = {}) {
     const chatsPath = path.join(waDir, 'chats.json');
+    const lock = acquireLock(chatsPath + '.lock');
+    try {
     const progressPath = path.join(waDir, '.export-progress.json');
     const writeProgress = (p) => {
         onProgress(p);
@@ -2971,7 +3019,7 @@ async function exportWhatsapp(client, waDir, onProgress = () => {}, opts = {}) {
         };
         msgCount += newMessages.length;
 
-        fs.writeFileSync(chatsPath, JSON.stringify(result, null, 2));
+        atomicWriteJsonSync(chatsPath, result);
 
         if (opts.onChatDone) {
             try { await opts.onChatDone({ index: i + 1, total, messageCount: msgCount }); } catch {}
@@ -2983,6 +3031,9 @@ async function exportWhatsapp(client, waDir, onProgress = () => {}, opts = {}) {
     // NOTE: don't destroy() here — the caller attaches a live message
     // listener to this same client after export completes. Destroying
     // breaks the listener and "Live — receiving messages" becomes a lie.
+    } finally {
+        lock.release();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3225,7 +3276,7 @@ function handleGetToday(req, res, params, paths, uuid) {
                     company,
                     position,
                     relationshipScore: c.relationshipScore || 0,
-                    daysSinceContact:  c.daysSinceContact  || null,
+                    daysSinceContact:  c.daysSinceContact  ?? null,
                     activeChannels:    c.activeChannels    || [],
                     goalRelevance:     c.goalRelevance,
                     meetingBrief:      ins ? ins.meetingBrief : null,
@@ -3248,7 +3299,7 @@ function handleGetToday(req, res, params, paths, uuid) {
             company:           c.sources?.linkedin?.company || null,
             position:          c.sources?.linkedin?.position || null,
             relationshipScore: c.relationshipScore || 0,
-            daysSinceContact:  c.daysSinceContact  || null,
+            daysSinceContact:  c.daysSinceContact  ?? null,
         }));
 
     // Sync warnings for primary sources
@@ -3766,7 +3817,14 @@ const server = http.createServer(async (req, res) => {
             } catch (e) {
                 console.error(e);
                 observability.captureException(e, { route: pattern.toString(), method });
-                res.writeHead(500); res.end(e.message);
+                if (p.startsWith('/api/')) {
+                    const payload = e.code === 'EMALFORMED_DATA'
+                        ? { error: 'data file is malformed', file: e.file || 'unknown' }
+                        : { error: 'internal server error' };
+                    json(res, payload, e.code === 'EMALFORMED_DATA' ? 503 : 500);
+                } else {
+                    res.writeHead(500); res.end('internal server error');
+                }
             }
             return;
         }

@@ -2,9 +2,9 @@
 
 # Minty
 
-**Your network, unified. Privacy-first.**
+**Private network memory for your AI workflows.**
 
-A self-hosted **personal CRM** (or PRM — personal relationship manager, if you prefer) that pulls your conversations from WhatsApp, Gmail, LinkedIn, Telegram, SMS, and Google Contacts into one searchable place — then surfaces who you should be talking to, and why. Without sending a byte to a third party.
+Minty turns your existing contacts and conversations into a private, local relationship-memory layer that AI agents can query through CLI/MCP. It still ships a self-hosted CRM UI, but the wedge is simpler: make your assistant better at answering “who in my network can help with this?” without sending raw contact data to a third party.
 
 [![CI](https://github.com/zalatar242/minty/actions/workflows/ci.yml/badge.svg)](https://github.com/zalatar242/minty/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/zalatar242/minty?display_name=tag&sort=semver)](https://github.com/zalatar242/minty/releases)
@@ -21,21 +21,24 @@ A self-hosted **personal CRM** (or PRM — personal relationship manager, if you
 
 Your network is scattered across a dozen apps. LinkedIn knows who you work with. WhatsApp knows who you actually talk to. Gmail has the long threads. Telegram has the group chats. None of them talk to each other, and none of them are yours.
 
-Minty pulls them all into a single local database — contacts deduplicated across sources, conversations indexed, everything searchable, and a goal-oriented home view that surfaces who can help you *now*. Runs entirely on your machine. No accounts, no API calls, no tracking.
+Minty pulls them into a single local database, deduplicates contacts across sources, indexes relationship evidence, and exposes a read-only network-memory interface for humans and agents. You can use the web UI, the `npm run agent` CLI, or the MCP server from Hermes/Claude/Cursor-style workflows. Runs on your machine. No accounts, no tracking, no runtime LLM calls.
 
 ## Features
 
+- **Agent-native network memory** — local CLI and MCP tools for `search_network`, `person_context`, and `workflow_brief`
+- **Goal-first retrieval** — ask “who can help with this?” and get ranked people with evidence and warmth
+- **Privacy-safe outputs** — agent tools omit direct emails/phones and never trigger outreach
 - **Unified contact view** — one record per person, merged across WhatsApp, Gmail, LinkedIn, Telegram, SMS, Google Contacts
 - **Cross-source dedup** — matches a WhatsApp contact to their LinkedIn profile via name, phone, company, location signals
 - **Full conversation timeline** — every message with a contact, in chronological order, regardless of channel
-- **Network query (Ask view)** — natural-language search like "who did I meet at that conference in March" or "who works at <company>"
+- **Network query (Ask view)** — natural-language search like "who can intro me to Monzo" or "who knows EU crypto insurance"
 - **Reconnect composer** — context-aware pre-generated drafts for people you're fading away from
 - **Calendar integration** — auto meeting prep with cross-referenced contact history
 - **Stale data warnings** — know when a contact's last info is 12+ months old
 - **Background sync** — live WhatsApp, incremental Gmail, file watchers for other sources
 - **Mobile-responsive** — full-screen views and touch targets on phones
 - **Local-first** — all data in `data/` on your machine as plain JSON. Nothing leaves.
-- **Bring-your-own AI** — local Claude Code CLI or local Ollama model for insights/ranking. No cloud LLM fees.
+- **Bring-your-own AI** — precompute insights with local Claude Code CLI or Ollama; runtime UI/MCP reads cached JSON only
 - **Self-hostable** — single `npm run crm` boots the web UI on `localhost:3456`
 
 ## Quick start
@@ -47,7 +50,7 @@ npm install
 npm run crm
 ```
 
-Open <http://localhost:3456>. You'll see an empty state pointing you at importers. Import one or more sources (below), then the app populates automatically.
+Open <http://localhost:3456>. You'll see an empty state pointing you at importers. Import one or more sources (below), then the app populates automatically. For the agent-native path, run `npm run agent -- "who can help with my seed raise"` or wire `scripts/minty-mcp-server.js` into your MCP client; see `docs/HERMES_INTEGRATION.md`.
 
 ## Data sources
 

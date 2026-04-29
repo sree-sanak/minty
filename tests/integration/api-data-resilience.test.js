@@ -1,0 +1,119 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+
+const ROOT = path.resolve(__dirname, '../..');
+const SERVER = path.join(ROOT, 'crm/server.js');
+
+function writeJson(file, value) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
+
+function seedDataDir(dir, interactions = []) {
+    const unified = path.join(dir, 'unified');
+    const now = new Date().toISOString();
+    writeJson(path.join(unified, 'contacts.json'), [
+        {
+            id: 'wa_12065550100',
+            name: 'Sam García',
+            phones: ['12065550100'],
+            emails: ['sam@example.com'],
+            notes: 'fintech investor monzo seed',
+            tags: ['fintech', 'investor'],
+            sources: {
+                whatsapp: { id: '12065550100@c.us' },
+                linkedin: { company: 'Index Ventures', position: 'Partner', name: 'Sam García' },
+                googleContacts: null,
+            },
+            lastContactedAt: now,
+            daysSinceContact: 0,
+            relationshipScore: 91,
+            interactionCount: 3,
+            activeChannels: ['whatsapp'],
+            isGroup: false,
+        },
+    ]);
+    writeJson(path.join(unified, 'interactions.json'), interactions);
+    writeJson(path.join(unified, 'insights.json'), {});
+    writeJson(path.join(unified, 'goals.json'), [
+        { id: 'g_1', text: 'find fintech investors for a seed raise', active: true, assignments: {} },
+    ]);
+    writeJson(path.join(unified, 'meetings.json'), []);
+    writeJson(path.join(unified, 'calendar-state.json'), {});
+}
+
+function waitForReady(child, port) {
+    return new Promise((resolve, reject) => {
+        let output = '';
+        const timer = setTimeout(() => reject(new Error(`server did not start on ${port}: ${output}`)), 10000);
+        const onData = (buf) => {
+            output += String(buf);
+            if (output.includes('Minty is running')) {
+                clearTimeout(timer);
+                resolve();
+            }
+        };
+        child.stdout.on('data', onData);
+        child.stderr.on('data', onData);
+        child.once('exit', (code) => {
+            clearTimeout(timer);
+            reject(new Error(`server exited early with ${code}: ${output}`));
+        });
+    });
+}
+
+async function withServer(dataDir, fn) {
+    const port = 3900 + Math.floor(Math.random() * 1000);
+    const child = spawn(process.execPath, [SERVER], {
+        cwd: ROOT,
+        env: { ...process.env, CRM_DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+        await waitForReady(child, port);
+        await fn(`http://127.0.0.1:${port}`);
+    } finally {
+        child.kill('SIGTERM');
+    }
+}
+
+test('GET /api/today preserves zero-day contact recency', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-today-'));
+    seedDataDir(dir, [
+        { id: 'm1', source: 'whatsapp', chatId: '12065550100@c.us', from: '12065550100@c.us', body: 'sent today', timestamp: new Date().toISOString() },
+    ]);
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/today`);
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        const contact = payload.goalSections.flatMap(s => s.contacts).find(c => c.id === 'wa_12065550100');
+        assert.ok(contact, 'expected goal contact in today response');
+        assert.equal(contact.daysSinceContact, 0);
+    });
+});
+
+test('malformed interactions.json does not expose raw parser errors on read-only routes', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-bad-json-'));
+    seedDataDir(dir, []);
+    fs.writeFileSync(path.join(dir, 'unified/interactions.json'), '{bad json');
+
+    await withServer(dir, async (base) => {
+        for (const url of [
+            '/api/search/interactions?q=test',
+            '/api/contacts/wa_12065550100/interactions',
+            '/api/contacts/wa_12065550100/timeline',
+            '/api/goals/g_1/retro',
+        ]) {
+            const res = await fetch(`${base}${url}`);
+            assert.notEqual(res.status, 500, `${url} should not raw-500`);
+            const text = await res.text();
+            assert.doesNotMatch(text, /Expected property name|JSON at position|SyntaxError/i, `${url} leaked parser text`);
+            assert.doesNotMatch(text, /stack|at JSON\.parse/i, `${url} leaked stack text`);
+        }
+    });
+});

@@ -32,6 +32,19 @@ and makes your network queryable: "who in my network can help me with X right no
 
 ---
 
+## Current Product Shape: AI-Native First
+
+Minty should not force users to adopt another CRM before they feel value. The fastest wedge is private relationship memory inside existing AI workflows: Hermes, Claude Code, Cursor, or any MCP-capable agent asks Minty who in the user's network can help with a goal, and Minty returns source-backed, redacted context.
+
+The web app remains useful for setup, browsing, QA, and trust-building, but the primary promise is not “manage your contacts.” It is: **your assistant finally remembers the relationship graph you already earned.**
+
+Implications:
+- Prioritize read-only retrieval, MCP, CLI, export, source evidence, and data freshness.
+- Avoid social graph sharing, team CRM, or “network publishing” until the private-memory wedge is clearly working.
+- Keep outputs safe by default: no raw dumps, no direct contact details in agent envelopes, no outreach automation.
+
+---
+
 ## User Personas
 
 ### Persona 1: The Connector — "Marcus"
