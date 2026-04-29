@@ -202,3 +202,160 @@ test('[Goals]: higher-scoring contacts appear first', () => {
             `First result should have higher relevance: ${result[0].goalRelevance} vs ${result[1].goalRelevance}`);
     }
 });
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — scoring breakdown precision
+// ---------------------------------------------------------------------------
+
+test('[Goals]: role match contributes exactly 40 points', () => {
+    // Contact whose only signal is an investor role — no keyword overlap, zero warmth
+    const investor = makeContact({
+        sources: { linkedin: { company: 'Sequoia', position: 'Partner' } },
+        apollo: null,
+        relationshipScore: 0,
+    });
+    // "raise seed round" → isFundraise triggers investor+founder roles
+    // "partner" matches GOAL_ROLE_SIGNALS.investor → +40 role, 0 keyword, 0 warmth
+    const score = scoreContactForGoal(investor, 'raise seed round');
+    assert.equal(score, 40, 'Role match alone should give exactly 40');
+});
+
+test('[Goals]: warmth bonus is min(20, round(relationshipScore / 5))', () => {
+    // Contact with zero role/keyword match, only warmth applies
+    const noMatch = makeContact({
+        name: 'Zzzz Xxxx',
+        sources: { linkedin: { company: 'Zzz Ltd', position: 'Zzz' } },
+        apollo: null,
+        relationshipScore: 100,
+    });
+    // "raise seed round" — no role signals match "zzz", no keyword overlap
+    const score = scoreContactForGoal(noMatch, 'raise seed round');
+    // warmth = min(20, round(100/5)) = 20
+    assert.equal(score, 20, 'Max warmth bonus should be 20');
+
+    const mid = makeContact({
+        name: 'Zzzz Xxxx',
+        sources: { linkedin: { company: 'Zzz Ltd', position: 'Zzz' } },
+        apollo: null,
+        relationshipScore: 50,
+    });
+    const midScore = scoreContactForGoal(mid, 'raise seed round');
+    // warmth = min(20, round(50/5)) = 10
+    assert.equal(midScore, 10, 'relationshipScore 50 → warmth bonus 10');
+});
+
+test('[Goals]: keyword overlap adds 12 per matched word, capped at 40', () => {
+    // Use a goal with unique keywords that appear in contact metadata
+    // "fintech payments infrastructure" → 3 keywords > 3 chars, not stop words
+    const contact = makeContact({
+        name: 'Zzzz',
+        sources: { linkedin: { company: 'Zzz', position: 'Zzz' } },
+        apollo: { headline: 'fintech payments infrastructure specialist', industry: 'fintech' },
+        relationshipScore: 0,
+    });
+    // "expand fintech payments infrastructure" → isFundraise=false, isHire=false, isMarket=false, isAdvisor=false
+    // keywords: "expand", "fintech", "payments", "infrastructure" (all >3, none stop words)
+    // "expand" not in contactText, "fintech" yes, "payments" yes, "infrastructure" yes → 3 matches × 12 = 36
+    const score = scoreContactForGoal(contact, 'expand fintech payments infrastructure');
+    assert.equal(score, 36, '3 keyword matches × 12 = 36');
+});
+
+test('[Goals]: keyword overlap caps at 40 even with many matches', () => {
+    const contact = makeContact({
+        name: 'Zzzz',
+        sources: { linkedin: { company: 'Zzz', position: 'Zzz' } },
+        apollo: { headline: 'alpha bravo charlie delta echo foxtrot', industry: '' },
+        relationshipScore: 0,
+    });
+    // 6 unique keywords all present — 6 × 12 = 72, capped to 40
+    const score = scoreContactForGoal(contact, 'alpha bravo charlie delta echo foxtrot');
+    assert.equal(score, 40, 'Keyword score should cap at 40');
+});
+
+test('[Goals]: stop words and short words excluded from keyword matching', () => {
+    // "find the best one" — "find" is stop, "the" is stop, "best" is 4 chars (valid),
+    // "one" is 3 chars (too short)
+    const contact = makeContact({
+        name: 'Best Corp',
+        sources: { linkedin: { company: 'Best Corp', position: 'Lead' } },
+        apollo: null,
+        relationshipScore: 0,
+    });
+    const score = scoreContactForGoal(contact, 'find the best one');
+    // Only "best" matches → 1 × 12 = 12
+    assert.equal(score, 12, 'Only "best" should survive stop-word + length filter');
+});
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — untested goal intents
+// ---------------------------------------------------------------------------
+
+test('[Goals]: advisor intent boosts consultant role', () => {
+    const consultant = makeContact({
+        sources: { linkedin: { company: 'McKinsey', position: 'Senior Consultant' } },
+        relationshipScore: 0,
+    });
+    const score = scoreContactForGoal(consultant, 'find an advisor for growth strategy');
+    // isAdvisor → roles: consultant, investor, academic
+    // "consultant" matches GOAL_ROLE_SIGNALS.consultant → +40
+    assert.ok(score >= 40, `Advisor goal should match consultant, got ${score}`);
+});
+
+test('[Goals]: market intent boosts sales role', () => {
+    const salesperson = makeContact({
+        sources: { linkedin: { company: 'Salesforce', position: 'VP Sales' } },
+        relationshipScore: 0,
+    });
+    const score = scoreContactForGoal(salesperson, 'expand into new market segments');
+    // isMarket → roles: sales, operator, founder
+    // "sales" matches GOAL_ROLE_SIGNALS.sales → +40
+    assert.ok(score >= 40, `Market goal should match sales role, got ${score}`);
+});
+
+test('[Goals]: multi-intent goal triggers multiple role sets', () => {
+    // "hire an advisor" triggers both isHire and isAdvisor
+    const academic = makeContact({
+        sources: { linkedin: { company: 'MIT', position: 'Professor of AI' } },
+        relationshipScore: 0,
+    });
+    // isAdvisor → academic role checked, "professor" matches
+    const score = scoreContactForGoal(academic, 'hire an advisor for our research team');
+    assert.ok(score >= 40, `Multi-intent should find academic via advisor intent, got ${score}`);
+});
+
+// ---------------------------------------------------------------------------
+// rankContactsForGoal — tiebreaker and filtering precision
+// ---------------------------------------------------------------------------
+
+test('[Goals]: tiebreaker uses relationshipScore when goalRelevance is equal', () => {
+    // Both contacts hit the 100-point relevance cap: role 40 + keyword cap 40 + warmth cap 20.
+    // Their goalRelevance ties exactly, so ranking must fall back to relationshipScore.
+    const warmer = makeContact({ id: 'c_warmer',
+        apollo: { headline: 'alpha bravo charlie delta echo foxtrot', industry: '' },
+        sources: { linkedin: { position: 'Partner', company: 'VC Fund' } },
+        relationshipScore: 100 });
+    const warm = makeContact({ id: 'c_warm',
+        apollo: { headline: 'alpha bravo charlie delta echo foxtrot', industry: '' },
+        sources: { linkedin: { position: 'Partner', company: 'VC Fund' } },
+        relationshipScore: 98 });
+    const result = rankContactsForGoal([warm, warmer], 'raise alpha bravo charlie delta echo foxtrot');
+    assert.equal(result[0].goalRelevance, 100, 'Setup should hit the relevance cap');
+    assert.equal(result[1].goalRelevance, 100, 'Setup should hit the relevance cap for both contacts');
+    assert.equal(result[0].id, 'c_warmer', 'Higher relationshipScore should break relevance ties');
+});
+
+test('[Goals]: excludes contacts without a name', () => {
+    const nameless = makeContact({ id: 'c_anon', name: '',
+        sources: { linkedin: { position: 'Investor', company: 'VC Fund' } },
+        relationshipScore: 80 });
+    const named = makeContact({ id: 'c_named', name: 'Alice',
+        sources: { linkedin: { position: 'Investor', company: 'VC Fund' } },
+        relationshipScore: 50 });
+    const result = rankContactsForGoal([nameless, named], 'raise seed round');
+    assert.ok(!result.find(c => c.id === 'c_anon'), 'Nameless contact should be excluded');
+    assert.ok(result.find(c => c.id === 'c_named'), 'Named contact should be included');
+});
+
+test('[Goals]: returns empty for null contacts array', () => {
+    assert.deepEqual(rankContactsForGoal(null, 'raise seed round'), []);
+});
