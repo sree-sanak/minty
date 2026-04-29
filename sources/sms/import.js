@@ -1,11 +1,12 @@
 /**
  * Android SMS Import
  *
- * Parses the XML backup created by "SMS Backup & Restore" (SyncTech, free app).
+ * Parses XML backups created by "SMS Backup & Restore" (SyncTech, free app).
+ * Supports SMS, MMS, and call-log XML exports.
  *
  * How to export:
  *   1. Install "SMS Backup & Restore" from the Play Store (by SyncTech)
- *   2. Open the app → Backup → select SMS and/or MMS → Back Up Now
+ *   2. Open the app → Backup → select SMS/MMS and/or Call Logs → Back Up Now
  *   3. The backup saves locally to your phone (usually /sdcard/SMSBackupRestore/)
  *   4. Copy the XML file(s) to data/sms/export/ on your computer
  *      (via USB cable, Google Drive, or the app's "Restore from Cloud" share)
@@ -36,6 +37,16 @@ const DATA_DIR = process.env.CRM_DATA_DIR || path.join(__dirname, '../../data');
 // type attribute: 1=received, 2=sent
 const TYPE_RECEIVED = '1';
 const TYPE_SENT = '2';
+
+// Android CallLog.Calls type values used by SMS Backup & Restore.
+const CALL_TYPES = {
+    '1': 'incoming',
+    '2': 'outgoing',
+    '3': 'missed',
+    '4': 'voicemail',
+    '5': 'rejected',
+    '6': 'blocked',
+};
 
 /**
  * Extract all XML attribute values from a tag string.
@@ -129,11 +140,44 @@ function parseMmsElements(xml) {
     return messages;
 }
 
+/**
+ * Parse call-log elements from XML text.
+ * Returns call records shaped like message events so Minty can use calls as
+ * relationship warmth/recency signals without exposing phone numbers by default.
+ */
+function parseCallElements(xml) {
+    const calls = [];
+    const re = /<call\s([^>]*?)(?:\/>|>.*?<\/call>)/gs;
+    let m;
+    while ((m = re.exec(xml)) !== null) {
+        const attrs = parseAttrs(m[1]);
+        const phone = (attrs.number || '').replace(/[^0-9+]/g, '');
+        if (!phone || phone.length < 4) continue;
+
+        const dateMs = parseInt(attrs.date, 10);
+        const callKind = CALL_TYPES[attrs.type] || 'unknown';
+        calls.push({
+            type: 'call',
+            callType: callKind,
+            phone,
+            contactName: attrs.contact_name && attrs.contact_name !== '(Unknown)'
+                ? attrs.contact_name : null,
+            body: null,
+            direction: callKind === 'outgoing' ? 'sent' : 'received',
+            timestamp: dateMs ? new Date(dateMs).toISOString() : null,
+            readableDate: attrs.readable_date || null,
+            durationSeconds: attrs.duration ? Number(attrs.duration) : 0,
+        });
+    }
+    return calls;
+}
+
 function parseXmlFile(filepath) {
     const xml = fs.readFileSync(filepath, 'utf8');
     const sms = parseSmsElements(xml);
     const mms = parseMmsElements(xml);
-    return [...sms, ...mms];
+    const calls = parseCallElements(xml);
+    return [...sms, ...mms, ...calls];
 }
 
 function groupByPhone(messages) {
@@ -211,10 +255,10 @@ function run() {
         });
     }
 
-    // Deduplicate by phone+timestamp+body (in case of overlapping backups)
+    // Deduplicate by phone+timestamp+type+body (in case of overlapping backups)
     const seen = new Set();
     allMessages = allMessages.filter(m => {
-        const key = `${m.phone}|${m.timestamp}|${m.body}`;
+        const key = `${m.phone}|${m.timestamp}|${m.type}|${m.body || ''}|${m.callType || ''}`;
         if (seen.has(key)) return false;
         seen.add(key);
         return true;
@@ -229,7 +273,8 @@ function run() {
     const contacts = threadList.map(t => ({
         name: t.contactName || null,
         phone: t.phone,
-        messageCount: t.messages.length,
+        messageCount: t.messages.filter(m => m.type !== 'call').length,
+        callCount: t.messages.filter(m => m.type === 'call').length,
         lastMessageAt: t.messages.length
             ? t.messages[t.messages.length - 1].timestamp
             : null,
