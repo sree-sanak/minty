@@ -72,3 +72,21 @@ test('[Notifications] handles corrupted notifications.json gracefully', () => {
     assert.ok(N.list(d).whatsapp);
     fs.rmSync(d, { recursive: true, force: true });
 });
+
+test('[Notifications] readAll returns {} when file contains a JSON array', () => {
+    const d = mkTempDir();
+    fs.writeFileSync(path.join(d, 'notifications.json'), '[1,2,3]');
+    assert.deepStrictEqual(N.readAll(d), {});
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Notifications] readAll returns {} when file contains a JSON primitive', () => {
+    const d = mkTempDir();
+    fs.writeFileSync(path.join(d, 'notifications.json'), '"hello"');
+    assert.deepStrictEqual(N.readAll(d), {});
+    fs.writeFileSync(path.join(d, 'notifications.json'), '42');
+    assert.deepStrictEqual(N.readAll(d), {});
+    fs.writeFileSync(path.join(d, 'notifications.json'), 'null');
+    assert.deepStrictEqual(N.readAll(d), {});
+    fs.rmSync(d, { recursive: true, force: true });
+});
