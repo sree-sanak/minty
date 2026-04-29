@@ -66,6 +66,21 @@ Minty resolves data in this order:
 2. `./data` (real user data from connected sources)
 3. `./data-demo` (demo fixtures — run `npm run seed:demo` to generate)
 
+To make Minty useful inside Hermes with real contacts immediately, sync contacts from an existing Hermes Google Workspace token:
+
+```bash
+cd /root/.hermes/workspace/minty
+npm run google-contacts:hermes
+npm run merge
+```
+
+For multiple Google profiles:
+
+```bash
+MINTY_GOOGLE_TOKEN_FILES="work=/root/.hermes/google_token.json,personal=/root/.hermes/google-personal/google_token.json" npm run google-contacts:hermes
+npm run merge
+```
+
 ## Example Hermes workflow
 
 ```

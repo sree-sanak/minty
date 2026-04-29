@@ -8,11 +8,25 @@ depends on the Hermes model/provider configuration that receives those summaries
 
 ## Setup
 
-### 1. Seed demo data (or connect real sources)
+### 1. Seed demo data or sync real Hermes contacts
 
 ```bash
 cd /root/.hermes/workspace/minty
+
+# Demo fixtures
 npm run seed:demo
+
+# Real contacts from an existing Hermes Google Workspace OAuth token
+npm run google-contacts:hermes
+npm run merge
+```
+
+For multiple Hermes Google profiles:
+
+```bash
+MINTY_GOOGLE_TOKEN_FILES="work=/root/.hermes/google_token.json,personal=/root/.hermes/google-personal/google_token.json" \
+  npm run google-contacts:hermes
+npm run merge
 ```
 
 ### 2. Register the MCP server
