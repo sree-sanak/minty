@@ -247,3 +247,125 @@ test('healthRingOffset: clamps scores above 100', () => {
     const offset = healthRingOffset(150);
     assert.ok(offset >= 0 && offset < 1, 'should clamp to full ring');
 });
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — market intent
+// ---------------------------------------------------------------------------
+
+test('scoreContactForGoal: sales contact scores high for market/growth goal', () => {
+    const contact = {
+        name: 'Dana Kim',
+        position: 'VP of Sales',
+        company: 'Salesforce',
+        relationshipScore: 60,
+    };
+    const score = scoreContactForGoal(contact, 'grow revenue in EMEA market');
+    // market intent → sales role match (40) + keyword overlap for "sales" + warmth (12)
+    assert.ok(score >= 40, `expected >=40 for sales+market, got ${score}`);
+});
+
+test('scoreContactForGoal: BD contact matches business expansion goal', () => {
+    const contact = {
+        name: 'Raj Patel',
+        position: 'Business Development Manager',
+        company: 'Acme Corp',
+        relationshipScore: 30,
+    };
+    const score = scoreContactForGoal(contact, 'find customers for expansion');
+    // market intent via "customer" + "expansion" → sales role match (40) + warmth (6)
+    assert.ok(score >= 40, `expected >=40 for BD+expansion, got ${score}`);
+});
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — hire intent with recruiter
+// ---------------------------------------------------------------------------
+
+test('scoreContactForGoal: recruiter scores high for hiring goal', () => {
+    const contact = {
+        name: 'Emily Ross',
+        position: 'Senior Technical Recruiter',
+        company: 'Hired',
+        relationshipScore: 40,
+    };
+    const score = scoreContactForGoal(contact, 'hire a senior engineer');
+    // hire intent → hr role match (40) + keyword overlap + warmth (8)
+    assert.ok(score >= 40, `expected >=40 for recruiter+hire, got ${score}`);
+});
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — advisor intent with academic
+// ---------------------------------------------------------------------------
+
+test('scoreContactForGoal: professor scores for advisor/expert goal', () => {
+    const contact = {
+        name: 'Dr Sarah Lin',
+        position: 'Professor of Computer Science',
+        company: 'MIT',
+        relationshipScore: 20,
+    };
+    const score = scoreContactForGoal(contact, 'find an expert advisor on AI strategy');
+    // advisor intent → academic role match (40) + keyword overlap + warmth (4)
+    assert.ok(score >= 40, `expected >=40 for professor+advisor, got ${score}`);
+});
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — no intent match, keyword-only scoring
+// ---------------------------------------------------------------------------
+
+test('scoreContactForGoal: keyword overlap without intent still scores > 0', () => {
+    const contact = {
+        name: 'Tom Green',
+        position: 'Blockchain Developer at Ethereum Foundation',
+        company: 'Ethereum Foundation',
+        relationshipScore: 50,
+    };
+    // "blockchain" is in contactText and goalText — keyword overlap only (no intent match)
+    const score = scoreContactForGoal(contact, 'explore blockchain partnerships');
+    assert.ok(score > 0, `keyword overlap should produce nonzero score, got ${score}`);
+    // No intent role match, so no 40-pt boost — expect score from keyword + warmth only
+    assert.ok(score <= 60, `no intent match caps base, got ${score}`);
+});
+
+// ---------------------------------------------------------------------------
+// rankContactsForGoal — tiebreaker by relationshipScore
+// ---------------------------------------------------------------------------
+
+test('rankContactsForGoal: same goalRelevance breaks tie by relationshipScore', () => {
+    // Both contacts have identical metadata → same goalRelevance, but different warmth
+    const warmContact = {
+        name: 'VC Alice',
+        position: 'Venture Capital Investor',
+        company: 'Fund X',
+        relationshipScore: 90,
+    };
+    const coldContact = {
+        name: 'VC Alice',
+        position: 'Venture Capital Investor',
+        company: 'Fund X',
+        relationshipScore: 10,
+    };
+    // Warmth bonus differs, but if goalRelevance is equal after rounding,
+    // the tiebreaker should prefer the warmer contact.
+    // Use a goal where the role match dominates so warmth difference in goalRelevance
+    // is small enough that rounding may make them equal.
+    const results = rankContactsForGoal([coldContact, warmContact], 'raise a seed round');
+    assert.ok(results.length === 2);
+    // First result should be the warmer contact (higher relationshipScore)
+    assert.equal(results[0].relationshipScore, 90,
+        'warmer contact should rank first when relevance is tied');
+});
+
+// ---------------------------------------------------------------------------
+// rankContactsForGoal — excludes unnamed contacts
+// ---------------------------------------------------------------------------
+
+test('rankContactsForGoal: excludes contacts without a name', () => {
+    const contacts = [
+        { name: '', position: 'VC Investor', relationshipScore: 80 },
+        { name: null, position: 'VC Investor', relationshipScore: 80 },
+        { name: 'Named VC', position: 'VC Investor', relationshipScore: 50 },
+    ];
+    const results = rankContactsForGoal(contacts, 'raise a round');
+    assert.ok(results.every(c => c.name), 'no unnamed contacts in results');
+    assert.equal(results.length, 1);
+});
