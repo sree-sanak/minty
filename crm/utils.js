@@ -413,12 +413,14 @@ function scoreContactForGoal(contact, goalText) {
     const isHire      = /\b(hire|hiring|recruit|talent|engineer|developer|cto|coo|team)\b/.test(lower);
     const isMarket    = /\b(market|sales|customer|client|business|expansion|growth|revenue)\b/.test(lower);
     const isAdvisor   = /\b(advisor|advice|mentor|expert|consult|strategy)\b/.test(lower);
+    const isIntro     = /\b(intros?|introduce|introduction|connect|network|warm)\b/.test(lower);
 
     let intentRoles = [];
     if (isFundraise) intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.fundraise);
     if (isHire)      intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.hire);
     if (isMarket)    intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.market);
     if (isAdvisor)   intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.advisor);
+    if (isIntro)     intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.intro);
 
     // Role match score (up to 40)
     if (intentRoles.length > 0) {

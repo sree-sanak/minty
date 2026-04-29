@@ -101,6 +101,32 @@ test('scoreContactForGoal: multiple intent detection stacks role matching', () =
     assert.ok(score >= 40, `consultant should match advisor intent, got ${score}`);
 });
 
+test('scoreContactForGoal: intro intent boosts investor/founder/operator roles', () => {
+    const contact = {
+        name: 'Sam Lee',
+        position: 'Partner at Accel',
+        company: 'Accel',
+        relationshipScore: 60,
+    };
+
+    const introScore = scoreContactForGoal(contact, 'get intros to VCs in London');
+    const genericScore = scoreContactForGoal(contact, 'catch up with old friends');
+
+    assert.equal(introScore, 52);
+    assert.equal(genericScore, 12);
+});
+
+test('scoreContactForGoal: connect/network intent boosts same roles as intro', () => {
+    const contact = {
+        name: 'Maya Gupta',
+        position: 'CEO and Founder of Stealth',
+        company: 'Stealth',
+        relationshipScore: 40,
+    };
+
+    assert.equal(scoreContactForGoal(contact, 'expand my network with founders'), 48);
+});
+
 // ---------------------------------------------------------------------------
 // rankContactsForGoal
 // ---------------------------------------------------------------------------
