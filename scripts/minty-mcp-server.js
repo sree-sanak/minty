@@ -71,6 +71,27 @@ const TOOLS = [
 // Tool execution
 // ---------------------------------------------------------------------------
 
+function clampLimit(value, fallback) {
+    if (!Number.isFinite(value)) return fallback;
+    return Math.max(1, Math.min(50, Math.floor(value)));
+}
+
+function safeResult(r) {
+    return {
+        name: r.name,
+        title: r.title,
+        company: r.company,
+        city: r.city,
+        warmth: r.warmth,
+        relationshipScore: r.relationshipScore,
+        confidence: r.confidence,
+        evidence: r.evidence,
+        suggestedAction: r.suggestedAction,
+        daysSinceContact: r.daysSinceContact,
+        interactionCount: r.interactionCount,
+    };
+}
+
 function executeTool(name, args, data) {
     const { contacts, insights } = data;
 
@@ -81,30 +102,24 @@ function executeTool(name, args, data) {
         const result = queryNetwork(args.query, {
             contacts,
             insights,
-            limit: args.limit || 10,
+            limit: clampLimit(args.limit, 10),
         });
-        return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+        const envelope = {
+            query: result.query,
+            intent: result.intent,
+            results: result.results.map(safeResult),
+            safety: result.safety,
+        };
+        return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
     }
 
     if (name === 'person_context') {
         if (!args.person || typeof args.person !== 'string') {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: person' }] };
         }
-        const limit = args.limit || 3;
+        const limit = clampLimit(args.limit, 3);
         const result = queryNetwork(args.person, { contacts, insights, limit });
-        const matches = result.results.map(r => ({
-            name: r.name,
-            title: r.title,
-            company: r.company,
-            city: r.city,
-            warmth: r.warmth,
-            relationshipScore: r.relationshipScore,
-            confidence: r.confidence,
-            evidence: r.evidence,
-            suggestedAction: r.suggestedAction,
-            daysSinceContact: r.daysSinceContact,
-            interactionCount: r.interactionCount,
-        }));
+        const matches = result.results.map(safeResult);
         const envelope = {
             person: args.person,
             matches,
@@ -117,7 +132,7 @@ function executeTool(name, args, data) {
         if (!args.goal || typeof args.goal !== 'string') {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: goal' }] };
         }
-        const limit = args.limit || 5;
+        const limit = clampLimit(args.limit, 5);
         const result = queryNetwork(args.goal, { contacts, insights, limit });
         const topPeople = result.results.map(r => ({
             name: r.name,
@@ -139,7 +154,7 @@ function executeTool(name, args, data) {
             dataFreshness: {
                 contactCount: contacts.length,
                 generatedAt: new Date().toISOString(),
-                oldestDataPoint: oldestContact ? oldestContact.toISOString() : null,
+                oldestContactDate: oldestContact ? oldestContact.toISOString() : null,
             },
             safety: {
                 contactDetailsOmitted: true,

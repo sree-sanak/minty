@@ -197,6 +197,19 @@ describe('search_network tool', () => {
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.ok(parsed.results.length <= 1);
     });
+
+    it('clamps invalid limit values to a safe default', async () => {
+        for (const limit of [0, -1, 'abc', 1000]) {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 13, method: 'tools/call',
+                params: { name: 'search_network', arguments: { query: 'anyone', limit } },
+            }, { contacts: CONTACTS, insights: INSIGHTS });
+
+            const parsed = JSON.parse(resp.result.content[0].text);
+            assert.ok(parsed.results.length <= CONTACTS.length);
+            assertNoDirectContactDetails(parsed);
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
