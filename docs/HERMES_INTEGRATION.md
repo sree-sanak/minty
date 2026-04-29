@@ -1,5 +1,7 @@
 # Hermes Integration Guide
 
+> The broader OpenClaw/Hermes/MCP quickstart now lives in [OPENCLAW_HERMES.md](./OPENCLAW_HERMES.md). This file keeps the Hermes-specific setup details.
+
 Minty provides private network memory to Hermes via a local MCP server.
 Hermes can query your network, get person context, and generate workflow briefs
 through a deterministic local server that makes no external calls. The server

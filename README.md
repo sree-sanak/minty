@@ -2,14 +2,16 @@
 
 # Minty
 
-**Private network memory for your AI workflows.**
+**Private network memory for OpenClaw, Hermes, and MCP agents.**
 
-Minty turns your existing contacts and conversations into a private, local relationship-memory layer that AI agents can query through CLI/MCP. It still ships a self-hosted CRM UI, but the wedge is simpler: make your assistant better at answering “who in my network can help with this?” without sending raw contact data to a third party.
+Minty is the missing relationship-memory layer for personal AI agents. It turns your existing contacts and conversations into a private, local MCP server that OpenClaw, Hermes, Claude Code, Cursor, or any MCP-compatible agent can query when it needs to answer “who in my network can help with this?” The self-hosted CRM UI is included, but the core product is agent-native retrieval without raw contact dumps or third-party hosting.
 
 [![CI](https://github.com/zalatar242/minty/actions/workflows/ci.yml/badge.svg)](https://github.com/zalatar242/minty/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/zalatar242/minty?display_name=tag&sort=semver)](https://github.com/zalatar242/minty/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-green.svg)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-stdio-purple.svg)](./docs/OPENCLAW_HERMES.md)
+[![OpenClaw/Hermes](https://img.shields.io/badge/OpenClaw%20%2B%20Hermes-ready-6366f1.svg)](./docs/OPENCLAW_HERMES.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
 <!-- TODO: replace with a real screenshot/GIF once v0.2 UI is recorded -->
@@ -21,11 +23,12 @@ Minty turns your existing contacts and conversations into a private, local relat
 
 Your network is scattered across a dozen apps. LinkedIn knows who you work with. WhatsApp knows who you actually talk to. Gmail has the long threads. Telegram has the group chats. None of them talk to each other, and none of them are yours.
 
-Minty pulls them into a single local database, deduplicates contacts across sources, indexes relationship evidence, and exposes a read-only network-memory interface for humans and agents. You can use the web UI, the `npm run agent` CLI, or the MCP server from Hermes/Claude/Cursor-style workflows. Runs on your machine. No accounts, no tracking, no runtime LLM calls.
+Minty pulls them into a single local database, deduplicates contacts across sources, indexes relationship evidence, and exposes a read-only network-memory interface for humans and agents. The first-class path is OpenClaw/Hermes compatibility: `npm run mcp` starts a local stdio MCP server, `npm run agent` returns JSON for shell-based agents, and `npm run gbrain:export` writes privacy-safe memory files for Hermes-style private-brain workflows. Runs on your machine. No accounts, no tracking, no runtime LLM calls.
 
 ## Features
 
-- **Agent-native network memory** — local CLI and MCP tools for `search_network`, `person_context`, and `workflow_brief`
+- **OpenClaw/Hermes-ready MCP server** — `npm run mcp` exposes standard stdio MCP tools for local agents
+- **Agent-native network memory** — CLI and MCP tools for `search_network`, `person_context`, and `workflow_brief`
 - **Goal-first retrieval** — ask “who can help with this?” and get ranked people with evidence and warmth
 - **Privacy-safe outputs** — agent tools omit direct emails/phones and never trigger outreach
 - **Unified contact view** — one record per person, merged across WhatsApp, Gmail, LinkedIn, Telegram, SMS, Google Contacts
@@ -50,7 +53,15 @@ npm install
 npm run crm
 ```
 
-Open <http://localhost:3456>. You'll see an empty state pointing you at importers. Import one or more sources (below), then the app populates automatically. For the agent-native path, run `npm run agent -- "who can help with my seed raise"` or wire `scripts/minty-mcp-server.js` into your MCP client; see `docs/HERMES_INTEGRATION.md`.
+Open <http://localhost:3456> if you want the UI. For the agent-native path, use Minty directly from OpenClaw/Hermes/MCP:
+
+```bash
+npm run seed:demo
+CRM_DATA_DIR=./data-demo npm run agent -- "who can help with crypto insurance"
+CRM_DATA_DIR=./data-demo npm run mcp
+```
+
+Then register `scripts/minty-mcp-server.js` as a local stdio MCP server in OpenClaw or Hermes. Full copy-paste configs: [OpenClaw + Hermes Integration](./docs/OPENCLAW_HERMES.md).
 
 ## Data sources
 
@@ -216,7 +227,8 @@ Everything else — contacts, messages, insights, timelines — lives in `data/`
 For the full guided tour — data flow, invariants, glossary — see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ```
-crm/        # the unified app (HTTP server + SPA, merge, query, AI)
+crm/        # app + deterministic agent retrieval engine
+scripts/    # CLI/MCP entrypoints for OpenClaw, Hermes, and other agents
 sources/    # one importer per data source
 ee/         # reserved for future commercial features
 data/       # your local data (gitignored)

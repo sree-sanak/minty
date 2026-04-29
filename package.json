@@ -1,7 +1,7 @@
 {
   "name": "minty",
   "version": "0.3.2",
-  "description": "Private network memory for AI workflows — unifies WhatsApp, Gmail, LinkedIn, Telegram, SMS, and Google Contacts locally, then exposes goal-first relationship retrieval via UI, CLI, and MCP.",
+  "description": "Private network memory for OpenClaw, Hermes, and MCP agents — local relationship retrieval over contacts and conversations via UI, CLI, and stdio MCP.",
   "type": "commonjs",
   "license": "AGPL-3.0-only",
   "author": "Sree Sanakkayala",
@@ -23,6 +23,11 @@
     "gmail",
     "linkedin",
     "telegram",
+    "mcp",
+    "openclaw",
+    "hermes-agent",
+    "ai-agent",
+    "agent-memory",
     "relationship-intelligence",
     "network"
   ],
