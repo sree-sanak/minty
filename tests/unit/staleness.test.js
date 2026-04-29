@@ -266,6 +266,43 @@ test('[Staleness] getContactDataConfidence: interacted contact with one stale so
     assert.ok(result.staleSourceLabels.includes('LinkedIn'));
 });
 
+test('[Staleness] getContactDataConfidence: interacted contact with ALL sources stale → low', () => {
+    const c = { sources: { whatsapp: {}, linkedin: {} }, interactionCount: 8 };
+    const state = {
+        whatsapp: { lastSyncAt: iso(5), status: 'idle' },   // threshold 1 day
+        linkedin: { lastSyncAt: iso(45), status: 'stale' }, // threshold 30 days
+    };
+    const result = getContactDataConfidence(c, state, NOW);
+    assert.equal(result.level, 'low');
+    assert.ok(result.reason.includes('All sources stale'));
+    assert.ok(result.staleSourceLabels.includes('WhatsApp'));
+    assert.ok(result.staleSourceLabels.includes('LinkedIn'));
+});
+
+test('[Staleness] getContactDataConfidence: interacted contact with no sync state for sources → high', () => {
+    // Sources exist on the contact but syncState has no entries for them — not stale, just untracked
+    const c = { sources: { whatsapp: {}, linkedin: {} }, interactionCount: 3 };
+    const result = getContactDataConfidence(c, {}, NOW);
+    assert.equal(result.level, 'high');
+    assert.deepEqual(result.staleSourceLabels, []);
+});
+
+// ---------------------------------------------------------------------------
+// getStalenessMessage — mid-range day counts
+// ---------------------------------------------------------------------------
+
+test('[Staleness] getStalenessMessage: 5 days → "synced N days ago"', () => {
+    const msg = getStalenessMessage('whatsapp', 5);
+    assert.ok(msg.includes('5 days ago'));
+    assert.ok(msg.includes('WhatsApp'));
+});
+
+test('[Staleness] getStalenessMessage: 15 days → "export is N days old — refresh?"', () => {
+    const msg = getStalenessMessage('linkedin', 15);
+    assert.ok(msg.includes('15 days old'));
+    assert.ok(msg.includes('refresh'));
+});
+
 // ---------------------------------------------------------------------------
 // getDataHealthSummary
 // ---------------------------------------------------------------------------
