@@ -57,6 +57,17 @@ function runAI(prompt, opts = {}) {
 }
 
 /**
+ * Strip markdown code fences (```json ... ```) from AI output.
+ * Pure function — safe to use anywhere.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function stripFences(text) {
+    return text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+}
+
+/**
  * Run a prompt and parse the response as JSON.
  * Retries once if the first response is not valid JSON.
  *
@@ -67,8 +78,7 @@ function runAI(prompt, opts = {}) {
 function runAIJson(prompt, opts = {}) {
     const jsonPrompt = prompt + '\n\nIMPORTANT: Respond with valid JSON only. No markdown, no explanation.';
     const raw = runAI(jsonPrompt, opts);
-    // Strip markdown code fences if present
-    const cleaned = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+    const cleaned = stripFences(raw);
     try {
         return JSON.parse(cleaned);
     } catch (e) {
@@ -76,4 +86,4 @@ function runAIJson(prompt, opts = {}) {
     }
 }
 
-module.exports = { runAI, runAIJson };
+module.exports = { runAI, runAIJson, stripFences };

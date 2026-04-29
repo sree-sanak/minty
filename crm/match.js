@@ -57,6 +57,9 @@ const RELATION_WORDS = new Set([
     'dad', 'mum', 'mom', 'papa', 'mama', 'nana', 'nani', 'dada', 'dadi',
 ]);
 
+// Strip emoji characters (supplementary plane + miscellaneous symbols) anywhere in a string
+const EMOJI_RE = /[\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu;
+
 /**
  * Strip WhatsApp/GC/SMS nickname suffixes to recover the "real" name.
  * Returns { firstName, lastName, cleaned }
@@ -65,7 +68,7 @@ function cleanWaName(name) {
     if (!name) return { firstName: null, lastName: null, cleaned: null };
 
     let s = name.replace(/\(.*?\)/g, '').trim();
-    s = s.replace(/^[\u{1F300}-\u{1FFFF}]+\s*/u, '').trim();
+    s = s.replace(EMOJI_RE, '').trim();
 
     const words = s.split(/\s+/).filter(Boolean);
     if (!words.length) return { firstName: null, lastName: null, cleaned: null };
@@ -99,7 +102,7 @@ function cleanWaName(name) {
 function cleanLiName(name) {
     if (!name) return { firstName: null, lastName: null, cleaned: null };
 
-    let s = name.replace(/^[\u{1F300}-\u{1FFFF}\u{2600}-\u{26FF}]+\s*/u, '').trim();
+    let s = name.replace(EMOJI_RE, '').trim();
 
     let nickname = null;
     s = s.replace(/\(([^)]+)\)/g, (_, n) => { nickname = n.toLowerCase(); return ''; }).trim();
@@ -501,4 +504,20 @@ function run() {
     });
 }
 
-run();
+if (require.main === module) {
+    run();
+}
+
+module.exports = {
+    COMMON_NAMES,
+    INSTITUTION_ABBREVS,
+    RELATION_WORDS,
+    cleanWaName,
+    cleanLiName,
+    cleanBySource,
+    lev,
+    fuzzyMatch,
+    inferCountryFromPhone,
+    scoreGenericPair,
+    matchGroups,
+};

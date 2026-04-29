@@ -517,18 +517,26 @@ function normalizeLocation(locationStr) {
     if (!locationStr) return null;
     const lower = locationStr.toLowerCase();
 
+    function matchAtWordBoundary(str, alias) {
+        const idx = str.indexOf(alias);
+        if (idx === -1) return false;
+        const before = idx > 0 ? str[idx - 1] : '';
+        const after  = idx + alias.length < str.length ? str[idx + alias.length] : '';
+        return !/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after);
+    }
+
     // Pass 1: city-level matches only
     for (const alias of LOCATION_ALIASES_SORTED) {
         const canonical = LOCATION_ALIAS_MAP[alias];
         if (COUNTRY_CANONICALS.has(canonical)) continue;
-        if (lower.includes(alias)) return canonical;
+        if (matchAtWordBoundary(lower, alias)) return canonical;
     }
 
     // Pass 2: country-level fallback
     for (const alias of LOCATION_ALIASES_SORTED) {
         const canonical = LOCATION_ALIAS_MAP[alias];
         if (!COUNTRY_CANONICALS.has(canonical)) continue;
-        if (lower.includes(alias)) return canonical;
+        if (matchAtWordBoundary(lower, alias)) return canonical;
     }
 
     return null;
@@ -667,10 +675,19 @@ function filterIndex(index, parsed) {
  * @param {{ locations: string[], roles: string[], intent: string }} parsed
  * @returns {string}
  */
+const UPPERCASE_LOCATIONS = new Set(['uk', 'us', 'usa', 'uae', 'dc', 'nz', 'hk', 'sg']);
+
+function titleCaseLocation(loc) {
+    return loc.split(/\s+/)
+        .filter(Boolean)
+        .map(w => UPPERCASE_LOCATIONS.has(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+}
+
 function describeQuery(parsed) {
     const parts = [];
     if (parsed.roles.length > 0)     parts.push(parsed.roles.join('/') + 's');
-    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(' or '));
+    if (parsed.locations.length > 0) parts.push('in ' + parsed.locations.map(l => titleCaseLocation(l)).join(' or '));
     const intentLabel = {
         meet:      'sorted by who you should meet',
         reconnect: 'sorted by longest since you spoke',

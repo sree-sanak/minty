@@ -15,11 +15,13 @@ const { createInteraction } = require('./schema');
 const {
     normalizePhone,
     normalizeEmail,
+    emailKey,
     normalizeName,
     recencyScore,
     frequencyScore,
     channelScore,
     ContactIndex,
+    atomicWriteJsonSync,
 } = require('./utils');
 
 const DATA = process.env.CRM_DATA_DIR || path.join(__dirname, '../data');
@@ -417,7 +419,9 @@ function applyOverrides(index) {
             if (!a.phones.includes(p)) { a.phones.push(p); index.byPhone[p] = a; }
         }
         for (const e of b.emails) {
-            if (!a.emails.includes(e)) { a.emails.push(e); index.byEmail[e] = a; }
+            if (!a.emails.includes(e)) { a.emails.push(e); }
+            const ek = emailKey(e);
+            if (ek) index.byEmail[ek] = a;
         }
         if (!a.name && b.name) a.name = b.name;
 
@@ -579,16 +583,10 @@ function run() {
     const now = new Date().toISOString();
     index.contacts.forEach(c => { c.updatedAt = now; });
 
-    fs.writeFileSync(
-        path.join(outDir, 'contacts.json'),
-        JSON.stringify(index.contacts, null, 2)
-    );
+    atomicWriteJsonSync(path.join(outDir, 'contacts.json'), index.contacts);
     console.log(`\nUnified contacts: ${index.contacts.length} → data/unified/contacts.json`);
 
-    fs.writeFileSync(
-        path.join(outDir, 'interactions.json'),
-        JSON.stringify(interactions, null, 2)
-    );
+    atomicWriteJsonSync(path.join(outDir, 'interactions.json'), interactions);
     console.log(`Unified interactions: ${interactions.length} → data/unified/interactions.json`);
 }
 
@@ -597,5 +595,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+    waStableId,
+    liStableId,
+    buildPhoneBridge,
+    buildInteractions,
+    buildInteractionIndex,
+    getContactInteractionStats,
     loadWhatsAppRosters,
+    computeRelationshipScores,
+    applyOverrides,
 };

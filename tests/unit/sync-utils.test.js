@@ -8,7 +8,7 @@ const { formatSyncAge, getSyncDotState, getOverallSyncHealth } = require('../../
 // formatSyncAge
 // ---------------------------------------------------------------------------
 
-const NOW = Date.now();
+const NOW = Date.parse('2026-04-28T12:00:00.000Z'); // Pinned for deterministic age calculations.
 
 test('formatSyncAge: null returns "never"', () => {
     assert.equal(formatSyncAge(null, NOW), 'never');
@@ -51,6 +51,26 @@ test('formatSyncAge: 5 days ago', () => {
 test('formatSyncAge: 2 months ago', () => {
     const iso = new Date(NOW - 65 * 86400 * 1000).toISOString();
     assert.equal(formatSyncAge(iso, NOW), '2 months ago');
+});
+
+test('formatSyncAge: 1 month ago', () => {
+    const iso = new Date(NOW - 35 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 month ago');
+});
+
+test('formatSyncAge: 1 year ago', () => {
+    const iso = new Date(NOW - 370 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 year ago');
+});
+
+test('formatSyncAge: 2 years ago', () => {
+    const iso = new Date(NOW - 800 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '2 years ago');
+});
+
+test('formatSyncAge: 18 months shows as 1 year ago', () => {
+    const iso = new Date(NOW - 548 * 86400 * 1000).toISOString();
+    assert.equal(formatSyncAge(iso, NOW), '1 year ago');
 });
 
 test('formatSyncAge: future timestamp returns "just now"', () => {
@@ -125,7 +145,7 @@ test('getOverallSyncHealth: all ok returns ok', () => {
     const result = getOverallSyncHealth({
         whatsapp: { status: 'ok', lastSyncAt: iso },
         email: { status: 'ok', lastSyncAt: iso },
-    });
+    }, NOW);
     assert.equal(result.state, 'ok');
     assert.equal(result.message, 'All sources current');
 });

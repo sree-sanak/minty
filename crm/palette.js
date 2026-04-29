@@ -49,7 +49,8 @@ function scoreString(haystack, needle) {
     let score = isWordStart ? 60 : 40;
     score += Math.max(0, 20 - idx);
     score += Math.min(15, Math.round((n.length / h.length) * 15));
-    return score;
+    // Cap substring score below startsWith (70) to preserve ranking hierarchy
+    return Math.min(score, 69);
 }
 
 /**

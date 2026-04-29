@@ -5027,7 +5027,9 @@ function fmtSyncAge(iso) {
   if (days === 1) return '1 day ago';
   if (days < 30) return days + ' days ago';
   const months = Math.floor(days / 30);
-  return months + (months === 1 ? ' month ago' : ' months ago');
+  if (months < 12) return months + (months === 1 ? ' month ago' : ' months ago');
+  const years = Math.floor(days / 365);
+  return years + (years === 1 ? ' year ago' : ' years ago');
 }
 
 function getSyncDotClass(key) {

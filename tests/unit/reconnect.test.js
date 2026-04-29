@@ -29,6 +29,18 @@ test('reconnect/daysToTimePhrase: 14 days → "a couple weeks"', () => {
     assert.equal(daysToTimePhrase(14), 'a couple weeks');
 });
 
+test('reconnect/daysToTimePhrase: 25 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(25), 'about a month');
+});
+
+test('reconnect/daysToTimePhrase: 30 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(30), 'about a month');
+});
+
+test('reconnect/daysToTimePhrase: 45 days → "about a month"', () => {
+    assert.equal(daysToTimePhrase(45), 'about a month');
+});
+
 test('reconnect/daysToTimePhrase: 60 days → "a couple months"', () => {
     assert.equal(daysToTimePhrase(60), 'a couple months');
 });
@@ -199,4 +211,28 @@ test('reconnect/regenerateDraft: no null or undefined in output', () => {
     const result = regenerateDraft('Short text.', 'Jay');
     assert.ok(!result.includes('null'));
     assert.ok(!result.includes('undefined'));
+});
+
+// ---------------------------------------------------------------------------
+// alternateOpener — punctuation when draft is a single sentence
+// ---------------------------------------------------------------------------
+
+test('reconnect/alternateOpener: single-sentence draft never produces double periods', () => {
+    const result = alternateOpener('Only one sentence here.', 'Alex');
+    assert.ok(!result.includes('..'), `double period found in: "${result}"`);
+});
+
+test('reconnect/alternateOpener: single-sentence draft never produces em-dash then period', () => {
+    const cases = [
+        { input: 'X sentence.', expectedPrefix: 'Hi Alex!' },
+        { input: 'XX sentence.', expectedPrefix: 'Alex!' },
+        { input: ' sentence.', expectedPrefix: 'Hey Alex,' },
+    ];
+
+    for (const { input, expectedPrefix } of cases) {
+        const result = alternateOpener(input, 'Alex');
+        assert.ok(result.startsWith(expectedPrefix), `expected ${expectedPrefix} opener, got: "${result}"`);
+        assert.ok(!result.includes('—.'), `em-dash + period found in: "${result}"`);
+        assert.ok(!result.includes('..'), `double period found in: "${result}"`);
+    }
 });

@@ -110,6 +110,7 @@ const TOPICS = {
     sales:     ['the pipeline', 'Q3 forecast', 'pricing push', 'enterprise deal', 'onboarding friction'],
     legal:     ['the SAFE', 'IP assignment', 'the MSA', 'side letter', 'non-compete'],
     hr:        ['sourcing plan', 'offer negotiation', 'the IC ladder', 'onboarding flow'],
+    insurtech: ['EU insurance distribution', 'crypto risk frameworks', 'Solvency II compliance', 'DeFi coverage models', 'MiCA regulation', 'parametric insurance'],
 };
 
 function roleCategory(title = '') {
@@ -166,6 +167,32 @@ function generateContacts(N = 40, seed = 20260423) {
             company, title, industry, location, category, coverage,
         });
     }
+    // -- Deterministic EU crypto-insurance personas --
+    // Only appended for full-size demo sets (N >= 40) so small-N test calls
+    // still return exactly N contacts. Placed after the PRNG loop so the
+    // random stream for the first N contacts is unchanged.
+    if (N < 40) return contacts;
+    const CRYPTO_INSURANCE_PERSONAS = [
+        { fullName: 'Lena Bauer',   company: 'Etherisc',          title: 'Head of EU Distribution',    industry: 'InsurTech',       location: 'Berlin' },
+        { fullName: 'Marco Visser', company: 'Munich Re Digital', title: 'Director, Crypto Risk',      industry: 'Insurance',       location: 'Munich' },
+        { fullName: 'Anika Roth',   company: 'Nexo Insurance',    title: 'VP, Regulatory Compliance',  industry: 'Crypto Insurance', location: 'Zurich' },
+    ];
+    for (const p of CRYPTO_INSURANCE_PERSONAS) {
+        if (names.has(p.fullName)) continue;
+        names.add(p.fullName);
+        const slug = p.fullName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
+        contacts.push({
+            idx: contacts.length,
+            fullName: p.fullName,
+            slug,
+            phone: '+49' + String(3000000000 + contacts.length),
+            email: slug.replace(/-/g, '.') + '@' + p.company.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com',
+            company: p.company, title: p.title, industry: p.industry,
+            location: p.location, category: 'insurtech',
+            coverage: { whatsapp: true, linkedin: true, telegram: true, email: true, sms: true, gc: true },
+        });
+    }
+
     return contacts;
 }
 

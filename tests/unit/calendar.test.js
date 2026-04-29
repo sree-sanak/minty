@@ -120,6 +120,19 @@ test('[Calendar]: buildEmailIndex handles contacts with no emails', () => {
     assert.equal(idx.size, 0);
 });
 
+test('[Calendar]: buildEmailIndex indexes plain-string emails (schema format)', () => {
+    // The unified schema stores emails as plain strings: ["alice@example.com"]
+    // not as objects: [{ email: "alice@example.com" }]
+    const contacts = [
+        { id: 'c_001', name: 'Alice', emails: ['alice@example.com'], isGroup: false },
+        { id: 'c_002', name: 'Bob',   emails: ['BOB@EXAMPLE.COM'],   isGroup: false },
+    ];
+    const idx = buildEmailIndex(contacts);
+    assert.ok(idx.has('alice@example.com'), 'should index plain-string email');
+    assert.ok(idx.has('bob@example.com'), 'should lowercase plain-string email');
+    assert.equal(idx.get('alice@example.com').id, 'c_001');
+});
+
 test('[Calendar]: buildEmailIndex handles multiple emails per contact', () => {
     const contacts = [
         {
@@ -223,8 +236,9 @@ test('[Calendar]: processMeetings filters out invalid events', () => {
     assert.equal(result[0].id, 'valid');
 });
 
-test('[Calendar]: processMeetings enriches attendees from contacts', () => {
-    const contacts = [{ id: 'c_001', name: 'Alice', emails: [{ email: 'alice@example.com' }], isGroup: false, relationshipScore: 60 }];
+test('[Calendar]: processMeetings enriches attendees from contacts (schema format)', () => {
+    // Use plain-string emails matching the unified contact schema
+    const contacts = [{ id: 'c_001', name: 'Alice', emails: ['alice@example.com'], isGroup: false, relationshipScore: 60 }];
     const events = [{
         id: 'e1', summary: 'Meeting', start: { dateTime: '2026-03-20T10:00:00Z' }, end: { dateTime: '2026-03-20T11:00:00Z' },
         attendees: [{ email: 'alice@example.com', displayName: 'Alice' }],

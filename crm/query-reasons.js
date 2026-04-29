@@ -46,6 +46,8 @@ const TERM_EXPANSIONS = {
     'legal':        ['legal', 'counsel', 'compliance', 'lawyer', 'attorney', 'privacy'],
     'mobile':       ['mobile', 'ios', 'android', 'react native', 'flutter', 'swift', 'kotlin'],
     'web3':         ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao'],
+    'insurance':    ['insurance', 'insurtech', 'insurer', 'reinsurance', 'underwriting', 'solvency', 'risk', 'distribution'],
+    'crypto':       ['crypto', 'web3', 'blockchain', 'defi', 'digital assets', 'token'],
     'climate':      ['climate', 'sustainability', 'carbon', 'net zero', 'clean tech', 'energy'],
     // Stage / corporate structure
     'seed':         ['seed', 'pre-seed', 'angel', 'first check', 'idea stage'],
@@ -269,5 +271,7 @@ module.exports = {
     buildReasons,
     annotateResults,
     collectContactText,
+    explainKeywordMatch,
+    titleCase,
     TERM_EXPANSIONS,
 };

@@ -73,3 +73,56 @@ test('[Debrief] summariseDebrief describes the entry', () => {
     assert.match(summariseDebrief(entry), /2 action items.*notes/);
     assert.equal(summariseDebrief(null), null);
 });
+
+// --- summariseDebrief edge cases (characterization: pins existing display logic) ---
+
+test('[Debrief] summariseDebrief: singular action item', () => {
+    const entry = { outcome: '', actionItems: [{ text: 'follow up' }], stageMoves: [] };
+    assert.equal(summariseDebrief(entry), '1 action item');
+});
+
+test('[Debrief] summariseDebrief: stage moves are rendered', () => {
+    const entry = { outcome: '', actionItems: [], stageMoves: [{ contactId: 'c1', stage: 'Contacted' }] };
+    assert.equal(summariseDebrief(entry), '1 stage move');
+});
+
+test('[Debrief] summariseDebrief: plural stage moves', () => {
+    const entry = { outcome: '', actionItems: [], stageMoves: [
+        { contactId: 'c1', stage: 'Contacted' },
+        { contactId: 'c2', stage: 'Pitched' },
+    ] };
+    assert.equal(summariseDebrief(entry), '2 stage moves');
+});
+
+test('[Debrief] summariseDebrief: all parts combined', () => {
+    const entry = {
+        outcome: 'went well',
+        actionItems: [{ text: 'send deck' }],
+        stageMoves: [{ contactId: 'c1', stage: 'Pitched' }],
+    };
+    assert.equal(summariseDebrief(entry), '1 action item · 1 stage move · notes');
+});
+
+test('[Debrief] summariseDebrief: empty entry returns "logged"', () => {
+    const entry = { outcome: '', actionItems: [], stageMoves: [] };
+    assert.equal(summariseDebrief(entry), 'logged');
+});
+
+test('[Debrief] summariseDebrief: outcome-only returns "notes"', () => {
+    const entry = { outcome: 'good chat', actionItems: [], stageMoves: [] };
+    assert.equal(summariseDebrief(entry), 'notes');
+});
+
+test('[Debrief] summariseDebrief: missing arrays treated as empty', () => {
+    const entry = { outcome: 'ok' };
+    assert.equal(summariseDebrief(entry), 'notes');
+});
+
+test('[Debrief] summariseDebrief: missing outcome treated as empty', () => {
+    const entry = { actionItems: [], stageMoves: [] };
+    assert.equal(summariseDebrief(entry), 'logged');
+});
+
+test('[Debrief] summariseDebrief: missing fields returns "logged"', () => {
+    assert.equal(summariseDebrief({}), 'logged');
+});

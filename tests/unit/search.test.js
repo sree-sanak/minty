@@ -184,6 +184,31 @@ test('[Search] limit caps result count', () => {
     assert.equal(r.results.length, 10);
 });
 
+test('[Search] parseQuery: short prefix (a*) strips star and becomes token', () => {
+    // "a*" is too short for prefix mode (need > 2 chars including star body).
+    // The * should be stripped so we don't search for literal "a*".
+    const clauses = parseQuery('a*');
+    assert.equal(clauses.length, 1);
+    assert.equal(clauses[0].kind, 'token');
+    assert.equal(clauses[0].value, 'a'); // NOT "a*"
+});
+
+test('[Search] parseQuery: 2-char prefix body (ab*) qualifies as prefix', () => {
+    const clauses = parseQuery('ab*');
+    assert.equal(clauses.length, 1);
+    assert.equal(clauses[0].kind, 'prefix');
+    assert.equal(clauses[0].value, 'ab');
+});
+
+test('[Search] short prefix token still matches as substring', () => {
+    const interactions = [
+        mkInter({ body: 'Meeting with Alice about the A round' }),
+    ];
+    // "a*" should match "a" as a regular token (substring), not literal "a*"
+    const r = searchInteractions(interactions, 'a*');
+    assert.ok(r.results.length > 0, 'short prefix should fall back to token match');
+});
+
 test('[Search] dominantTokens drops stop-words and hapaxes', () => {
     const text = 'fundraise round round investor seed round the the and but';
     const toks = dominantTokens(text, { min: 2, topN: 5 });
@@ -191,4 +216,135 @@ test('[Search] dominantTokens drops stop-words and hapaxes', () => {
     assert.ok(names.includes('round'));
     assert.ok(!names.includes('the'));
     assert.ok(!names.includes('fundraise')); // appears only once — excluded by min:2
+});
+
+// ---------------------------------------------------------------------------
+// dominantTokens — additional edge cases
+// ---------------------------------------------------------------------------
+
+test('[Search] dominantTokens returns empty for null/empty input', () => {
+    assert.deepEqual(dominantTokens(null), []);
+    assert.deepEqual(dominantTokens(''), []);
+    assert.deepEqual(dominantTokens(undefined), []);
+});
+
+test('[Search] dominantTokens drops words shorter than 4 chars', () => {
+    const toks = dominantTokens('a bb ccc dddd dddd eeee eeee', { min: 1 });
+    const names = toks.map(t => t.token);
+    assert.ok(!names.includes('a'));
+    assert.ok(!names.includes('bb'));
+    assert.ok(!names.includes('ccc'));
+    assert.ok(names.includes('dddd'));
+    assert.ok(names.includes('eeee'));
+});
+
+test('[Search] dominantTokens respects topN limit', () => {
+    const text = 'alpha alpha beta beta gamma gamma delta delta epsilon epsilon zeta zeta';
+    const toks = dominantTokens(text, { min: 1, topN: 3 });
+    assert.equal(toks.length, 3);
+});
+
+test('[Search] dominantTokens returns tokens sorted by frequency desc', () => {
+    const text = 'invest invest invest round round seed';
+    const toks = dominantTokens(text, { min: 1, topN: 10 });
+    assert.equal(toks[0].token, 'invest');
+    assert.equal(toks[0].count, 3);
+    assert.equal(toks[1].token, 'round');
+    assert.equal(toks[1].count, 2);
+});
+
+test('[Search] dominantTokens ignores stop-words regardless of frequency', () => {
+    const text = 'would would would could could should should have have have';
+    const toks = dominantTokens(text, { min: 1 });
+    const names = toks.map(t => t.token);
+    assert.ok(!names.includes('would'));
+    assert.ok(!names.includes('could'));
+    assert.ok(!names.includes('should'));
+    assert.ok(!names.includes('have'));
+});
+
+test('[Search] dominantTokens handles mixed case and punctuation', () => {
+    const text = 'Fundraise FUNDRAISE fundraise! meeting meeting?';
+    const toks = dominantTokens(text, { min: 2 });
+    const names = toks.map(t => t.token);
+    assert.ok(names.includes('fundraise'));
+    assert.ok(names.includes('meeting'));
+});
+
+// ---------------------------------------------------------------------------
+// searchInteractions — filter edge cases
+// ---------------------------------------------------------------------------
+
+test('[Search] contactId filter restricts to specific contact', () => {
+    const interactions = [
+        mkInter({ body: 'coffee plan', _contactId: 'c_1' }),
+        mkInter({ id: 'i_2', body: 'coffee plan', _contactId: 'c_2' }),
+    ];
+    const r = searchInteractions(interactions, 'coffee', { contactId: 'c_1' });
+    assert.equal(r.results.length, 1);
+    assert.equal(r.results[0].contactId, 'c_1');
+});
+
+test('[Search] chatId filter restricts to specific conversation', () => {
+    const interactions = [
+        mkInter({ body: 'coffee plan', chatId: 'chat_a' }),
+        mkInter({ id: 'i_2', body: 'coffee plan', chatId: 'chat_b' }),
+    ];
+    const r = searchInteractions(interactions, 'coffee', { chatId: 'chat_a' });
+    assert.equal(r.results.length, 1);
+    assert.equal(r.results[0].chatId, 'chat_a');
+});
+
+test('[Search] until filter excludes messages at or after the cutoff', () => {
+    const interactions = [
+        mkInter({ timestamp: '2026-04-01T00:00:00Z', body: 'early coffee' }),
+        mkInter({ id: 'i_2', timestamp: '2026-04-15T00:00:00Z', body: 'late coffee' }),
+    ];
+    const r = searchInteractions(interactions, 'coffee', { until: '2026-04-10T00:00:00Z' });
+    assert.equal(r.results.length, 1);
+    assert.ok(r.results[0].snippet.toLowerCase().includes('early'));
+});
+
+test('[Search] since + until together defines a date window', () => {
+    const interactions = [
+        mkInter({ id: 'i_1', timestamp: '2026-01-01T00:00:00Z', body: 'coffee jan' }),
+        mkInter({ id: 'i_2', timestamp: '2026-03-15T00:00:00Z', body: 'coffee mar' }),
+        mkInter({ id: 'i_3', timestamp: '2026-06-01T00:00:00Z', body: 'coffee jun' }),
+    ];
+    const r = searchInteractions(interactions, 'coffee', {
+        since: '2026-02-01T00:00:00Z',
+        until: '2026-05-01T00:00:00Z',
+    });
+    assert.equal(r.results.length, 1);
+    assert.ok(r.results[0].snippet.toLowerCase().includes('mar'));
+});
+
+test('[Search] excludeGroups: false includes @g.us chats', () => {
+    const interactions = [
+        mkInter({ chatId: 'group@g.us', body: 'pizza tonight' }),
+        mkInter({ id: 'i_2', chatId: 'direct@c.us', body: 'pizza?' }),
+    ];
+    const r = searchInteractions(interactions, 'pizza', { excludeGroups: false });
+    assert.equal(r.results.length, 2);
+});
+
+test('[Search] interactions without timestamp are filtered by since/until', () => {
+    const interactions = [
+        mkInter({ timestamp: null, body: 'coffee mystery' }),
+        mkInter({ id: 'i_2', timestamp: '2026-04-10T00:00:00Z', body: 'coffee dated' }),
+    ];
+    // since filter should exclude null-timestamp messages
+    const r = searchInteractions(interactions, 'coffee', { since: '2026-01-01T00:00:00Z' });
+    assert.equal(r.results.length, 1);
+    assert.ok(r.results[0].snippet.toLowerCase().includes('dated'));
+});
+
+test('[Search] source filter accepts single string (not just array)', () => {
+    const interactions = [
+        mkInter({ source: 'email', body: 'coffee' }),
+        mkInter({ id: 'i_2', source: 'whatsapp', body: 'coffee' }),
+    ];
+    const r = searchInteractions(interactions, 'coffee', { source: 'whatsapp' });
+    assert.equal(r.results.length, 1);
+    assert.equal(r.results[0].source, 'whatsapp');
 });

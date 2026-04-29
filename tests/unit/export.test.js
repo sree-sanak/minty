@@ -104,3 +104,60 @@ test('[Export] bundle is stable — exporting twice produces identical content s
     assert.deepEqual(a, b);
     fs.rmSync(d, { recursive: true, force: true });
 });
+
+// ---------------------------------------------------------------------------
+// Tamper detection & corruption robustness
+// ---------------------------------------------------------------------------
+
+test('[Export] tampered ciphertext is rejected by GCM', () => {
+    const d = makeTempData();
+    const b = readBundle(d);
+    const { buffer } = serialise(b, { passphrase: 'seal' });
+    // Flip a byte in the ciphertext region (past header+salt+iv+tag = 48 bytes)
+    const tampered = Buffer.from(buffer);
+    tampered[50] ^= 0xff;
+    assert.throws(() => deserialise(tampered, { passphrase: 'seal' }));
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Export] tampered auth tag is rejected by GCM', () => {
+    const d = makeTempData();
+    const b = readBundle(d);
+    const { buffer } = serialise(b, { passphrase: 'seal' });
+    // Flip a byte in the auth tag region (bytes 32–47)
+    const tampered = Buffer.from(buffer);
+    tampered[35] ^= 0xff;
+    assert.throws(() => deserialise(tampered, { passphrase: 'seal' }));
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Export] truncated encrypted buffer throws', () => {
+    const d = makeTempData();
+    const b = readBundle(d);
+    const { buffer } = serialise(b, { passphrase: 'seal' });
+    // Slice off the last 20 bytes — incomplete ciphertext
+    const truncated = buffer.slice(0, buffer.length - 20);
+    assert.throws(() => deserialise(truncated, { passphrase: 'seal' }));
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Export] truncated plaintext gzip throws', () => {
+    const d = makeTempData();
+    const b = readBundle(d);
+    const { buffer } = serialise(b);
+    // Slice off the last 10 bytes — incomplete gzip stream
+    const truncated = buffer.slice(0, buffer.length - 10);
+    assert.throws(() => deserialise(truncated));
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Export] deserialise rejects non-Buffer input', () => {
+    assert.throws(() => deserialise('not a buffer'), /Buffer/);
+    assert.throws(() => deserialise(null));
+    assert.throws(() => deserialise(123));
+});
+
+test('[Export] deserialise rejects random garbage bytes', () => {
+    const garbage = Buffer.from('not-gzip-at-all-just-random-text');
+    assert.throws(() => deserialise(garbage));
+});

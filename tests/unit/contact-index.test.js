@@ -130,3 +130,60 @@ test('ContactIndex: count reflects total contacts', () => {
     idx.upsert([], ['c@test.com'], 'C');
     assert.equal(idx.contacts.length, 3);
 });
+
+// ---------------------------------------------------------------------------
+// Email canonicalization dedup (emailKey integration)
+// ---------------------------------------------------------------------------
+
+test('ContactIndex: Gmail dot-insensitive dedup', () => {
+    const idx = new ContactIndex();
+    const first = idx.upsert([], ['j.doe@gmail.com'], 'Jane Doe');
+    const second = idx.upsert([], ['jdoe@gmail.com'], null);
+    assert.equal(first, second, 'Gmail dots should not split contacts');
+    assert.equal(idx.contacts.length, 1);
+});
+
+test('ContactIndex: Gmail plus-addressing dedup', () => {
+    const idx = new ContactIndex();
+    const first = idx.upsert([], ['alice@gmail.com'], 'Alice');
+    const second = idx.upsert([], ['alice+newsletter@gmail.com'], null);
+    assert.equal(first, second, 'Gmail plus-addressing should not split contacts');
+    assert.equal(idx.contacts.length, 1);
+});
+
+test('ContactIndex: non-Gmail plus-addressing is NOT deduped', () => {
+    const idx = new ContactIndex();
+    idx.upsert([], ['sales+alice@example.com'], 'Alice');
+    idx.upsert([], ['sales+bob@example.com'], 'Bob');
+    assert.equal(idx.contacts.length, 2, 'non-Gmail plus tags can route to distinct people');
+});
+
+test('ContactIndex: Gmail dots + plus combined dedup', () => {
+    const idx = new ContactIndex();
+    const first = idx.upsert([], ['j.doe+work@gmail.com'], 'Jane');
+    const second = idx.upsert([], ['jdoe@gmail.com'], null);
+    assert.equal(first, second);
+    assert.equal(idx.contacts.length, 1);
+});
+
+test('ContactIndex: non-Gmail dots are NOT deduped', () => {
+    const idx = new ContactIndex();
+    idx.upsert([], ['j.doe@outlook.com'], 'Jane');
+    idx.upsert([], ['jdoe@outlook.com'], 'Jdoe');
+    assert.equal(idx.contacts.length, 2, 'non-Gmail dots are significant');
+});
+
+test('ContactIndex: find returns contact by canonical email key', () => {
+    const idx = new ContactIndex();
+    const c = idx.upsert([], ['j.doe+tag@gmail.com'], 'Jane');
+    assert.equal(idx.find([], ['jdoe@gmail.com'], null), c);
+});
+
+test('ContactIndex: both email variants stored in contact.emails', () => {
+    const idx = new ContactIndex();
+    idx.upsert([], ['j.doe@gmail.com'], 'Jane');
+    idx.upsert([], ['jdoe+tag@gmail.com'], null);
+    const c = idx.find([], ['jdoe@gmail.com'], null);
+    assert.ok(c.emails.includes('j.doe@gmail.com'), 'original form preserved');
+    assert.ok(c.emails.includes('jdoe+tag@gmail.com'), 'second variant also stored');
+});

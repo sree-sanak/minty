@@ -6,10 +6,12 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
+    EVENT_PATTERNS,
     detectAnnouncementEvents,
     detectBirthday,
     detectJobChange,
     detectAllEvents,
+    rankEvents,
 } = require('../../crm/life-events');
 
 const NOW = new Date('2026-04-20T12:00:00Z').getTime();
@@ -114,4 +116,208 @@ test('[Events] snippet is bounded and readable', () => {
     const msgs = [msg('them', longMsg)];
     const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
     assert.ok(e[0].snippet.length < 150);
+});
+
+// ---------------------------------------------------------------------------
+// detectBirthday — alternate formats and label branches
+// ---------------------------------------------------------------------------
+
+test('[Events] birthday with --MM-DD format (no year) is detected', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '--04-25' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.kind, 'birthday');
+    assert.equal(b.daysAway, 5);
+});
+
+test('[Events] birthday with MM-DD format (no year prefix) is detected', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '04-25' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.kind, 'birthday');
+    assert.equal(b.daysAway, 5);
+});
+
+test('[Events] birthday today shows "Birthday today" label', () => {
+    // Use midnight so same-day comparison doesn't wrap to next year
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-20' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.label, 'Birthday today');
+    assert.equal(b.daysAway, 0);
+});
+
+test('[Events] birthday tomorrow shows "Birthday tomorrow" label', () => {
+    const midnight = new Date('2026-04-20T00:00:00Z').getTime();
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-21' } } };
+    const b = detectBirthday(c, { now: midnight });
+    assert.ok(b);
+    assert.equal(b.label, 'Birthday tomorrow');
+    assert.equal(b.daysAway, 1);
+});
+
+test('[Events] birthday with no sources returns null', () => {
+    const c = { id: 'c_1', name: 'X' };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday with empty googleContacts returns null', () => {
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: {} } };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday with invalid string returns null', () => {
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: 'not-a-date' } } };
+    assert.equal(detectBirthday(c, { now: NOW }), null);
+});
+
+test('[Events] birthday wraps to next year if date already passed', () => {
+    // April 10 is before April 20 (NOW), so next occurrence is April 10 next year
+    const c = { id: 'c_1', name: 'X', sources: { googleContacts: { birthday: '1990-04-10' } } };
+    const b = detectBirthday(c, { now: NOW, within: 400 });
+    assert.ok(b);
+    assert.ok(b.daysAway > 300, 'should wrap to next year, got ' + b.daysAway);
+});
+
+// ---------------------------------------------------------------------------
+// detectAnnouncementEvents — untested pattern kinds
+// ---------------------------------------------------------------------------
+
+test('[Events] detects promotion announcements', () => {
+    const msgs = [msg('them', 'got promoted to VP of Engineering last week')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'job_change');
+    assert.equal(e[0].label, 'Promotion');
+});
+
+test('[Events] detects life moment — engagement', () => {
+    const msgs = [msg('them', 'we got engaged over the weekend!')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'life_moment');
+});
+
+test('[Events] detects reconnection pattern', () => {
+    const msgs = [msg('them', 'great to catch up after such a long time!')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'reconnection');
+});
+
+test('[Events] detects acquisition announcement', () => {
+    const msgs = [msg('them', 'big news — we got acquired by Microsoft')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'milestone');
+    assert.equal(e[0].label, 'Acquisition');
+});
+
+test('[Events] skips messages with very short body', () => {
+    const msgs = [msg('them', 'hi')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 0);
+});
+
+test('[Events] detectJobChange returns null when linkedin company is missing', () => {
+    const c = {
+        id: 'c_1', name: 'X',
+        sources: { linkedin: { position: 'Engineer' } },
+        apollo: { employmentHistory: [{ organization_name: 'Google' }] },
+    };
+    assert.equal(detectJobChange(c), null);
+});
+
+test('[Events] detectJobChange returns null when apollo history is missing', () => {
+    const c = {
+        id: 'c_1', name: 'X',
+        sources: { linkedin: { company: 'Stripe' } },
+    };
+    assert.equal(detectJobChange(c), null);
+});
+
+test('[Events] detectAllEvents skips group contacts', () => {
+    const group = { id: 'g_1', name: 'Family Chat', isGroup: true };
+    const ixn = { g_1: [msg('them', 'joining Stripe next month')] };
+    const events = detectAllEvents({ contacts: [group], interactionsByContactId: ixn, now: NOW });
+    assert.equal(events.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// rankEvents — direct tests for the scoring / sort function
+// ---------------------------------------------------------------------------
+
+test('[Events] rankEvents: empty array returns empty', () => {
+    assert.deepStrictEqual(rankEvents([]), []);
+});
+
+test('[Events] rankEvents: higher weight wins when timestamps are equal', () => {
+    const ts = '2026-04-18T00:00:00Z';
+    const low  = { kind: 'reconnection', weight: 2, timestamp: ts };
+    const high = { kind: 'funding',      weight: 6, timestamp: ts };
+    const sorted = rankEvents([low, high]);
+    assert.equal(sorted[0].kind, 'funding');
+    assert.equal(sorted[1].kind, 'reconnection');
+});
+
+test('[Events] rankEvents: more recent event wins when weights are equal', () => {
+    const old   = { kind: 'a', weight: 4, timestamp: '2026-01-01T00:00:00Z' };
+    const fresh = { kind: 'b', weight: 4, timestamp: '2026-04-18T00:00:00Z' };
+    const sorted = rankEvents([old, fresh]);
+    assert.equal(sorted[0].kind, 'b');
+    assert.equal(sorted[1].kind, 'a');
+});
+
+test('[Events] rankEvents: null timestamp is treated as very old', () => {
+    const noTs   = { kind: 'x', weight: 4, timestamp: null };
+    const recent = { kind: 'y', weight: 4, timestamp: '2026-04-18T00:00:00Z' };
+    const sorted = rankEvents([noTs, recent]);
+    assert.equal(sorted[0].kind, 'y');
+});
+
+test('[Events] rankEvents: does not mutate original array', () => {
+    const a = { kind: 'a', weight: 1, timestamp: '2026-04-18T00:00:00Z' };
+    const b = { kind: 'b', weight: 5, timestamp: '2026-04-18T00:00:00Z' };
+    const input = [a, b];
+    const sorted = rankEvents(input);
+    assert.notStrictEqual(sorted, input, 'rankEvents should return a new array');
+    assert.equal(input[0].kind, 'a', 'original first item should be unchanged');
+    assert.equal(input[1].kind, 'b', 'original second item should be unchanged');
+});
+
+// ---------------------------------------------------------------------------
+// EVENT_PATTERNS export — structural sanity
+// ---------------------------------------------------------------------------
+
+test('[Events] EVENT_PATTERNS is exported and each entry has required fields', () => {
+    assert.ok(Array.isArray(EVENT_PATTERNS));
+    assert.ok(EVENT_PATTERNS.length > 0);
+    for (const p of EVENT_PATTERNS) {
+        assert.ok(p.kind, 'each pattern needs a kind');
+        assert.ok(p.label, 'each pattern needs a label');
+        assert.ok(p.regex instanceof RegExp, 'each pattern needs a regex');
+        assert.ok(typeof p.weight === 'number' && p.weight > 0, 'each pattern needs a positive weight');
+    }
+});
+
+// ---------------------------------------------------------------------------
+// detectAnnouncementEvents — subject-line matching path
+// ---------------------------------------------------------------------------
+
+test('[Events] detects announcement in subject line (not just body)', () => {
+    const msgs = [msg('them', 'See details inside', { subject: 'We just launched on Product Hunt!' })];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'milestone');
+});
+
+test('[Events] detects location move pattern', () => {
+    const msgs = [msg('them', 'Hey, I am relocating to San Francisco next month')];
+    const e = detectAnnouncementEvents(contact, msgs, { now: NOW });
+    assert.equal(e.length, 1);
+    assert.equal(e[0].kind, 'life_moment');
+    assert.equal(e[0].label, 'Location move');
 });

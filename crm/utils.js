@@ -34,6 +34,35 @@ function normalizeEmail(email) {
     return email.toLowerCase().trim();
 }
 
+/**
+ * Canonical key for the email index: lowercased, with Gmail/Googlemail
+ * plus-addressing stripped and dots removed from the local part.
+ * Ensures "j.doe+work@gmail.com" and "jdoe@gmail.com" hit the same bucket.
+ * Returns null for empty/invalid input.
+ */
+const GMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com']);
+
+function emailKey(email) {
+    if (!email) return null;
+    const trimmed = email.toLowerCase().trim();
+    const at = trimmed.lastIndexOf('@');
+    if (at < 1) return null; // no local part or no @
+    let local = trimmed.slice(0, at);
+    const domain = trimmed.slice(at + 1);
+    if (!domain || !domain.includes('.')) return null; // no valid domain
+
+    if (GMAIL_DOMAINS.has(domain)) {
+        // Gmail treats plus tags and dots in the local part as insignificant.
+        // Keep plus tags for non-Gmail domains: some organizations use them as
+        // real routed addresses, and collapsing them can merge distinct people.
+        const plus = local.indexOf('+');
+        if (plus > 0) local = local.slice(0, plus);
+        local = local.replace(/\./g, '');
+    }
+
+    return `${local}@${domain}`;
+}
+
 // Normalize a name to "firstname lastname" (first two words, lowercased).
 // Used for fuzzy cross-source name matching.
 function normalizeName(name) {
@@ -109,8 +138,8 @@ class ContactIndex {
             if (k && this.byPhone[k]) return this.byPhone[k];
         }
         for (const e of emails) {
-            const n = normalizeEmail(e);
-            if (n && this.byEmail[n]) return this.byEmail[n];
+            const k = emailKey(e);
+            if (k && this.byEmail[k]) return this.byEmail[k];
         }
         if (name) {
             const key = name.toLowerCase().trim();
@@ -127,8 +156,8 @@ class ContactIndex {
             if (k) this.byPhone[k] = contact;
         }
         for (const e of contact.emails) {
-            const n = normalizeEmail(e);
-            if (n) this.byEmail[n] = contact;
+            const k = emailKey(e);
+            if (k) this.byEmail[k] = contact;
         }
         if (contact.name) {
             const key = contact.name.toLowerCase().trim();
@@ -150,10 +179,11 @@ class ContactIndex {
         }
         for (const e of other.emails) {
             const n = normalizeEmail(e);
+            const k = emailKey(e);
             if (n && !winner.emails.includes(n)) {
                 winner.emails.push(n);
-                this.byEmail[n] = winner;
             }
+            if (k) this.byEmail[k] = winner;
         }
         if (!winner.name && other.name) {
             winner.name = other.name;
@@ -189,10 +219,11 @@ class ContactIndex {
         }
         for (const e of emails) {
             const n = normalizeEmail(e);
+            const k = emailKey(e);
             if (n && !c.emails.includes(n)) {
                 c.emails.push(n);
-                this.byEmail[n] = c;
             }
+            if (k) this.byEmail[k] = c;
         }
         if (!c.name && name) {
             c.name = name;
@@ -230,7 +261,9 @@ function formatSyncAge(isoStr, now = Date.now()) {
     if (days === 1) return '1 day ago';
     if (days < 30) return days + ' days ago';
     const months = Math.floor(days / 30);
-    return months + (months === 1 ? ' month ago' : ' months ago');
+    if (months < 12) return months + (months === 1 ? ' month ago' : ' months ago');
+    const years = Math.floor(days / 365);
+    return years + (years === 1 ? ' year ago' : ' years ago');
 }
 
 /**
@@ -258,7 +291,7 @@ function getSyncDotState(sourceState, sourceType = 'live', now = Date.now()) {
  * @param {Object} syncState - keys: whatsapp, email, googleContacts, linkedin, telegram, sms
  * @returns {{ state: 'ok'|'stale'|'error'|'idle', message: string }}
  */
-function getOverallSyncHealth(syncState) {
+function getOverallSyncHealth(syncState, now = Date.now()) {
     const LABELS = {
         whatsapp: 'WhatsApp', email: 'Email', googleContacts: 'Google Contacts',
         linkedin: 'LinkedIn', telegram: 'Telegram', sms: 'SMS',
@@ -279,7 +312,7 @@ function getOverallSyncHealth(syncState) {
     for (const [key, s] of Object.entries(syncState)) {
         if (!LABELS[key]) continue;
         const type = FILE_SOURCES.has(key) ? 'file' : 'live';
-        if (getSyncDotState(s, type) === 'stale') {
+        if (getSyncDotState(s, type, now) === 'stale') {
             return { state: 'stale', message: `${LABELS[key]} is outdated — refresh?` };
         }
     }
@@ -380,12 +413,14 @@ function scoreContactForGoal(contact, goalText) {
     const isHire      = /\b(hire|hiring|recruit|talent|engineer|developer|cto|coo|team)\b/.test(lower);
     const isMarket    = /\b(market|sales|customer|client|business|expansion|growth|revenue)\b/.test(lower);
     const isAdvisor   = /\b(advisor|advice|mentor|expert|consult|strategy)\b/.test(lower);
+    const isIntro     = /\b(intros?|introduce|introduction|connect|network|warm)\b/.test(lower);
 
     let intentRoles = [];
     if (isFundraise) intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.fundraise);
     if (isHire)      intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.hire);
     if (isMarket)    intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.market);
     if (isAdvisor)   intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.advisor);
+    if (isIntro)     intentRoles = intentRoles.concat(GOAL_INTENT_ROLES.intro);
 
     // Role match score (up to 40)
     if (intentRoles.length > 0) {
@@ -434,10 +469,42 @@ function rankContactsForGoal(contacts, goalText, limit = 5) {
         .slice(0, limit);
 }
 
+/**
+ * Atomic JSON write: writes to a temp file in the same directory, then renames.
+ * Prevents partial/corrupt files if the process crashes mid-write.
+ */
+function atomicWriteJsonSync(filePath, data) {
+    const fs = require('fs');
+    const path = require('path');
+    const dir = path.dirname(filePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = filePath + '.tmp.' + process.pid;
+    let fd;
+    try {
+        fd = fs.openSync(tmp, 'w');
+        fs.writeSync(fd, JSON.stringify(data, null, 2), undefined, 'utf8');
+        fs.fsyncSync(fd);
+        fs.closeSync(fd);
+        fd = undefined;
+    } catch (err) {
+        if (fd !== undefined) try { fs.closeSync(fd); } catch (_) {}
+        try { fs.unlinkSync(tmp); } catch (_) {}
+        throw err;
+    }
+    fs.renameSync(tmp, filePath);
+    // fsync parent directory for rename durability (Linux)
+    try {
+        const dfd = fs.openSync(dir, 'r');
+        fs.fsyncSync(dfd);
+        fs.closeSync(dfd);
+    } catch (_) { /* best-effort — may fail on some platforms */ }
+}
+
 module.exports = {
     normalizePhone,
     phoneKey,
     normalizeEmail,
+    emailKey,
     normalizeName,
     recencyScore,
     frequencyScore,
@@ -451,4 +518,5 @@ module.exports = {
     healthRingOffset,
     scoreContactForGoal,
     rankContactsForGoal,
+    atomicWriteJsonSync,
 };
