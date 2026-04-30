@@ -5,12 +5,16 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
 
 const {
     resolveDataDir,
     resolveUuid,
     resolveUserDataDir,
     resolveGbrainInterval,
+    shapeGbrainStatus,
+    updateServiceStatus,
+    waitForChildExit,
 } = require('../../scripts/minty-service');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -110,4 +114,73 @@ test('[minty-service] resolveGbrainInterval: zero falls back to default', () => 
 
 test('[minty-service] resolveGbrainInterval: negative falls back to default', () => {
     assert.equal(resolveGbrainInterval({ MINTY_GBRAIN_EXPORT_INTERVAL_MS: '-1000' }), 6 * 60 * 60 * 1000);
+});
+
+// ---------------------------------------------------------------------------
+// shapeGbrainStatus
+// ---------------------------------------------------------------------------
+
+test('[minty-service] shapeGbrainStatus: success shape', () => {
+    const s = shapeGbrainStatus(null, '');
+    assert.ok(s.lastSuccessAt, 'should have lastSuccessAt');
+    assert.equal(s.lastErrorAt, undefined);
+});
+
+test('[minty-service] shapeGbrainStatus: error shape', () => {
+    const s = shapeGbrainStatus(new Error('boom'), 'stderr detail');
+    assert.ok(s.lastErrorAt, 'should have lastErrorAt');
+    assert.equal(s.lastError, 'boom');
+    assert.equal(s.lastErrorDetail, 'stderr detail');
+});
+
+test('[minty-service] shapeGbrainStatus: truncates long errors', () => {
+    const longMsg = 'x'.repeat(500);
+    const s = shapeGbrainStatus(new Error(longMsg), longMsg);
+    assert.ok(s.lastError.length <= 256);
+    assert.ok(s.lastErrorDetail.length <= 256);
+});
+
+test('[minty-service] updateServiceStatus: creates parent directory if missing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const p = path.join(tmp, 'nested', 'service-status.json');
+    const result = updateServiceStatus(p, { pid: 123 });
+    assert.equal(result.pid, 123);
+    assert.equal(JSON.parse(fs.readFileSync(p, 'utf8')).pid, 123);
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// updateServiceStatus
+// ---------------------------------------------------------------------------
+
+test('[minty-service] updateServiceStatus: creates file if missing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const p = path.join(tmp, 'service-status.json');
+    const result = updateServiceStatus(p, { pid: 123 });
+    assert.equal(result.pid, 123);
+    const onDisk = JSON.parse(fs.readFileSync(p, 'utf8'));
+    assert.equal(onDisk.pid, 123);
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[minty-service] updateServiceStatus: merges with existing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const p = path.join(tmp, 'service-status.json');
+    updateServiceStatus(p, { pid: 1, startedAt: 'T1' });
+    updateServiceStatus(p, { gbrain: { lastSuccessAt: 'T2' } });
+    const onDisk = JSON.parse(fs.readFileSync(p, 'utf8'));
+    assert.equal(onDisk.pid, 1);
+    assert.equal(onDisk.gbrain.lastSuccessAt, 'T2');
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// waitForChildExit
+// ---------------------------------------------------------------------------
+
+test('[minty-service] waitForChildExit: waits for child to close after SIGTERM', { skip: process.platform === 'win32' ? 'POSIX signal semantics differ on Windows' : false }, async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    child.kill('SIGTERM');
+    await waitForChildExit(child, 1000);
+    assert.notEqual(child.signalCode, null);
 });
