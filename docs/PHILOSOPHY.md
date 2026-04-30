@@ -5,7 +5,8 @@
 
 ## The Core Problem
 
-Most people have far more network than they use.
+Most people have far more network than they use — and the tools that could help are either
+cloud-hosted (your data isn't yours) or batch-import-only (your data is stale by tomorrow).
 
 You have hundreds of connections — investors, operators, engineers, founders, people at every
 company you'd ever want to work with or sell to. But when you need something specific, you
@@ -18,6 +19,11 @@ The gap isn't the size of your network. It's your ability to activate it strateg
 Not "stay in touch with everyone." Not "keep relationships warm." Those are means, not ends.
 The end is: when you need something — a fundraise, a hire, a market entry, an introduction,
 an opportunity — you know exactly who to talk to and how to reach them.
+
+**Minty is always on.** It runs as a local daemon — not a tool you open and close, but a service
+that continuously watches your sources, keeps your relationship index fresh, and answers queries
+from agents and humans alike. The user should not manage cron jobs or remember to re-import.
+The daemon handles freshness; the user focuses on goals.
 
 **The insight no other tool has acted on:**
 You already have the data. Every message you've sent is evidence of a relationship. WhatsApp,
@@ -42,6 +48,33 @@ Implications:
 - Prioritize read-only retrieval, MCP, CLI, export, source evidence, and data freshness.
 - Avoid social graph sharing, team CRM, or “network publishing” until the private-memory wedge is clearly working.
 - Keep outputs safe by default: no raw dumps, no direct contact details in agent envelopes, no outreach automation.
+
+---
+
+## Architecture: Minty as Live Layer, GBrain as Durable Memory
+
+Minty and GBrain are complementary halves of a local-first personal intelligence stack.
+Think of Hermes itself as the inspiration: Hermes orchestrates, GBrain remembers long-term,
+Minty keeps the relationship graph live and queryable.
+
+**Minty owns:**
+- Source freshness — continuous sync, file watchers, API polling
+- Identity resolution — cross-source dedup, provenance tracking
+- Interaction timelines — mutable, ever-growing, source-attributed
+- Relationship scoring — warmth, recency, evidence-based
+
+**GBrain owns:**
+- Durable memory — curated knowledge that persists across sessions
+- Cross-domain context — not just relationships, but everything the user has learned
+- Privacy-safe envelopes — Minty exports filtered summaries, never raw streams
+
+**Boundary rules:**
+- Minty never pushes raw contact details (emails, phones, message bodies) into GBrain.
+- GBrain export is opt-in and periodic (`npm run gbrain:export`), not continuous.
+- If an agent needs “who did I talk to this week” → ask Minty (live index).
+- If an agent needs “what do I know about this person across all domains” → ask GBrain (durable memory).
+- Normal users should not manage cron jobs. The Minty daemon handles freshness automatically;
+  GBrain export can be enabled via env var and runs on a configurable interval.
 
 ---
 
