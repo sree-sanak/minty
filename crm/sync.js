@@ -702,7 +702,7 @@ function startSyncDaemon(uuid, userDataDir) {
     // ── Gmail polling ─────────────────────────────────────────────────────
 
     async function pollEmail() {
-        const usersPath = path.join(__dirname, '../data/users.json');
+        const usersPath = path.join(DATA_ROOT, 'users.json');
         let users;
         try { users = JSON.parse(fs.readFileSync(usersPath, 'utf8')); }
         catch { return; }
@@ -762,7 +762,7 @@ function startSyncDaemon(uuid, userDataDir) {
     // ── Google Contacts polling ───────────────────────────────────────────
 
     async function pollGoogleContacts() {
-        const usersPath = path.join(__dirname, '../data/users.json');
+        const usersPath = path.join(DATA_ROOT, 'users.json');
         let users;
         try { users = JSON.parse(fs.readFileSync(usersPath, 'utf8')); }
         catch { return; }
@@ -818,7 +818,7 @@ function startSyncDaemon(uuid, userDataDir) {
     // ── Google Calendar polling ───────────────────────────────────────────
 
     async function pollCalendar() {
-        const usersPath = path.join(__dirname, '../data/users.json');
+        const usersPath = path.join(DATA_ROOT, 'users.json');
         let users;
         try { users = JSON.parse(fs.readFileSync(usersPath, 'utf8')); }
         catch { return; }
@@ -1015,7 +1015,7 @@ function startSyncDaemon(uuid, userDataDir) {
 async function triggerSync(uuid, source, userDataDir) {
     const statePath = path.join(userDataDir, 'sync-state.json');
     const state = loadSyncState(statePath);
-    const usersPath = path.join(__dirname, '../data/users.json');
+    const usersPath = path.join(DATA_ROOT, 'users.json');
 
     switch (source) {
         case 'email': {

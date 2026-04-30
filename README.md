@@ -38,7 +38,9 @@ Minty pulls them into a single local database, deduplicates contacts across sour
 - **Reconnect composer** — context-aware pre-generated drafts for people you're fading away from
 - **Calendar integration** — auto meeting prep with cross-referenced contact history
 - **Stale data warnings** — know when a contact's last info is 12+ months old
+- **Always-on service mode** — `npm run service` starts the sync daemon headless, no web UI required
 - **Background sync** — live WhatsApp, incremental Gmail, file watchers for other sources
+- **GBrain integration** — `npm run gbrain:export` writes privacy-safe relationship memory; service mode can auto-export on interval
 - **Mobile-responsive** — full-screen views and touch targets on phones
 - **Local-first** — all data in `data/` on your machine as plain JSON. Nothing leaves.
 - **Bring-your-own AI** — precompute insights with local Claude Code CLI or Ollama; runtime UI/MCP reads cached JSON only
@@ -50,11 +52,21 @@ Minty pulls them into a single local database, deduplicates contacts across sour
 git clone https://github.com/zalatar242/minty.git
 cd minty
 npm install
-npm run crm
 ```
 
-Open <http://localhost:3456> if you want the UI. For the agent-native path, use Minty directly from OpenClaw/Hermes/MCP:
+**Always-on service** (recommended — headless daemon, no web UI):
+```bash
+npm run service                    # starts sync daemon for data/
+MINTY_USER_UUID=abc npm run service  # explicit user UUID
+MINTY_GBRAIN_EXPORT=1 npm run service  # also runs periodic GBrain export
+```
 
+**Web UI** (browse contacts, setup sources, QA):
+```bash
+npm run crm                        # opens http://localhost:3456
+```
+
+**Agent-native path** (MCP/CLI for OpenClaw, Hermes, Claude Code):
 ```bash
 npm run seed:demo
 CRM_DATA_DIR=./data-demo npm run agent -- "who can help with crypto insurance"
