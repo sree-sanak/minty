@@ -13,12 +13,28 @@ const {
     inferCountryFromPhone,
     scoreGenericPair,
     matchGroups,
+    reviewOverrideFromMatch,
 } = require('../../crm/match');
 const { makeContact } = require('../helpers/fixtures');
 
-// ---------------------------------------------------------------------------
-// cleanWaName
-// ---------------------------------------------------------------------------
+test('reviewOverrideFromMatch: generated fuzzy candidates require manual review', () => {
+    const override = reviewOverrideFromMatch({
+        confidence: 'confirmed',
+        score: 80,
+        aId: 'sms_1',
+        bId: 'li_1',
+        aName: 'Alex Smith',
+        bName: 'Alex Smith',
+        reason: 'First name exact; Last name exact',
+        sourceA: 'sms',
+        sourceB: 'linkedin',
+    });
+    assert.equal(override.confidence, 'possible');
+    assert.equal(override.suggestedConfidence, 'confirmed');
+    assert.equal(override.score, 80);
+    assert.deepEqual(override.ids, ['sms_1', 'li_1']);
+    assert.deepEqual(override.names, ['Alex Smith', 'Alex Smith']);
+});
 
 test('cleanWaName: returns nulls for empty/null input', () => {
     const r = cleanWaName(null);

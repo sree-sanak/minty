@@ -44,6 +44,18 @@ function seedDataDir(dir, interactions = []) {
     ]);
     writeJson(path.join(unified, 'meetings.json'), []);
     writeJson(path.join(unified, 'calendar-state.json'), {});
+    writeJson(path.join(unified, 'match_overrides.json'), [
+        {
+            confidence: 'possible',
+            ids: ['wa_12065550100', 'li_sam_garcia'],
+            names: ['Sam García', 'Sam García'],
+            reason: 'same normalized name',
+            sourceA: 'whatsapp',
+            sourceB: 'linkedin',
+            score: 0,
+            suggestedConfidence: 'confirmed',
+        },
+    ]);
 }
 
 function waitForReady(child, port) {
@@ -115,5 +127,66 @@ test('malformed interactions.json does not expose raw parser errors on read-only
             assert.doesNotMatch(text, /Expected property name|JSON at position|SyntaxError/i, `${url} leaked parser text`);
             assert.doesNotMatch(text, /stack|at JSON\.parse/i, `${url} leaked stack text`);
         }
+    });
+});
+
+test('identity review API rejects prototype decisions and preserves zero score', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-identity-review-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        const pendingRes = await fetch(`${base}/api/pending`);
+        assert.equal(pendingRes.status, 200);
+        const pending = await pendingRes.json();
+        assert.equal(pending.items[0].score, 0);
+
+        for (const decision of ['__proto__', 'constructor', 'toString']) {
+            const res = await fetch(`${base}/api/decide`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idx: 0, decision }),
+            });
+            assert.equal(res.status, 400, `${decision} should be rejected`);
+        }
+
+        for (const idx of ['__proto__', 'constructor', 'length', -1, 0.5, '1e0']) {
+            const res = await fetch(`${base}/api/decide`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idx, decision: 'same' }),
+            });
+            assert.equal(res.status, 400, `${idx} idx should be rejected`);
+        }
+    });
+});
+
+test('identity review API maps same and always-separate decisions durably', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-identity-review-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        let res = await fetch(`${base}/api/decide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idx: 0, decision: 'same' }),
+        });
+        assert.equal(res.status, 200);
+        let overrides = JSON.parse(fs.readFileSync(path.join(dir, 'unified/match_overrides.json'), 'utf8'));
+        assert.equal(overrides[0].confidence, 'confirmed');
+        assert.equal(overrides[0].reviewDecision, 'same');
+        assert.ok(overrides[0].reviewedAt);
+    });
+
+    seedDataDir(dir, []);
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/decide`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idx: 0, decision: 'always-separate' }),
+        });
+        assert.equal(res.status, 200);
+        const overrides = JSON.parse(fs.readFileSync(path.join(dir, 'unified/match_overrides.json'), 'utf8'));
+        assert.equal(overrides[0].confidence, 'skip');
+        assert.equal(overrides[0].reviewDecision, 'always-separate');
     });
 });

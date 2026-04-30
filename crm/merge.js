@@ -404,7 +404,7 @@ function applyOverrides(index) {
     let applied = 0, skipped = 0;
 
     for (const override of overrides) {
-        if (!['confirmed', 'likely'].includes(override.confidence)) { skipped++; continue; }
+        if (override.confidence !== 'confirmed') { skipped++; continue; }
 
         const [idA, idB] = override.ids;
         const a = index.byId[idA];
@@ -431,7 +431,7 @@ function applyOverrides(index) {
         applied++;
     }
 
-    console.log(`Applied ${applied} overrides (${skipped} "possible" skipped — needs review)`);
+    console.log(`Applied ${applied} confirmed identity overrides (${skipped} skipped — needs review or marked different)`);
 }
 
 // --- Relationship strength scoring ---

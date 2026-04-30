@@ -16,6 +16,21 @@ const DATA = process.env.CRM_DATA_DIR || path.join(__dirname, '../data');
 const OUT_DIR = process.env.CRM_OUT_DIR || path.join(DATA, 'unified');
 const OVERRIDES_PATH = path.join(OUT_DIR, 'match_overrides.json');
 
+function reviewOverrideFromMatch(match) {
+    const { score, confidence, aId, bId, aName, bName, ...rest } = match;
+    return {
+        ...rest,
+        // Fuzzy cross-channel identity candidates must be reviewed by the user.
+        // Exact phone/email unification already happens in crm/merge.js; this file
+        // only creates suggestions for the review UI.
+        confidence: 'possible',
+        suggestedConfidence: confidence,
+        score,
+        ids: [aId, bId],
+        names: [aName, bName],
+    };
+}
+
 // Very common first names → lower confidence without corroboration
 const COMMON_NAMES = new Set([
     'ali', 'james', 'sara', 'sarah', 'john', 'michael', 'david', 'daniel', 'alex',
@@ -482,11 +497,7 @@ function run() {
         return;
     }
 
-    const toWrite = newMatches.map(({ score, aId, bId, aName, bName, ...rest }) => ({
-        ...rest,
-        ids: [aId, bId],
-        names: [aName, bName],
-    }));
+    const toWrite = newMatches.map(reviewOverrideFromMatch);
     const combined = [...existing, ...toWrite];
     fs.writeFileSync(OVERRIDES_PATH, JSON.stringify(combined, null, 2));
     console.log(`Wrote ${combined.length} total overrides to ${OVERRIDES_PATH}`);
@@ -520,4 +531,5 @@ module.exports = {
     inferCountryFromPhone,
     scoreGenericPair,
     matchGroups,
+    reviewOverrideFromMatch,
 };
