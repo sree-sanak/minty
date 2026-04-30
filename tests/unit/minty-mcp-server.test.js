@@ -289,6 +289,41 @@ describe('workflow_brief tool', () => {
         assert.ok(parsed.dataFreshness.contactCount != null);
         assert.ok(parsed.dataFreshness.generatedAt);
     });
+
+    it('handles contacts with invalid lastContactedAt without crashing', async () => {
+        const badContacts = [
+            { id: 'bad_1', name: 'Bad Date', lastContactedAt: 'not-a-date', sources: {}, relationshipScore: 50 },
+            ...CONTACTS,
+        ];
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 32, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'test resilience' } },
+        }, { contacts: badContacts, insights: INSIGHTS });
+
+        assert.equal(resp.id, 32);
+        assert.ok(resp.result);
+        assert.equal(resp.result.isError, undefined);
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.dataFreshness);
+        // oldestContactDate should be a valid ISO string or null, never "Invalid Date"
+        if (parsed.dataFreshness.oldestContactDate) {
+            assert.doesNotThrow(() => new Date(parsed.dataFreshness.oldestContactDate).toISOString());
+        }
+    });
+
+    it('handles contacts where all lastContactedAt are null/missing', async () => {
+        const noDateContacts = [
+            { id: 'nd_1', name: 'No Date', sources: {}, relationshipScore: 40 },
+            { id: 'nd_2', name: 'Also No Date', lastContactedAt: null, sources: {}, relationshipScore: 30 },
+        ];
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 33, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'test null dates' } },
+        }, { contacts: noDateContacts, insights: {} });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.dataFreshness.oldestContactDate, null);
+    });
 });
 
 // ---------------------------------------------------------------------------

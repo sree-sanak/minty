@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const net = require('node:net');
 
 const ROOT = path.resolve(__dirname, '../..');
 const SERVER = path.join(ROOT, 'crm/server.js');
@@ -58,6 +59,17 @@ function seedDataDir(dir, interactions = []) {
     ]);
 }
 
+function getFreePort() {
+    return new Promise((resolve, reject) => {
+        const server = net.createServer();
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            const { port } = server.address();
+            server.close(() => resolve(port));
+        });
+    });
+}
+
 function waitForReady(child, port) {
     return new Promise((resolve, reject) => {
         let output = '';
@@ -79,7 +91,7 @@ function waitForReady(child, port) {
 }
 
 async function withServer(dataDir, fn) {
-    const port = 3900 + Math.floor(Math.random() * 1000);
+    const port = await getFreePort();
     const child = spawn(process.execPath, [SERVER], {
         cwd: ROOT,
         env: { ...process.env, CRM_DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1' },

@@ -143,8 +143,10 @@ function executeTool(name, args, data) {
             suggestedAction: r.suggestedAction,
         }));
         const oldestContact = contacts.reduce((oldest, c) => {
-            const d = c.lastContactedAt ? new Date(c.lastContactedAt) : null;
-            if (!d) return oldest;
+            if (!c.lastContactedAt) return oldest;
+            const t = Date.parse(c.lastContactedAt);
+            if (Number.isNaN(t)) return oldest;
+            const d = new Date(t);
             return (!oldest || d < oldest) ? d : oldest;
         }, null);
         const envelope = {
