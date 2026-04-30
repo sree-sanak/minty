@@ -1696,12 +1696,13 @@ body { background: var(--bg); }
   <!-- Review queue -->
   <div id="view-review" style="display:none">
     <div class="review-header">
-      <h2>Match Review</h2>
+      <h2>Identity Review</h2>
       <div class="progress-wrap">
         <div class="progress-bar"><div class="progress-fill" id="r-progress-fill" style="width:0%"></div></div>
         <span class="progress-text" id="r-progress-text">Loading…</span>
       </div>
-      <button class="merge-btn" onclick="runMerge()">Run merge.js</button>
+      <button class="merge-btn" onclick="runMatch()">Find candidates</button>
+      <button class="merge-btn" onclick="runMerge()">Apply confirmed</button>
     </div>
     <div class="review-body" id="review-body"></div>
   </div>
@@ -1710,6 +1711,7 @@ body { background: var(--bg); }
 
 <script>
 const BASE = window.__BASE__ || '';
+const INITIAL_VIEW = window.__INITIAL_VIEW__ || '__INITIAL_VIEW__';
 // ============================================================
 // State
 // ============================================================
@@ -2071,8 +2073,17 @@ function wirePaletteInput() {
 }
 
 async function init() {
-  // Show Today immediately — contacts load in background
-  showView('today');
+  // Deep links such as /identity-review and #review should open directly into
+  // the identity review queue; otherwise show Today while contacts load.
+  const rawHash = location.hash || '';
+  const hashView = rawHash.startsWith('#/') ? rawHash.slice(2) : (rawHash.startsWith('#') ? rawHash.slice(1) : rawHash);
+  const requestedView = (INITIAL_VIEW && INITIAL_VIEW !== '__INITIAL_VIEW__')
+    ? INITIAL_VIEW
+    : hashView;
+  const startupView = ['today','contacts','ask','network','groups','intros','sources','review','settings'].includes(requestedView)
+    ? requestedView
+    : 'today';
+  showView(startupView);
   wirePaletteInput();
   // Start global sync toast poller (runs regardless of view)
   if (!syncToastPoller) {
@@ -4335,7 +4346,7 @@ function renderReview() {
   const body = document.getElementById('review-body');
 
   if (reviewCurrent >= reviewItems.length) {
-    body.innerHTML = \`<div class="review-empty"><h2>All done!</h2><p>Click Run merge.js to apply decisions.</p></div>
+    body.innerHTML = \`<div class="review-empty"><h2>All done!</h2><p>Click Apply confirmed to rebuild contacts using only the identities you marked Same.</p></div>
       <div class="merge-output" id="merge-output"></div>\`;
     return;
   }
@@ -4394,8 +4405,8 @@ function renderReview() {
   body.innerHTML = \`
     <div class="card">
       <div class="reason-bar">
-        <span class="tag \${tagClass}">\${prev || 'pending'}</span>
-        <span class="reason-text">\${esc(item.reason)}</span>
+        <span class="tag \${tagClass}">\${prev || 'needs review'}</span>
+        <span class="reason-text">\${esc(item.reason)}\${item.score ? ' · score ' + esc(String(item.score)) : ''}\${item.suggestedConfidence ? ' · suggested ' + esc(item.suggestedConfidence) : ''}</span>
       </div>
       <div class="contacts-row">
         <div class="contact-panel">
@@ -4413,10 +4424,10 @@ function renderReview() {
       </div>
       <div class="actions">
         \${reviewCurrent > 0 ? '<button class="btn-back" onclick="reviewBack()">← <span class="kbd">←</span></button>' : ''}
-        <button class="btn-confirm \${sel('confirmed')}" onclick="reviewDecide('confirmed')">✓ Same <span class="kbd">Y</span></button>
-        <button class="btn-likely \${sel('likely')}" onclick="reviewDecide('likely')">~ Probably <span class="kbd">L</span></button>
-        <button class="btn-unsure \${sel('unsure')}" onclick="reviewDecide('unsure')">? Unsure <span class="kbd">U</span></button>
-        <button class="btn-skip \${sel('skip')}" onclick="reviewDecide('skip')">✗ Different <span class="kbd">N</span></button>
+        <button class="btn-confirm \${sel('confirmed')}" onclick="reviewDecide('same')">✓ Same person <span class="kbd">Y</span></button>
+        <button class="btn-skip \${sel('skip')}" onclick="reviewDecide('different')">✗ Different people <span class="kbd">N</span></button>
+        <button class="btn-unsure \${sel('unsure')}" onclick="reviewDecide('unsure')">? Not sure <span class="kbd">U</span></button>
+        <button class="btn-skip \${sel('skip')}" onclick="reviewDecide('always-separate')">Always keep separate</button>
       </div>
     </div>
     <div class="merge-output" id="merge-output"></div>
@@ -4428,7 +4439,7 @@ async function reviewDecide(decision) {
   if (!item) return;
   await fetch(BASE + '/api/decide', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ idx: item._idx, decision }) });
-  reviewDecisions[item._idx] = decision;
+  reviewDecisions[item._idx] = decision === 'same' ? 'confirmed' : (['different', 'always-separate'].includes(decision) ? 'skip' : decision);
   reviewCurrent++;
   renderReview();
   loadReviewCount();
@@ -4462,6 +4473,17 @@ async function toggleReviewMsgs(btn, contactId) {
   btn.textContent = 'Hide messages ▴';
 }
 
+async function runMatch() {
+  const out = document.getElementById('merge-output');
+  if (out) { out.style.display = 'block'; out.textContent = 'Finding identity candidates…'; }
+  const d = await fetch(BASE + '/api/run-match', { method:'POST' }).then(r => r.json());
+  if (out) out.textContent = d.output || d.error || '(no output)';
+  reviewDecisions = {};
+  reviewCurrent = 0;
+  await loadReview();
+  loadReviewCount();
+}
+
 async function runMerge() {
   const out = document.getElementById('merge-output');
   if (out) { out.style.display = 'block'; out.textContent = 'Running…'; }
@@ -4487,9 +4509,8 @@ document.addEventListener('keydown', e => {
   }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (document.getElementById('view-review').style.display !== 'none') {
-    if (e.key === 'y' || e.key === 'Y') reviewDecide('confirmed');
-    else if (e.key === 'n' || e.key === 'N') reviewDecide('skip');
-    else if (e.key === 'l' || e.key === 'L') reviewDecide('likely');
+    if (e.key === 'y' || e.key === 'Y') reviewDecide('same');
+    else if (e.key === 'n' || e.key === 'N') reviewDecide('different');
     else if (e.key === 'u' || e.key === 'U') reviewDecide('unsure');
     else if (e.key === 'ArrowLeft') reviewBack();
   }
@@ -5837,7 +5858,7 @@ Object.assign(window, {
   reviewDecide, reviewBack,
   saveScoreOverride, clearScoreOverride, toggleScoreOverride,
   openDraftPanel, copyDraft,
-  runMerge,
+  runMatch, runMerge,
   triggerSync,
   setActiveGoal, showGoalInput, hideGoalInput, onGoalInputKey, saveNewGoal, removeGoal,
   runAskQuery, setAskQuery,

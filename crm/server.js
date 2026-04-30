@@ -840,6 +840,8 @@ function handleGetPending(req, res, params, paths , ) {
         .filter(o => o.confidence === 'possible')
         .map(o => ({
             _idx: o._idx, ids: o.ids, names: o.names, reason: o.reason,
+            score: o.score ?? null,
+            suggestedConfidence: o.suggestedConfidence ?? null,
             sourceA: o.sourceA || 'whatsapp',
             sourceB: o.sourceB || 'linkedin',
             contactA: byId[o.ids[0]] || null,
@@ -850,12 +852,25 @@ function handleGetPending(req, res, params, paths , ) {
 
 async function handleDecide(req, res, params, paths , ) {
     const { idx, decision } = await body(req);
-    if (!['confirmed', 'likely', 'unsure', 'skip'].includes(decision))
+    const decisions = Object.freeze(Object.assign(Object.create(null), {
+        same: 'confirmed',
+        confirmed: 'confirmed',
+        different: 'skip',
+        always_separate: 'skip',
+        'always-separate': 'skip',
+        skip: 'skip',
+        unsure: 'unsure',
+        not_sure: 'unsure',
+    }));
+    const normalized = (typeof decision === 'string') ? decisions[decision] : null;
+    if (!normalized)
         return json(res, { error: 'bad decision' }, 400);
     const overrides = loadOverrides(paths);
-    if (idx < 0 || idx >= overrides.length)
+    if (!Number.isInteger(idx) || idx < 0 || idx >= overrides.length || !Object.hasOwn(overrides, idx))
         return json(res, { error: 'bad idx' }, 400);
-    overrides[idx].confidence = decision;
+    overrides[idx].confidence = normalized;
+    overrides[idx].reviewedAt = new Date().toISOString();
+    overrides[idx].reviewDecision = decision;
     saveOverrides(overrides, paths);
     json(res, { ok: true, remaining: overrides.filter(o => o.confidence === 'possible').length });
 }
@@ -1770,9 +1785,24 @@ function formatPhoneFallback(c) {
     return null;
 }
 
-function handleRunMerge(req, res, params, paths , ) {
+function clearDerivedCaches() {
     Object.keys(_interactionIndex).forEach(k => delete _interactionIndex[k]);
     Object.keys(_searchIndex).forEach(k => delete _searchIndex[k]);
+    Object.keys(_contactsCache).forEach(k => delete _contactsCache[k]);
+}
+
+function handleRunMatch(req, res, params, paths , ) {
+    execSync('node crm/match.js', {
+        cwd: path.join(__dirname, '..'),
+        encoding: 'utf8',
+        timeout: 30000,
+    });
+    const pending = loadOverrides(paths).filter(o => o.confidence === 'possible').length;
+    json(res, { ok: true, output: `Identity candidates refreshed. ${pending} pending review.`, pending });
+}
+
+function handleRunMerge(req, res, params, paths , ) {
+    clearDerivedCaches();
     const out = execSync('node crm/merge.js', {
         cwd: path.join(__dirname, '..'),
         encoding: 'utf8',
@@ -3714,6 +3744,7 @@ const ROUTES = [
     ['GET',  /^\/api\/search\/interactions$/,             handleSearchInteractions],
     ['GET',  /^\/api\/groups\/(.+)$/,                    handleGetGroupDetail],
     ['GET',  /^\/api\/groups$/,                          handleGetGroups],
+    ['POST', /^\/api\/run-match$/,                       handleRunMatch],
     ['POST', /^\/api\/run-merge$/,                       handleRunMerge],
     ['GET',  /^\/api\/sync\/status$/,                    handleGetSyncStatus],
     ['POST', /^\/api\/sync\/trigger\/([^/]+)$/,          handleTriggerSync],
@@ -3780,10 +3811,14 @@ const server = http.createServer(async (req, res) => {
     const uuid = SINGLE_USER_UUID;
     const paths = getUserPaths(uuid);
 
-    // Serve the SPA at root
-    if (req.method === 'GET' && p === '/') {
+    // Serve the SPA at root and direct review links
+    if (req.method === 'GET' && (p === '/' || p === '/identity-review' || p === '/merge-review')) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(HTML.replace("'__BASE__'", "''")); return;
+        const initialView = (p === '/identity-review' || p === '/merge-review') ? 'review' : '';
+        res.end(HTML
+            .replace("'__BASE__'", "''")
+            .replace("'__INITIAL_VIEW__'", JSON.stringify(initialView)));
+        return;
     }
 
     if (p.startsWith('/api/')) {
