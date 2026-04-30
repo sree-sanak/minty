@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { queryNetwork } = require('../../crm/agent-retrieval');
+const { queryNetwork, warmthLabel, confidenceLevel, suggestAction } = require('../../crm/agent-retrieval');
 const { resolveDataDir, hasContacts } = require('../../scripts/agent-query');
 
 // ---------------------------------------------------------------------------
@@ -156,6 +156,127 @@ describe('agent-retrieval: queryNetwork()', () => {
     it('impossible query returns empty results', () => {
         const out = queryNetwork('quantum physics researchers in Antarctica', { contacts: CONTACTS, insights: INSIGHTS });
         assert.deepEqual(out.results, [], 'impossible query returns empty');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// warmthLabel — isolated boundary tests
+// ---------------------------------------------------------------------------
+
+describe('agent-retrieval: warmthLabel()', () => {
+    it('returns "strong" at and above 70', () => {
+        assert.equal(warmthLabel(70), 'strong');
+        assert.equal(warmthLabel(100), 'strong');
+    });
+
+    it('returns "warm" for 50–69', () => {
+        assert.equal(warmthLabel(50), 'warm');
+        assert.equal(warmthLabel(69), 'warm');
+    });
+
+    it('returns "cool" for 30–49', () => {
+        assert.equal(warmthLabel(30), 'cool');
+        assert.equal(warmthLabel(49), 'cool');
+    });
+
+    it('returns "cold" below 30', () => {
+        assert.equal(warmthLabel(29), 'cold');
+        assert.equal(warmthLabel(0), 'cold');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// confidenceLevel — isolated boundary tests
+// ---------------------------------------------------------------------------
+
+describe('agent-retrieval: confidenceLevel()', () => {
+    it('returns "high" when combined score >= 60', () => {
+        // matchScore=60, relationship=0 → combined=60
+        assert.equal(confidenceLevel(60, 0), 'high');
+        // matchScore=30, relationship=100 → combined=30+30=60
+        assert.equal(confidenceLevel(30, 100), 'high');
+    });
+
+    it('returns "medium" when combined score >= 30 but < 60', () => {
+        assert.equal(confidenceLevel(30, 0), 'medium');
+        assert.equal(confidenceLevel(0, 100), 'medium'); // 0+30=30
+    });
+
+    it('returns "low" when combined score < 30', () => {
+        assert.equal(confidenceLevel(0, 0), 'low');
+        assert.equal(confidenceLevel(10, 50), 'low'); // 10+15=25
+    });
+
+    it('treats null/undefined scores as 0', () => {
+        assert.equal(confidenceLevel(null, null), 'low');
+        assert.equal(confidenceLevel(undefined, undefined), 'low');
+        assert.equal(confidenceLevel(60, null), 'high');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// suggestAction — isolated intent/warmth combination tests
+// ---------------------------------------------------------------------------
+
+describe('agent-retrieval: suggestAction()', () => {
+    function makeResult(relationshipScore, daysSinceContact) {
+        return { relationshipScore, daysSinceContact };
+    }
+
+    it('intro intent + strong warmth → warm intro suggestion', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 5), 'intro'),
+            'Ask for a warm intro — you have an active relationship.'
+        );
+    });
+
+    it('intro intent + cold warmth → re-establish contact', () => {
+        assert.equal(
+            suggestAction(makeResult(10, 200), 'intro'),
+            'Re-establish contact before requesting an intro.'
+        );
+    });
+
+    it('reconnect intent → low-pressure check-in', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 5), 'reconnect'),
+            'Send a low-pressure check-in referencing your last conversation.'
+        );
+    });
+
+    it('stale contact (>60 days) without specific intent → check-in', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 90), 'general'),
+            'Send a low-pressure check-in referencing your last conversation.'
+        );
+    });
+
+    it('strong warmth, recent contact, general intent → reach out directly', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 5), 'general'),
+            'Reach out directly — strong existing relationship.'
+        );
+    });
+
+    it('warm warmth, recent, general intent → reference shared context', () => {
+        assert.equal(
+            suggestAction(makeResult(55, 10), 'general'),
+            'Reference shared context or recent interaction to re-engage.'
+        );
+    });
+
+    it('cool warmth, recent, general intent → find mutual connection', () => {
+        assert.equal(
+            suggestAction(makeResult(35, 10), 'general'),
+            'Find mutual connection or shared interest before reaching out.'
+        );
+    });
+
+    it('cold warmth, recent, general intent → research before outreach', () => {
+        assert.equal(
+            suggestAction(makeResult(5, 10), 'general'),
+            'Research shared context before cold outreach.'
+        );
     });
 });
 
