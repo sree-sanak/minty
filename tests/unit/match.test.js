@@ -650,3 +650,43 @@ test('cleanWaName: whitespace-only input returns nulls', () => {
     assert.equal(r.lastName, null);
     assert.equal(r.cleaned, null);
 });
+
+// ---------------------------------------------------------------------------
+// cleanBySource — email routing
+// ---------------------------------------------------------------------------
+
+test('cleanBySource: routes email to cleanLiName (extracts nickname)', () => {
+    const r = cleanBySource('Jamie (JJ) Patel', 'email');
+    assert.equal(r.firstName, 'jamie');
+    assert.equal(r.nickname, 'jj');
+    assert.equal(r.lastName, 'patel');
+});
+
+// ---------------------------------------------------------------------------
+// scoreGenericPair — 'likely' confidence level (score 45-69)
+// ---------------------------------------------------------------------------
+
+test('scoreGenericPair: likely confidence for exact common first + fuzzy last', () => {
+    const wa = waContact('James Smyth');
+    const li = liContact('James Smith');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.confidence, 'likely');
+    assert.equal(r.score, 55);
+    assert.deepEqual(r.reasons, [
+        "First name exact: 'james'",
+        "Last name fuzzy: 'smyth' ~ 'smith'",
+        "Common first name 'james' — lower confidence without corroboration",
+    ]);
+});
+
+// ---------------------------------------------------------------------------
+// matchGroups — single-character first name skip
+// ---------------------------------------------------------------------------
+
+test('matchGroups: skips contacts whose first name is a single character', () => {
+    const groupA = [waContact('A')];
+    const groupB = [liContact('A Smith')];
+    const result = matchGroups(groupA, 'whatsapp', groupB, 'linkedin');
+    assert.equal(result.matches.length, 0);
+    assert.equal(result.candidatePairs, 0);
+});
