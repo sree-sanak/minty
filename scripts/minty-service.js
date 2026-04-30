@@ -123,6 +123,28 @@ function runGbrainExport(dataDir, onComplete) {
     return child;
 }
 
+function waitForChildExit(child, timeoutMs = 5000) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+    return new Promise((resolve) => {
+        let done = false;
+        let timeout;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            clearTimeout(timeout);
+            child.removeListener('exit', finish);
+            child.removeListener('close', finish);
+            resolve();
+        };
+        timeout = setTimeout(() => {
+            try { child.kill('SIGKILL'); } catch { /* ignore */ }
+            finish();
+        }, timeoutMs);
+        child.once('exit', finish);
+        child.once('close', finish);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -148,6 +170,7 @@ if (require.main === module) {
     updateServiceStatus(statusPath, {
         pid: process.pid,
         startedAt: new Date().toISOString(),
+        stoppedAt: null,
         dataDir,
         uuid,
         userDataDir,
@@ -185,15 +208,20 @@ if (require.main === module) {
     const keepAlive = setInterval(() => {}, 1 << 30);
 
     // Graceful shutdown
-    function shutdown(signal) {
+    let shuttingDown = false;
+    async function shutdown(signal) {
+        if (shuttingDown) return;
+        shuttingDown = true;
         console.log(`[minty-service] ${signal} received, stopping…`);
         clearInterval(keepAlive);
         if (gbrainTimer) clearInterval(gbrainTimer);
+        const gbrainChild = activeGbrainChild;
         if (activeGbrainChild) {
             activeGbrainChild.kill('SIGTERM');
-            activeGbrainChild = null;
         }
         daemon.stop();
+        await waitForChildExit(gbrainChild, 5000);
+        activeGbrainChild = null;
         updateServiceStatus(statusPath, { stoppedAt: new Date().toISOString() });
         console.log('[minty-service] stopped');
         process.exit(0);
@@ -204,5 +232,5 @@ if (require.main === module) {
 
 module.exports = {
     resolveDataDir, resolveUuid, resolveUserDataDir, resolveGbrainInterval,
-    shapeGbrainStatus, updateServiceStatus,
+    shapeGbrainStatus, updateServiceStatus, waitForChildExit,
 };

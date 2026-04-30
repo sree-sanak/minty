@@ -11,6 +11,8 @@ const {
     loadJson,
     buildStatus,
     formatTty,
+    isSafeUuid,
+    isPathInside,
     resolveUserDataDirForStatus,
     resolveSyncStatePath,
 } = require('../../scripts/minty-service-status');
@@ -70,6 +72,19 @@ test('[service-status] buildStatus: with service-status.json', () => {
     fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('[service-status] buildStatus: stoppedAt prevents stale pid from reporting running', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    fs.writeFileSync(path.join(tmp, 'service-status.json'), JSON.stringify({
+        pid: process.pid,
+        startedAt: '2025-01-01T00:00:00Z',
+        stoppedAt: '2025-01-01T00:00:01Z',
+    }));
+    const s = buildStatus(tmp);
+    assert.equal(s.running, false);
+    assert.equal(s.stoppedAt, '2025-01-01T00:00:01Z');
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test('[service-status] buildStatus: includes sync-state sources', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
     fs.writeFileSync(path.join(tmp, 'sync-state.json'), JSON.stringify({
@@ -110,6 +125,31 @@ test('[service-status] resolveUserDataDirForStatus: uses users/<uuid> when prese
     fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('[service-status] isSafeUuid: rejects path traversal and path separators', () => {
+    assert.equal(isSafeUuid('u1'), true);
+    assert.equal(isSafeUuid('user.name-1'), true);
+    assert.equal(isSafeUuid('../outside'), false);
+    assert.equal(isSafeUuid('nested/user'), false);
+    assert.equal(isSafeUuid('.'), false);
+    assert.equal(isSafeUuid('..'), false);
+    assert.equal(isSafeUuid(''), false);
+});
+
+test('[service-status] resolveUserDataDirForStatus: unsafe uuid falls back to data dir', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-outside-'));
+    fs.mkdirSync(path.join(outside, 'x'), { recursive: true });
+    assert.equal(resolveUserDataDirForStatus(tmp, `../../${path.basename(outside)}/x`), tmp);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('[service-status] isPathInside: rejects paths outside parent', () => {
+    const parent = path.join(os.tmpdir(), 'minty-parent');
+    assert.equal(isPathInside(parent, path.join(parent, 'users', 'u1')), true);
+    assert.equal(isPathInside(parent, path.join(os.tmpdir(), 'other')), false);
+});
+
 test('[service-status] resolveSyncStatePath: prefers user sync-state', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
     const userDir = path.join(tmp, 'users', 'u1');
@@ -118,6 +158,16 @@ test('[service-status] resolveSyncStatePath: prefers user sync-state', () => {
     fs.writeFileSync(path.join(userDir, 'sync-state.json'), '{}');
     assert.equal(resolveSyncStatePath(tmp, userDir), path.join(userDir, 'sync-state.json'));
     fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[service-status] resolveSyncStatePath: ignores userDataDir outside data dir', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-outside-'));
+    fs.writeFileSync(path.join(tmp, 'sync-state.json'), '{}');
+    fs.writeFileSync(path.join(outside, 'sync-state.json'), '{}');
+    assert.equal(resolveSyncStatePath(tmp, outside), path.join(tmp, 'sync-state.json'));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------

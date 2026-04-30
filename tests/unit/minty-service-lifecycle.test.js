@@ -10,7 +10,7 @@ const os = require('os');
 const SERVICE_SCRIPT = path.resolve(__dirname, '../../scripts/minty-service.js');
 const STATUS_SCRIPT = path.resolve(__dirname, '../../scripts/minty-service-status.js');
 
-test('[minty-service] SIGTERM → clean shutdown with exit code 0', { timeout: 10_000 }, async () => {
+test('[minty-service] SIGTERM → clean shutdown with exit code 0', { timeout: 10_000, skip: process.platform === 'win32' ? 'POSIX signal semantics differ on Windows' : false }, async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-svc-'));
     try {
         const child = spawn(process.execPath, [SERVICE_SCRIPT, '--data-dir', tmp], {
@@ -23,16 +23,18 @@ test('[minty-service] SIGTERM → clean shutdown with exit code 0', { timeout: 1
         let stderr = '';
         child.stderr.on('data', (d) => { stderr += d.toString(); });
 
-        // Wait for startup output — the 'privacy:' line is printed last before
-        // the daemon starts and signal handlers are registered.
+        // Wait for daemon startup output before sending SIGTERM. Signal handlers
+        // are registered immediately after this startup path completes.
         await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('startup timeout')), 5000);
+            const timeout = setTimeout(() => {
+                child.kill('SIGKILL');
+                reject(new Error(`startup timeout. stdout=${stdout} stderr=${stderr}`));
+            }, 5000);
             child.stdout.on('data', function check() {
-                if (stdout.includes('privacy:')) {
+                if (stdout.includes('[sync] Daemon started')) {
                     clearTimeout(timeout);
                     child.stdout.removeListener('data', check);
-                    // Small delay to ensure signal handlers are registered after daemon.start()
-                    setTimeout(resolve, 200);
+                    setTimeout(resolve, 500);
                 }
             });
             child.on('error', (e) => { clearTimeout(timeout); reject(e); });
@@ -43,7 +45,10 @@ test('[minty-service] SIGTERM → clean shutdown with exit code 0', { timeout: 1
 
         // Wait for exit
         const { code, signal } = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('shutdown timeout')), 5000);
+            const timeout = setTimeout(() => {
+                child.kill('SIGKILL');
+                reject(new Error(`shutdown timeout. stdout=${stdout} stderr=${stderr}`));
+            }, 5000);
             child.on('close', (c, s) => { clearTimeout(timeout); resolve({ code: c, signal: s }); });
         });
 

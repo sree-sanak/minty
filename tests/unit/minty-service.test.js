@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { spawn } = require('child_process');
 
 const {
     resolveDataDir,
@@ -13,6 +14,7 @@ const {
     resolveGbrainInterval,
     shapeGbrainStatus,
     updateServiceStatus,
+    waitForChildExit,
 } = require('../../scripts/minty-service');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -170,4 +172,15 @@ test('[minty-service] updateServiceStatus: merges with existing', () => {
     assert.equal(onDisk.pid, 1);
     assert.equal(onDisk.gbrain.lastSuccessAt, 'T2');
     fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// waitForChildExit
+// ---------------------------------------------------------------------------
+
+test('[minty-service] waitForChildExit: waits for child to close after SIGTERM', { skip: process.platform === 'win32' ? 'POSIX signal semantics differ on Windows' : false }, async () => {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    child.kill('SIGTERM');
+    await waitForChildExit(child, 1000);
+    assert.notEqual(child.signalCode, null);
 });

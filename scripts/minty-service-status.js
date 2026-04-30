@@ -35,8 +35,19 @@ function loadJson(filePath) {
     try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return null; }
 }
 
+function isSafeUuid(uuid) {
+    return typeof uuid === 'string' && uuid !== '.' && uuid !== '..' && /^[A-Za-z0-9._-]+$/.test(uuid);
+}
+
+function isPathInside(parent, child) {
+    const parentPath = path.resolve(parent);
+    const childPath = path.resolve(child);
+    const rel = path.relative(parentPath, childPath);
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
 function resolveUserDataDirForStatus(dataDir, uuid) {
-    if (uuid) {
+    if (isSafeUuid(uuid)) {
         const usersDir = path.join(dataDir, 'users', uuid);
         if (fs.existsSync(usersDir)) return usersDir;
     }
@@ -44,9 +55,16 @@ function resolveUserDataDirForStatus(dataDir, uuid) {
 }
 
 function resolveSyncStatePath(dataDir, userDataDir) {
-    const userPath = path.join(userDataDir || dataDir, 'sync-state.json');
+    const safeUserDataDir = userDataDir && isPathInside(dataDir, userDataDir) ? userDataDir : dataDir;
+    const userPath = path.join(safeUserDataDir, 'sync-state.json');
     if (fs.existsSync(userPath)) return userPath;
     return path.join(dataDir, 'sync-state.json');
+}
+
+function isStoppedStatus(svcStatus) {
+    if (!svcStatus?.stoppedAt) return false;
+    if (!svcStatus.startedAt) return true;
+    return new Date(svcStatus.stoppedAt).getTime() >= new Date(svcStatus.startedAt).getTime();
 }
 
 /**
@@ -59,10 +77,13 @@ function buildStatus(dataDir) {
     const svcStatus = loadJson(path.join(dataDir, 'service-status.json'));
     if (svcStatus) {
         status.pid = svcStatus.pid || null;
-        status.running = svcStatus.pid ? isPidAlive(svcStatus.pid) : false;
+        status.stoppedAt = svcStatus.stoppedAt || null;
+        status.running = !isStoppedStatus(svcStatus) && svcStatus.pid ? isPidAlive(svcStatus.pid) : false;
         status.startedAt = svcStatus.startedAt || null;
         status.uuid = svcStatus.uuid || null;
-        status.userDataDir = svcStatus.userDataDir || resolveUserDataDirForStatus(dataDir, status.uuid);
+        status.userDataDir = svcStatus.userDataDir && isPathInside(dataDir, svcStatus.userDataDir)
+            ? svcStatus.userDataDir
+            : resolveUserDataDirForStatus(dataDir, status.uuid);
         if (svcStatus.gbrain) status.gbrain = svcStatus.gbrain;
     } else {
         status.running = false;
@@ -101,6 +122,7 @@ function formatTty(status) {
     lines.push(`Minty service: ${running}`);
     if (status.pid) lines.push(`  PID:        ${status.pid}`);
     if (status.startedAt) lines.push(`  Started:    ${status.startedAt}`);
+    if (status.stoppedAt) lines.push(`  Stopped:    ${status.stoppedAt}`);
     if (status.uuid) lines.push(`  UUID:       ${status.uuid}`);
     lines.push(`  Data dir:   ${status.dataDir}`);
 
@@ -123,7 +145,7 @@ function formatTty(status) {
 
 module.exports = {
     isPidAlive, loadJson, buildStatus, formatTty,
-    resolveUserDataDirForStatus, resolveSyncStatePath,
+    isSafeUuid, isPathInside, resolveUserDataDirForStatus, resolveSyncStatePath,
 };
 
 // ---------------------------------------------------------------------------
