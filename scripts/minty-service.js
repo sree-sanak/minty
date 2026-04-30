@@ -64,14 +64,53 @@ function resolveGbrainInterval(env) {
 }
 
 // ---------------------------------------------------------------------------
+// Service status helpers (exported for tests)
+// ---------------------------------------------------------------------------
+
+const MAX_ERROR_LENGTH = 256;
+
+/**
+ * Shape a gbrain export status object from success/failure.
+ * Truncates error messages to avoid leaking large stderr.
+ */
+function shapeGbrainStatus(err, stderr) {
+    const now = new Date().toISOString();
+    if (err) {
+        const msg = (err.message || '').slice(0, MAX_ERROR_LENGTH);
+        const detail = (stderr || '').slice(0, MAX_ERROR_LENGTH);
+        return { lastErrorAt: now, lastError: msg, lastErrorDetail: detail };
+    }
+    return { lastSuccessAt: now };
+}
+
+/**
+ * Read, merge, and write service-status.json atomically.
+ */
+function updateServiceStatus(statusPath, patch) {
+    let current = {};
+    try { current = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
+    const merged = { ...current, ...patch };
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    const tmpPath = `${statusPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmpPath, statusPath);
+    try { fs.chmodSync(statusPath, 0o600); } catch { /* ignore */ }
+    return merged;
+}
+
+// ---------------------------------------------------------------------------
 // GBrain export runner
 // ---------------------------------------------------------------------------
 
-function runGbrainExport(dataDir) {
+/**
+ * Run the gbrain export subprocess. Returns the ChildProcess handle.
+ * Accepts an optional onComplete(err, stderr) callback for status tracking.
+ */
+function runGbrainExport(dataDir, onComplete) {
     const script = path.join(__dirname, 'export-gbrain-memory.js');
     const outDir = path.join(dataDir, 'gbrain');
     const args = ['--data-dir', dataDir, '--out-dir', outDir];
-    execFile(process.execPath, [script, ...args], (err, stdout, stderr) => {
+    const child = execFile(process.execPath, [script, ...args], (err, stdout, stderr) => {
         if (err) {
             console.error('[minty-service] gbrain export failed:', err.message);
             if (stderr) console.error(stderr);
@@ -79,7 +118,9 @@ function runGbrainExport(dataDir) {
             console.log('[minty-service] gbrain export complete');
             if (stdout) process.stdout.write(stdout);
         }
+        if (onComplete) onComplete(err, stderr);
     });
+    return child;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,32 +143,66 @@ if (require.main === module) {
     console.log('[minty-service] local-first: all data stays on disk, no cloud sync');
     console.log('[minty-service] privacy: no telemetry, no external calls beyond configured sources');
 
+    // Service status file
+    const statusPath = path.join(dataDir, 'service-status.json');
+    updateServiceStatus(statusPath, {
+        pid: process.pid,
+        startedAt: new Date().toISOString(),
+        dataDir,
+        uuid,
+        userDataDir,
+    });
+
     const { startSyncDaemon } = require('../crm/sync');
     const daemon = startSyncDaemon(uuid, userDataDir);
 
     // GBrain export (opt-in)
+    let activeGbrainChild = null;
+    const startGbrainExport = () => {
+        if (activeGbrainChild) {
+            console.warn('[minty-service] gbrain export skipped: previous export still running');
+            return null;
+        }
+        activeGbrainChild = runGbrainExport(dataDir, (err, stderr) => {
+            activeGbrainChild = null;
+            const patch = { gbrain: shapeGbrainStatus(err, stderr) };
+            updateServiceStatus(statusPath, patch);
+        });
+        activeGbrainChild.on('exit', () => { activeGbrainChild = null; });
+        return activeGbrainChild;
+    };
     let gbrainTimer = null;
     if (process.env.MINTY_GBRAIN_EXPORT === '1') {
         const interval = resolveGbrainInterval(process.env);
         console.log(`[minty-service] gbrain export enabled (interval: ${interval}ms)`);
-        runGbrainExport(dataDir);
-        gbrainTimer = setInterval(() => runGbrainExport(dataDir), interval);
+        startGbrainExport();
+        gbrainTimer = setInterval(startGbrainExport, interval);
         gbrainTimer.unref();
     }
+
+    // Keep process alive until SIGINT/SIGTERM. The interval is ref'd (default)
+    // so Node won't exit even if daemon timers are all unref'd.
+    const keepAlive = setInterval(() => {}, 1 << 30);
 
     // Graceful shutdown
     function shutdown(signal) {
         console.log(`[minty-service] ${signal} received, stopping…`);
+        clearInterval(keepAlive);
         if (gbrainTimer) clearInterval(gbrainTimer);
+        if (activeGbrainChild) {
+            activeGbrainChild.kill('SIGTERM');
+            activeGbrainChild = null;
+        }
         daemon.stop();
+        updateServiceStatus(statusPath, { stoppedAt: new Date().toISOString() });
+        console.log('[minty-service] stopped');
         process.exit(0);
     }
     process.on('SIGINT', () => shutdown('SIGINT'));
     process.on('SIGTERM', () => shutdown('SIGTERM'));
-
-    // Keep process alive
-    const keepAlive = setInterval(() => {}, 1 << 30);
-    keepAlive.unref();
 }
 
-module.exports = { resolveDataDir, resolveUuid, resolveUserDataDir, resolveGbrainInterval };
+module.exports = {
+    resolveDataDir, resolveUuid, resolveUserDataDir, resolveGbrainInterval,
+    shapeGbrainStatus, updateServiceStatus,
+};

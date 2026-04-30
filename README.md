@@ -38,7 +38,7 @@ Minty pulls them into a single local database, deduplicates contacts across sour
 - **Reconnect composer** — context-aware pre-generated drafts for people you're fading away from
 - **Calendar integration** — auto meeting prep with cross-referenced contact history
 - **Stale data warnings** — know when a contact's last info is 12+ months old
-- **Always-on service mode** — `npm run service` starts the sync daemon headless, no web UI required
+- **Always-on service mode** — `npm run service` starts the sync daemon headless, no web UI required ([setup guide](./docs/SERVICE.md))
 - **Background sync** — live WhatsApp, incremental Gmail, file watchers for other sources
 - **GBrain integration** — `npm run gbrain:export` writes privacy-safe relationship memory; service mode can auto-export on interval
 - **Mobile-responsive** — full-screen views and touch targets on phones
@@ -71,6 +71,14 @@ npm run crm                        # opens http://localhost:3456
 npm run seed:demo
 CRM_DATA_DIR=./data-demo npm run agent -- "who can help with crypto insurance"
 CRM_DATA_DIR=./data-demo npm run mcp
+```
+
+**Quick network queries:**
+```bash
+npm run network:search -- "investors in fintech"   # free-form search
+npm run network:changes                            # communication pattern changes
+npm run network:reconnect                          # fading relationships to revive
+npm run service:status                             # check service health
 ```
 
 Then register `scripts/minty-mcp-server.js` as a local stdio MCP server in OpenClaw or Hermes. Full copy-paste configs: [OpenClaw + Hermes Integration](./docs/OPENCLAW_HERMES.md).
