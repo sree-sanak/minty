@@ -340,4 +340,4 @@ if (require.main === module) {
     process.stdin.on('end', () => process.exit(0));
 }
 
-module.exports = { handleMessage, TOOLS };
+module.exports = { handleMessage, TOOLS, clampLimit, safeResult };

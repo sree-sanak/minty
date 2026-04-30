@@ -13,7 +13,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 
 // The server exports a handleMessage(json) function for unit testing
-const { handleMessage, TOOLS } = require('../../scripts/minty-mcp-server');
+const { handleMessage, TOOLS, clampLimit, safeResult } = require('../../scripts/minty-mcp-server');
 
 // ---------------------------------------------------------------------------
 // Test fixtures — same shape as agent-retrieval tests
@@ -344,5 +344,111 @@ describe('error handling', () => {
         }, { contacts: CONTACTS, insights: INSIGHTS });
 
         assert.ok(resp.error || resp.result.isError);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// clampLimit characterization — documents existing clamping behavior
+// ---------------------------------------------------------------------------
+
+describe('clampLimit', () => {
+    it('returns fallback for non-finite values', () => {
+        assert.equal(clampLimit(undefined, 10), 10);
+        assert.equal(clampLimit(null, 10), 10);
+        assert.equal(clampLimit(NaN, 10), 10);
+        assert.equal(clampLimit(Infinity, 10), 10);
+        assert.equal(clampLimit(-Infinity, 10), 10);
+        assert.equal(clampLimit('abc', 5), 5);
+    });
+
+    it('floors fractional values', () => {
+        assert.equal(clampLimit(3.9, 10), 3);
+        assert.equal(clampLimit(1.1, 10), 1);
+        assert.equal(clampLimit(49.9, 10), 49);
+    });
+
+    it('clamps to [1, 50] range', () => {
+        assert.equal(clampLimit(0, 10), 1);
+        assert.equal(clampLimit(-5, 10), 1);
+        assert.equal(clampLimit(1, 10), 1);
+        assert.equal(clampLimit(50, 10), 50);
+        assert.equal(clampLimit(51, 10), 50);
+        assert.equal(clampLimit(1000, 10), 50);
+    });
+
+    it('passes through valid integers unchanged', () => {
+        assert.equal(clampLimit(5, 10), 5);
+        assert.equal(clampLimit(25, 10), 25);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// safeResult characterization — documents privacy-safe field allowlist
+// ---------------------------------------------------------------------------
+
+describe('safeResult', () => {
+    const FULL_RESULT = {
+        name: 'Test User',
+        title: 'CTO',
+        company: 'Acme Inc',
+        city: 'Berlin',
+        warmth: 'warm',
+        relationshipScore: 80,
+        confidence: 'high',
+        evidence: [{ field: 'keywords', matched: 'fintech' }],
+        suggestedAction: 'Send a message',
+        daysSinceContact: 5,
+        interactionCount: 12,
+        // Sensitive fields that MUST be stripped:
+        emails: ['test@example.com'],
+        phones: ['+4912345'],
+        rawContact: { internal: 'data' },
+        sources: { whatsapp: { id: '12345@c.us' } },
+        id: 'wa_999',
+        activeChannels: ['whatsapp'],
+    };
+
+    it('includes only the allowlisted fields', () => {
+        const safe = safeResult(FULL_RESULT);
+        const keys = Object.keys(safe).sort();
+        assert.deepEqual(keys, [
+            'city', 'company', 'confidence', 'daysSinceContact',
+            'evidence', 'interactionCount', 'name', 'relationshipScore',
+            'suggestedAction', 'title', 'warmth',
+        ]);
+    });
+
+    it('preserves allowed field values exactly', () => {
+        const safe = safeResult(FULL_RESULT);
+        assert.equal(safe.name, 'Test User');
+        assert.equal(safe.title, 'CTO');
+        assert.equal(safe.company, 'Acme Inc');
+        assert.equal(safe.city, 'Berlin');
+        assert.equal(safe.warmth, 'warm');
+        assert.equal(safe.relationshipScore, 80);
+        assert.equal(safe.confidence, 'high');
+        assert.deepEqual(safe.evidence, [{ field: 'keywords', matched: 'fintech' }]);
+        assert.equal(safe.suggestedAction, 'Send a message');
+        assert.equal(safe.daysSinceContact, 5);
+        assert.equal(safe.interactionCount, 12);
+    });
+
+    it('strips emails, phones, rawContact, sources, id, activeChannels', () => {
+        const safe = safeResult(FULL_RESULT);
+        assert.equal(safe.emails, undefined);
+        assert.equal(safe.phones, undefined);
+        assert.equal(safe.rawContact, undefined);
+        assert.equal(safe.sources, undefined);
+        assert.equal(safe.id, undefined);
+        assert.equal(safe.activeChannels, undefined);
+    });
+
+    it('handles result with missing optional fields gracefully', () => {
+        const minimal = { name: 'Sparse Contact' };
+        const safe = safeResult(minimal);
+        assert.equal(safe.name, 'Sparse Contact');
+        assert.equal(safe.title, undefined);
+        assert.equal(safe.company, undefined);
+        assert.equal(safe.emails, undefined);
     });
 });
