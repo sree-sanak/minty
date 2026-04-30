@@ -3197,6 +3197,12 @@ async function handleGoalAssign(req, res, [goalId], paths) {
     const contactId = body_ && body_.contactId;
     if (!contactId) return json(res, { error: 'contactId required' }, 400);
 
+    if (typeof contactId !== 'string'
+        || contactId === '__proto__' || contactId === 'constructor' || contactId === 'prototype'
+        || !loadContacts(paths).some(c => c.id === contactId)) {
+        return json(res, { error: 'invalid contactId' }, 400);
+    }
+
     const goals = loadGoals(paths);
     const goal = goals.find(g => g.id === goalId);
     if (!goal) return json(res, { error: 'goal not found' }, 404);
