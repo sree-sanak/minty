@@ -228,4 +228,20 @@ describe('agent-query: resolveDataDir()', () => {
         fs.writeFileSync(path.join(unified, 'contacts.json'), 'not-json');
         assert.equal(hasContacts(dir), false);
     });
+
+    it('falls back to ./data-demo when ./data has malformed JSON', () => {
+        const dataDir = path.join(tmpRoot, 'data', 'unified');
+        fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(path.join(dataDir, 'contacts.json'), 'not-json{{');
+        seedContacts(path.join(tmpRoot, 'data-demo'), [{ id: 'demo1' }]);
+        assert.equal(resolveDataDir(tmpRoot), path.join(tmpRoot, 'data-demo'));
+    });
+
+    it('falls back to ./data-demo when ./data contacts.json is a non-array object', () => {
+        const dataDir = path.join(tmpRoot, 'data', 'unified');
+        fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(path.join(dataDir, 'contacts.json'), JSON.stringify({ id: 'x' }));
+        seedContacts(path.join(tmpRoot, 'data-demo'), [{ id: 'demo2' }]);
+        assert.equal(resolveDataDir(tmpRoot), path.join(tmpRoot, 'data-demo'));
+    });
 });
