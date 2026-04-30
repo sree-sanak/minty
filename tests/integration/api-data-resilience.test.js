@@ -160,6 +160,61 @@ test('identity review API rejects prototype decisions and preserves zero score',
     });
 });
 
+test('POST /api/goals/:id/assign rejects dangerous and unknown contactId values', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-goal-assign-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        for (const contactId of ['__proto__', 'constructor', 'prototype']) {
+            const res = await fetch(`${base}/api/goals/g_1/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contactId, stage: 'Contacted' }),
+            });
+            assert.equal(res.status, 400, `${contactId} should be rejected`);
+            const payload = await res.json();
+            assert.equal(payload.error, 'invalid contactId');
+        }
+
+        for (const contactId of ['nonexistent_42', 123, { id: 'wa_12065550100' }]) {
+            const res = await fetch(`${base}/api/goals/g_1/assign`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contactId, stage: 'Contacted' }),
+            });
+            assert.equal(res.status, 400, `${JSON.stringify(contactId)} should be rejected`);
+            assert.equal((await res.json()).error, 'invalid contactId');
+        }
+    });
+});
+
+test('POST /api/goals/:id/assign allows valid contact and supports removal', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-goal-assign-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        // assign valid contact
+        let res = await fetch(`${base}/api/goals/g_1/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contactId: 'wa_12065550100', stage: 'Contacted' }),
+        });
+        assert.equal(res.status, 200);
+        let payload = await res.json();
+        assert.equal(payload.goal.assignments['wa_12065550100'].stage, 'Contacted');
+
+        // remove assignment with null stage
+        res = await fetch(`${base}/api/goals/g_1/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contactId: 'wa_12065550100', stage: null }),
+        });
+        assert.equal(res.status, 200);
+        payload = await res.json();
+        assert.equal(payload.goal.assignments['wa_12065550100'], undefined);
+    });
+});
+
 test('identity review API maps same and always-separate decisions durably', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-identity-review-'));
     seedDataDir(dir, []);
