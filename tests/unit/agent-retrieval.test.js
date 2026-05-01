@@ -175,6 +175,21 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(Array.isArray(out.results));
         assert.ok(out.safety);
     });
+
+    it('treats prototype-like contact ids as ordinary data keys', () => {
+        for (const id of ['__proto__', 'constructor', 'toString']) {
+            const contacts = [{
+                id, name: 'Pat AppSec',
+                sources: { linkedin: { position: 'Application Security Lead', company: 'SecureFoundry' } },
+                relationshipScore: 65, daysSinceContact: 3, interactionCount: 12,
+                emails: ['pat@example.com'], phones: ['+155****0123'],
+            }];
+            const out = queryNetwork('appsec', { contacts });
+            assert.equal(out.results.length, 1);
+            assert.equal(out.results[0].id, id);
+            assert.ok(out.results[0].evidence.some(e => e.kind === 'keyword'));
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
