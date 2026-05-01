@@ -183,6 +183,19 @@ describe('agent-retrieval: warmthLabel()', () => {
         assert.equal(warmthLabel(29), 'cold');
         assert.equal(warmthLabel(0), 'cold');
     });
+
+    it('returns "cold" for negative scores', () => {
+        assert.equal(warmthLabel(-1), 'cold');
+        assert.equal(warmthLabel(-100), 'cold');
+    });
+
+    it('returns "cold" for NaN (falls through all comparisons)', () => {
+        assert.equal(warmthLabel(NaN), 'cold');
+    });
+
+    it('returns "cold" for undefined (falls through all comparisons)', () => {
+        assert.equal(warmthLabel(undefined), 'cold');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -211,6 +224,29 @@ describe('agent-retrieval: confidenceLevel()', () => {
         assert.equal(confidenceLevel(null, null), 'low');
         assert.equal(confidenceLevel(undefined, undefined), 'low');
         assert.equal(confidenceLevel(60, null), 'high');
+    });
+
+    it('exact boundary: combined=59.9 is medium, combined=60 is high', () => {
+        // matchScore=59.9, relationship=0 → combined=59.9 → medium
+        assert.equal(confidenceLevel(59.9, 0), 'medium');
+        // matchScore=60, relationship=0 → combined=60 → high
+        assert.equal(confidenceLevel(60, 0), 'high');
+    });
+
+    it('exact boundary: combined=29.9 is low, combined=30 is medium', () => {
+        assert.equal(confidenceLevel(29.9, 0), 'low');
+        assert.equal(confidenceLevel(30, 0), 'medium');
+    });
+
+    it('negative matchScore reduces combined score', () => {
+        // matchScore=-10, relationship=100, relationship weight=0.3 → combined=20 → low
+        assert.equal(confidenceLevel(-10, 100), 'low');
+    });
+
+    it('NaN matchScore falls back to 0 via || operator', () => {
+        assert.equal(confidenceLevel(NaN, 0), 'low');
+        // matchScore=0, relationship=200 → combined=0+(200*0.3)=60 → high
+        assert.equal(confidenceLevel(NaN, 200), 'high');
     });
 });
 
@@ -276,6 +312,58 @@ describe('agent-retrieval: suggestAction()', () => {
         assert.equal(
             suggestAction(makeResult(5, 10), 'general'),
             'Research shared context before cold outreach.'
+        );
+    });
+
+    it('intro intent + warm warmth → warm intro suggestion', () => {
+        assert.equal(
+            suggestAction(makeResult(55, 10), 'intro'),
+            'Ask for a warm intro — you have an active relationship.'
+        );
+    });
+
+    it('intro intent + cool warmth → re-establish contact', () => {
+        assert.equal(
+            suggestAction(makeResult(35, 10), 'intro'),
+            'Re-establish contact before requesting an intro.'
+        );
+    });
+
+    it('daysSinceContact exactly 60 does NOT trigger reconnect fallback', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 60), 'general'),
+            'Reach out directly — strong existing relationship.'
+        );
+    });
+
+    it('daysSinceContact 61 triggers reconnect even without reconnect intent', () => {
+        assert.equal(
+            suggestAction(makeResult(80, 61), 'general'),
+            'Send a low-pressure check-in referencing your last conversation.'
+        );
+    });
+
+    it('missing relationshipScore defaults to cold warmth', () => {
+        const result = { daysSinceContact: 10 };
+        assert.equal(
+            suggestAction(result, 'general'),
+            'Research shared context before cold outreach.'
+        );
+    });
+
+    it('null daysSinceContact skips stale-contact branch', () => {
+        const result = { relationshipScore: 80, daysSinceContact: null };
+        assert.equal(
+            suggestAction(result, 'general'),
+            'Reach out directly — strong existing relationship.'
+        );
+    });
+
+    it('undefined daysSinceContact skips stale-contact branch', () => {
+        const result = { relationshipScore: 35 };
+        assert.equal(
+            suggestAction(result, 'general'),
+            'Find mutual connection or shared interest before reaching out.'
         );
     });
 });
