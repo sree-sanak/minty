@@ -99,8 +99,9 @@ function queryNetwork(query, opts = {}) {
         candidates = index.slice();
     }
 
-    // 3. Build contactsById for reasons engine
-    const contactsById = {};
+    // 3. Build contactsById for reasons engine. Use a null-prototype map so
+    // contact ids like "__proto__" remain data, not inherited object behavior.
+    const contactsById = Object.create(null);
     for (const c of contacts) contactsById[c.id] = c;
 
     // 4. Annotate with evidence/reasons
