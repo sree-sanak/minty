@@ -82,7 +82,9 @@ function suggestAction(result, intent) {
  * @returns {{ query: string, intent: string, results: object[], safety: object }}
  */
 function queryNetwork(query, opts = {}) {
-    const { contacts = [], insights = {}, limit = 10 } = opts;
+    const { contacts: rawContacts, insights: rawInsights, limit = 10 } = opts;
+    const contacts = Array.isArray(rawContacts) ? rawContacts : [];
+    const insights = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
 
     // 1. Build in-memory index from contacts
     const index = contacts.map(c => buildIndexEntry(c));
