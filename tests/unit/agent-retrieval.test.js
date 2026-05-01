@@ -157,6 +157,24 @@ describe('agent-retrieval: queryNetwork()', () => {
         const out = queryNetwork('quantum physics researchers in Antarctica', { contacts: CONTACTS, insights: INSIGHTS });
         assert.deepEqual(out.results, [], 'impossible query returns empty');
     });
+
+    it('survives null contacts without crashing', () => {
+        const out = queryNetwork('anyone', { contacts: null, insights: {} });
+        assert.deepEqual(out.results, []);
+        assert.ok(out.safety);
+    });
+
+    it('treats non-array contacts as empty input', () => {
+        const out = queryNetwork('anyone', { contacts: 'not-an-array', insights: {} });
+        assert.deepEqual(out.results, []);
+        assert.ok(out.safety);
+    });
+
+    it('survives null insights without crashing', () => {
+        const out = queryNetwork('anyone', { contacts: CONTACTS, insights: null });
+        assert.ok(Array.isArray(out.results));
+        assert.ok(out.safety);
+    });
 });
 
 // ---------------------------------------------------------------------------
