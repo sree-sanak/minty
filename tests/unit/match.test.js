@@ -354,7 +354,26 @@ test('scoreGenericPair: company match boosts score', () => {
     const wa2 = waContact('Alice Smith TechCorp');
     const boosted = scoreGenericPair(wa2, 'whatsapp', li2, 'linkedin');
     // The one with company appearing in WA name should get a boost
-    assert.ok(boosted.reasons.some(r => r.includes('Company')));
+    assert.ok(boosted.reasons.some(r => r.includes('Affiliation keyword')));
+    assert.ok(boosted.score > 20);
+});
+
+test('scoreGenericPair: affiliation keyword can corroborate title-style contact names', () => {
+    const wa = waContact('Cassie XRPL');
+    const li = liContact('Cassie Hirsh', { company: 'XRPL Commons', position: 'Content Director' });
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.score, 65);
+    assert.equal(r.confidence, 'likely');
+    assert.ok(r.reasons.some(reason => reason.includes("Affiliation keyword 'xrpl'")));
+});
+
+test('scoreGenericPair: role-only overlap does not corroborate identity', () => {
+    const wa = waContact('Cassie Marketing');
+    const li = liContact('Cassie Hirsh', { company: 'Acme Corp', position: 'Marketing Director' });
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.score, 20);
+    assert.equal(r.confidence, 'possible');
+    assert.equal(r.reasons.some(reason => reason.includes('Affiliation keyword')), false);
 });
 
 test('scoreGenericPair: phone country consistent with LI context boosts', () => {
