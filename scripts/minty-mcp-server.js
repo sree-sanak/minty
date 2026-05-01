@@ -96,10 +96,11 @@ function executeTool(name, args, data) {
     const { contacts, insights } = data;
 
     if (name === 'search_network') {
-        if (!args.query || typeof args.query !== 'string') {
+        if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: query' }] };
         }
-        const result = queryNetwork(args.query, {
+        const query = args.query.trim();
+        const result = queryNetwork(query, {
             contacts,
             insights,
             limit: clampLimit(args.limit, 10),
@@ -114,14 +115,15 @@ function executeTool(name, args, data) {
     }
 
     if (name === 'person_context') {
-        if (!args.person || typeof args.person !== 'string') {
+        if (!args.person || typeof args.person !== 'string' || !args.person.trim()) {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: person' }] };
         }
+        const person = args.person.trim();
         const limit = clampLimit(args.limit, 3);
-        const result = queryNetwork(args.person, { contacts, insights, limit });
+        const result = queryNetwork(person, { contacts, insights, limit });
         const matches = result.results.map(safeResult);
         const envelope = {
-            person: args.person,
+            person,
             matches,
             safety: result.safety,
         };
@@ -129,11 +131,12 @@ function executeTool(name, args, data) {
     }
 
     if (name === 'workflow_brief') {
-        if (!args.goal || typeof args.goal !== 'string') {
+        if (!args.goal || typeof args.goal !== 'string' || !args.goal.trim()) {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: goal' }] };
         }
+        const goal = args.goal.trim();
         const limit = clampLimit(args.limit, 5);
-        const result = queryNetwork(args.goal, { contacts, insights, limit });
+        const result = queryNetwork(goal, { contacts, insights, limit });
         const topPeople = result.results.map(r => ({
             name: r.name,
             title: r.title,
@@ -150,7 +153,7 @@ function executeTool(name, args, data) {
             return (!oldest || d < oldest) ? d : oldest;
         }, null);
         const envelope = {
-            goal: args.goal,
+            goal,
             intent: result.intent,
             topPeople,
             dataFreshness: {
