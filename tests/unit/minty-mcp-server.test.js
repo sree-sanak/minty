@@ -383,6 +383,70 @@ describe('error handling', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Blank/whitespace rejection and input trimming
+// ---------------------------------------------------------------------------
+
+describe('blank query rejection', () => {
+    for (const blank of ['', '   ', '\t', '\n', ' \n\t ']) {
+        it(`search_network rejects blank query ${JSON.stringify(blank)}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 50, method: 'tools/call',
+                params: { name: 'search_network', arguments: { query: blank } },
+            }, { contacts: CONTACTS, insights: INSIGHTS });
+            assert.equal(resp.result.isError, true);
+            assert.equal(resp.result.content[0].text, 'Missing required argument: query');
+        });
+
+        it(`person_context rejects blank person ${JSON.stringify(blank)}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 51, method: 'tools/call',
+                params: { name: 'person_context', arguments: { person: blank } },
+            }, { contacts: CONTACTS, insights: INSIGHTS });
+            assert.equal(resp.result.isError, true);
+            assert.equal(resp.result.content[0].text, 'Missing required argument: person');
+        });
+
+        it(`workflow_brief rejects blank goal ${JSON.stringify(blank)}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 52, method: 'tools/call',
+                params: { name: 'workflow_brief', arguments: { goal: blank } },
+            }, { contacts: CONTACTS, insights: INSIGHTS });
+            assert.equal(resp.result.isError, true);
+            assert.equal(resp.result.content[0].text, 'Missing required argument: goal');
+        });
+    }
+});
+
+describe('input trimming', () => {
+    it('search_network trims query in envelope', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 60, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: '  crypto insurance  ' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.query, 'crypto insurance');
+    });
+
+    it('person_context trims person in envelope', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 61, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: '  Alice  ' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.person, 'Alice');
+    });
+
+    it('workflow_brief trims goal in envelope', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 62, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: '  Find partners  ' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.goal, 'Find partners');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // clampLimit characterization — documents existing clamping behavior
 // ---------------------------------------------------------------------------
 
