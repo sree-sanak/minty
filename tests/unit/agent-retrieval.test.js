@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { queryNetwork, warmthLabel, confidenceLevel, suggestAction } = require('../../crm/agent-retrieval');
-const { resolveDataDir, hasContacts } = require('../../scripts/agent-query');
+const { resolveDataDir, hasContacts, loadData } = require('../../scripts/agent-query');
 
 // ---------------------------------------------------------------------------
 // Fixtures: minimal but realistic demo-shaped data
@@ -452,5 +452,76 @@ describe('agent-query: resolveDataDir()', () => {
         fs.writeFileSync(path.join(dataDir, 'contacts.json'), JSON.stringify({ id: 'x' }));
         seedContacts(path.join(tmpRoot, 'data-demo'), [{ id: 'demo2' }]);
         assert.equal(resolveDataDir(tmpRoot), path.join(tmpRoot, 'data-demo'));
+    });
+});
+
+// ---------------------------------------------------------------------------
+// loadData — characterization coverage for MCP/agent data loading
+// ---------------------------------------------------------------------------
+
+describe('agent-query: loadData()', () => {
+    let tmpDataDir;
+
+    beforeEach(() => {
+        tmpDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-loaddata-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDataDir, { recursive: true, force: true });
+    });
+
+    function writeUnified(filename, content) {
+        const unified = path.join(tmpDataDir, 'unified');
+        fs.mkdirSync(unified, { recursive: true });
+        fs.writeFileSync(path.join(unified, filename), JSON.stringify(content));
+    }
+
+    it('loads contacts and insights from unified directory', () => {
+        const contacts = [{ id: 'c1', name: 'Alice' }];
+        const insights = { c1: { topics: ['fintech'] } };
+        writeUnified('contacts.json', contacts);
+        writeUnified('insights.json', insights);
+
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, contacts);
+        assert.deepEqual(data.insights, insights);
+    });
+
+    it('returns empty array for contacts when file is missing', () => {
+        // No unified dir at all
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+    });
+
+    it('returns empty object for insights when file is missing', () => {
+        writeUnified('contacts.json', [{ id: 'c1' }]);
+        // insights.json intentionally not written
+
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, [{ id: 'c1' }]);
+        assert.deepEqual(data.insights, {});
+    });
+
+    it('returns both defaults when unified directory does not exist', () => {
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+        assert.deepEqual(data.insights, {});
+    });
+
+    it('preserves full contact shape through round-trip', () => {
+        const contacts = [{
+            id: 'wa_001', name: 'Bob Chen',
+            phones: ['+441234'], emails: ['bob@example.com'],
+            sources: { whatsapp: { id: '441234@c.us' } },
+            relationshipScore: 65, daysSinceContact: 10,
+        }];
+        writeUnified('contacts.json', contacts);
+        writeUnified('insights.json', {});
+
+        const data = loadData(tmpDataDir);
+        assert.equal(data.contacts.length, 1);
+        assert.equal(data.contacts[0].name, 'Bob Chen');
+        assert.equal(data.contacts[0].relationshipScore, 65);
+        assert.deepEqual(data.contacts[0].phones, ['+441234']);
     });
 });
