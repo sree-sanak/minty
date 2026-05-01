@@ -526,6 +526,39 @@ describe('agent-query: loadData()', () => {
         assert.deepEqual(data.insights, {});
     });
 
+    it('returns empty array when contacts.json contains malformed JSON', () => {
+        const unified = path.join(tmpDataDir, 'unified');
+        fs.mkdirSync(unified, { recursive: true });
+        fs.writeFileSync(path.join(unified, 'contacts.json'), '{not valid json!!');
+        fs.writeFileSync(path.join(unified, 'insights.json'), JSON.stringify({ c1: { topics: ['x'] } }));
+
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, [], 'malformed contacts.json defaults to []');
+        assert.deepEqual(data.insights, { c1: { topics: ['x'] } }, 'valid insights still loads');
+    });
+
+    it('returns empty object when insights.json contains malformed JSON', () => {
+        const unified = path.join(tmpDataDir, 'unified');
+        fs.mkdirSync(unified, { recursive: true });
+        fs.writeFileSync(path.join(unified, 'contacts.json'), JSON.stringify([{ id: 'c1' }]));
+        fs.writeFileSync(path.join(unified, 'insights.json'), '%%%not-json%%%');
+
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, [{ id: 'c1' }], 'valid contacts still loads');
+        assert.deepEqual(data.insights, {}, 'malformed insights.json defaults to {}');
+    });
+
+    it('returns both defaults when both files contain malformed JSON', () => {
+        const unified = path.join(tmpDataDir, 'unified');
+        fs.mkdirSync(unified, { recursive: true });
+        fs.writeFileSync(path.join(unified, 'contacts.json'), 'BROKEN');
+        fs.writeFileSync(path.join(unified, 'insights.json'), 'ALSO BROKEN');
+
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, [], 'malformed contacts defaults to []');
+        assert.deepEqual(data.insights, {}, 'malformed insights defaults to {}');
+    });
+
     it('preserves full contact shape through round-trip', () => {
         const contacts = [{
             id: 'wa_001', name: 'Bob Chen',

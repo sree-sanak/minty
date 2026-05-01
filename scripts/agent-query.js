@@ -52,9 +52,14 @@ function hasContacts(dir) {
  */
 function loadData(dataDir) {
     function loadJson(file) {
+        const fallback = file === 'insights.json' ? {} : [];
         const p = path.join(dataDir, 'unified', file);
-        if (!fs.existsSync(p)) return file === 'insights.json' ? {} : [];
-        return JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (!fs.existsSync(p)) return fallback;
+        try {
+            return JSON.parse(fs.readFileSync(p, 'utf8'));
+        } catch {
+            return fallback;
+        }
     }
     return {
         contacts: loadJson('contacts.json'),
