@@ -346,6 +346,22 @@ test('[NetworkQuery]: filterIndex — no location/role filter returns all (up to
     assert.equal(results.length, SAMPLE_INDEX.length);
 });
 
+test('[NetworkQuery]: filterIndex — tolerates entries with missing/malformed roles and city', () => {
+    const malformed = [
+        { id: 'x1', name: 'No Roles', city: 'london', roles: undefined, relationshipScore: 50, daysSinceContact: 10, meetScore: 40 },
+        { id: 'x2', name: 'Null Roles', city: 'london', roles: null, relationshipScore: 40, daysSinceContact: 5, meetScore: 30 },
+        { id: 'x3', name: 'String Roles', city: 'london', roles: 'founder', relationshipScore: 30, daysSinceContact: 3, meetScore: 20 },
+        { id: 'x4', name: 'No City', roles: ['founder'], relationshipScore: 60, daysSinceContact: 7, meetScore: 50 },
+        { id: 'x5', name: 'Numeric City', city: 123, roles: ['engineer'], relationshipScore: 20, daysSinceContact: 1, meetScore: 15 },
+        { id: 'x6', name: 'Good Entry', city: 'london', roles: ['founder'], relationshipScore: 70, daysSinceContact: 2, meetScore: 55 },
+    ];
+    const byRole = filterIndex(malformed, { locations: [], roles: ['founder'], intent: 'find' });
+    assert.deepEqual(byRole.map(r => r.id), ['x6', 'x4']);
+
+    const byLoc = filterIndex(malformed, { locations: ['london'], roles: [], intent: 'find' });
+    assert.deepEqual(byLoc.map(r => r.id), ['x6', 'x1', 'x2', 'x3', 'x4']);
+});
+
 // ---------------------------------------------------------------------------
 // buildIndexEntry
 // ---------------------------------------------------------------------------
