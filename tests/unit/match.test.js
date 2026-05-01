@@ -376,6 +376,14 @@ test('scoreGenericPair: role-only overlap does not corroborate identity', () => 
     assert.equal(r.reasons.some(reason => reason.includes('Affiliation keyword')), false);
 });
 
+test('scoreGenericPair: affiliation keyword requires a full token match', () => {
+    const wa = waContact('Cassie Nonxrpl');
+    const li = liContact('Cassie Hirsh', { company: 'XRPL Commons' });
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.score, 20);
+    assert.equal(r.reasons.some(reason => reason.includes('Affiliation keyword')), false);
+});
+
 test('scoreGenericPair: phone country consistent with LI context boosts', () => {
     const wa = waContact('Priya Sharma', { phones: ['+919876543210'] });
     // Override the phone field to ensure it's picked up

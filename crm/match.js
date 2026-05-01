@@ -290,8 +290,12 @@ function scoreGenericPair(contactA, srcA, contactB, srcB) {
             .split(/[\s,\/&()\-]+/)
             .map(w => w.replace(/[^a-z0-9]/g, ''))
             .filter(w => w.length > 3 && !genericCompanyWords.has(w));
+        const nameOtherWords = new Set(nameOther
+            .split(/[\s,\/&()\-]+/)
+            .map(w => w.replace(/[^a-z0-9]/g, ''))
+            .filter(Boolean));
         for (const w of affiliationWords) {
-            if (nameOther.includes(w)) {
+            if (nameOtherWords.has(w)) {
                 reasons.push(`Affiliation keyword '${w}' appears in other name/title`);
                 score += 25;
                 break;
