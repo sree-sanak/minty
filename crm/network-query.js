@@ -639,7 +639,7 @@ function filterIndex(index, parsed) {
     // Role filter: still hard — "founders" means founders, not everyone
     if (parsed.roles.length > 0) {
         results = results.filter(c =>
-            parsed.roles.some(r => c.roles.includes(r))
+            Array.isArray(c.roles) && parsed.roles.some(r => c.roles.includes(r))
         );
     }
 
