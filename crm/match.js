@@ -278,14 +278,26 @@ function scoreGenericPair(contactA, srcA, contactB, srcB) {
             score += 25;
         }
     } else if (compA || compB) {
-        // One side has company — check if it appears in the other contact's raw name
+        // One side has company context — check if distinctive company keywords
+        // appear in the other contact's saved title/name, e.g.
+        // "Cassie XRPL" ↔ LinkedIn company "XRPL Commons".
+        // Do not use job-title words here; role overlap is too weak for identity evidence.
+        const fieldsWithAffiliation = compA ? fieldsA : fieldsB;
         const nameOther = ((compA ? contactB.name : contactA.name) || '').toLowerCase();
-        const comp = (compA || compB).toLowerCase();
-        const compWords = comp.split(/[\s,\/&]+/).filter(w => w.length > 3);
-        for (const w of compWords) {
-            if (nameOther.includes(w)) {
-                reasons.push(`Company '${compA || compB}' appears in other name`);
-                score += 20;
+        const affiliation = (fieldsWithAffiliation.company || '').toLowerCase();
+        const genericCompanyWords = new Set(['company', 'group', 'global', 'capital', 'ventures', 'labs', 'studio', 'studios', 'partners', 'holdings', 'limited', 'incorporated']);
+        const affiliationWords = affiliation
+            .split(/[\s,\/&()\-]+/)
+            .map(w => w.replace(/[^a-z0-9]/g, ''))
+            .filter(w => w.length > 3 && !genericCompanyWords.has(w));
+        const nameOtherWords = new Set(nameOther
+            .split(/[\s,\/&()\-]+/)
+            .map(w => w.replace(/[^a-z0-9]/g, ''))
+            .filter(Boolean));
+        for (const w of affiliationWords) {
+            if (nameOtherWords.has(w)) {
+                reasons.push(`Affiliation keyword '${w}' appears in other name/title`);
+                score += 25;
                 break;
             }
         }
