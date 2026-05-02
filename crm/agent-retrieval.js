@@ -81,7 +81,10 @@ function suggestAction(result, intent) {
  * @param {number}   [opts.limit=10] - Max results to return
  * @returns {{ query: string, intent: string, results: object[], safety: object }}
  */
+const MAX_QUERY_LENGTH = 1000;
+
 function queryNetwork(query, opts = {}) {
+    const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const { contacts: rawContacts, insights: rawInsights, limit = 10 } = opts;
     const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
     const insights = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
@@ -92,7 +95,7 @@ function queryNetwork(query, opts = {}) {
     // 2. Parse and filter. If structured filters yield nothing, consider the
     //    full index but later keep only semantically evidenced matches. This
     //    avoids returning merely-warm-but-irrelevant contacts to agents.
-    const parsed = parseQuery(query);
+    const parsed = parseQuery(q);
     let candidates = filterIndex(index, parsed);
     const usedFallback = candidates.length === 0 && index.length > 0;
     if (usedFallback) {
@@ -124,7 +127,7 @@ function queryNetwork(query, opts = {}) {
     );
     for (const r of evidenced) {
         const contact = contactsById[r.id];
-        const goalScore = contact ? scoreContactForGoal(contact, query) : 0;
+        const goalScore = contact ? scoreContactForGoal(contact, q) : 0;
         r.matchScore = (r.matchScore || 0) + goalScore;
     }
 
@@ -155,7 +158,7 @@ function queryNetwork(query, opts = {}) {
     }));
 
     return {
-        query,
+        query: q,
         intent: parsed.intent,
         results,
         safety: {

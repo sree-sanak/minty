@@ -250,6 +250,60 @@ describe('agent-retrieval: queryNetwork()', () => {
         // Ensure real contacts still come through
         assert.ok(out.results.length >= 1, 'should still return non-group results');
     });
+
+    // -----------------------------------------------------------------------
+    // Query normalization — envelope.query must always be a bounded string
+    // -----------------------------------------------------------------------
+
+    it('normalizes numeric query to empty string in the envelope', () => {
+        const out = queryNetwork(42, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string', 'envelope query must be a string');
+        assert.equal(out.query, '');
+    });
+
+    it('normalizes object query to empty string in the envelope', () => {
+        const out = queryNetwork({ evil: 'payload' }, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string', 'envelope query must be a string');
+        assert.equal(out.query, '');
+    });
+
+    it('normalizes array query to empty string in the envelope', () => {
+        const out = queryNetwork(['a', 'b'], { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string', 'envelope query must be a string');
+        assert.equal(out.query, '');
+    });
+
+    it('normalizes boolean query to empty string in the envelope', () => {
+        const out = queryNetwork(true, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string', 'envelope query must be a string');
+        assert.equal(out.query, '');
+    });
+
+    it('normalizes null query to empty string in the envelope', () => {
+        const out = queryNetwork(null, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string');
+        assert.equal(out.query, '');
+    });
+
+    it('normalizes undefined query to empty string in the envelope', () => {
+        const out = queryNetwork(undefined, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(typeof out.query, 'string');
+        assert.equal(out.query, '');
+    });
+
+    it('truncates excessively long queries to prevent performance degradation', () => {
+        const longQuery = 'a'.repeat(2000);
+        const out = queryNetwork(longQuery, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.query.length, 1000);
+        assert.equal(out.query, 'a'.repeat(1000));
+        assert.equal(typeof out.query, 'string');
+    });
+
+    it('preserves valid string queries under the length limit', () => {
+        const normalQuery = 'investors in London';
+        const out = queryNetwork(normalQuery, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.query, normalQuery, 'normal queries pass through unchanged');
+    });
 });
 
 // ---------------------------------------------------------------------------
