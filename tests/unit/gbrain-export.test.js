@@ -9,7 +9,9 @@ const path = require('path');
 const {
     buildMarkdownDocument,
     buildRelationshipMemoryEnvelope,
+    envelopeToMarkdown,
     exportGbrainMemory,
+    parseArgs,
 } = require('../../scripts/export-gbrain-memory');
 
 const CONTACT = {
@@ -81,6 +83,145 @@ test('buildMarkdownDocument: creates GBrain-ingestable private markdown', () => 
     assert.equal(markdown.includes('ada@example.com'), false);
     assert.equal(markdown.includes('+15551234567'), false);
 });
+
+// ---------------------------------------------------------------------------
+// envelopeToMarkdown — characterization coverage of formatting logic
+// ---------------------------------------------------------------------------
+
+test('envelopeToMarkdown: renders all fields for a full envelope', () => {
+    const envelope = buildRelationshipMemoryEnvelope(CONTACT, INSIGHTS);
+    const md = envelopeToMarkdown(envelope);
+
+    assert.match(md, /^## Ada Lovelace/);
+    assert.match(md, /- Headline: Founder at Analytical Engines Ltd/);
+    assert.match(md, /- Location: London/);
+    assert.match(md, /- Relationship: strong, score 72/);
+    assert.match(md, /- Sources: googleContacts, linkedin/);
+    assert.match(md, /- Topics: /);
+    assert.match(md, /- Safety: direct contact details omitted; read-only relationship memory\./);
+    assert.match(md, /- Evidence:/);
+});
+
+test('envelopeToMarkdown: omits headline and location lines when absent', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        id: 'c_minimal',
+        name: 'Minimal Person',
+        sources: {},
+    }, {});
+    const md = envelopeToMarkdown(envelope);
+
+    assert.match(md, /^## Minimal Person/);
+    assert.equal(md.includes('Headline:'), false, 'no headline line when null');
+    assert.equal(md.includes('Location:'), false, 'no location line when null');
+    assert.match(md, /- Sources: unknown/);
+});
+
+test('envelopeToMarkdown: truncates evidence to 12 items', () => {
+    const evidence = Array.from({ length: 20 }, (_, i) => ({
+        source: 'minty',
+        label: `Evidence item ${i}`,
+        detail: `Detail ${i}`,
+    }));
+    const envelope = {
+        person: 'Test Person',
+        headline: null,
+        location: null,
+        relationship: { warmth: 'warm', score: 50 },
+        sourceMetadata: { sources: ['test'] },
+        topics: [],
+        evidence,
+        safety: { directContactDetailsOmitted: true, readOnly: true },
+    };
+    const md = envelopeToMarkdown(envelope);
+    const evidenceLines = md.split('\n').filter(l => l.startsWith('  - '));
+    assert.equal(evidenceLines.length, 12, 'evidence truncated to 12');
+    assert.ok(evidenceLines[0].includes('Evidence item 0'));
+    assert.ok(evidenceLines[11].includes('Evidence item 11'));
+});
+
+test('envelopeToMarkdown: evidence label without detail omits colon suffix', () => {
+    const envelope = {
+        person: 'No Detail',
+        headline: null,
+        location: null,
+        relationship: { warmth: 'cold', score: 10 },
+        sourceMetadata: { sources: [] },
+        topics: [],
+        evidence: [{ source: 'minty', label: 'Bare label' }],
+        safety: { directContactDetailsOmitted: true, readOnly: true },
+    };
+    const md = envelopeToMarkdown(envelope);
+    assert.match(md, /  - Bare label$/m);
+    // Ensure no trailing colon or "undefined"
+    assert.equal(md.includes('Bare label:'), false);
+    assert.equal(md.includes('undefined'), false);
+});
+
+test('envelopeToMarkdown: no evidence section when evidence array is empty', () => {
+    const envelope = {
+        person: 'Ghost',
+        headline: null,
+        location: null,
+        relationship: { warmth: 'cold', score: 0 },
+        sourceMetadata: { sources: [] },
+        topics: [],
+        evidence: [],
+        safety: { directContactDetailsOmitted: true, readOnly: true },
+    };
+    const md = envelopeToMarkdown(envelope);
+    assert.equal(md.includes('Evidence:'), false);
+});
+
+// ---------------------------------------------------------------------------
+// parseArgs — characterization coverage of CLI argument parsing
+// ---------------------------------------------------------------------------
+
+test('parseArgs: parses --out-dir flag', () => {
+    const opts = parseArgs(['--out-dir', '/tmp/out']);
+    assert.equal(opts.outDir, path.resolve('/tmp/out'));
+});
+
+test('parseArgs: parses --data-dir flag', () => {
+    const opts = parseArgs(['--data-dir', '/tmp/data']);
+    assert.equal(opts.dataDir, path.resolve('/tmp/data'));
+});
+
+test('parseArgs: parses --limit as integer', () => {
+    const opts = parseArgs(['--limit', '25']);
+    assert.equal(opts.limit, 25);
+});
+
+test('parseArgs: parses --help flag', () => {
+    const opts = parseArgs(['--help']);
+    assert.equal(opts.help, true);
+});
+
+test('parseArgs: parses -h shorthand', () => {
+    const opts = parseArgs(['-h']);
+    assert.equal(opts.help, true);
+});
+
+test('parseArgs: parses multiple flags together', () => {
+    const opts = parseArgs(['--data-dir', '/tmp/data', '--out-dir', '/tmp/out', '--limit', '10']);
+    assert.equal(opts.dataDir, path.resolve('/tmp/data'));
+    assert.equal(opts.outDir, path.resolve('/tmp/out'));
+    assert.equal(opts.limit, 10);
+});
+
+test('parseArgs: returns empty object for no arguments', () => {
+    const opts = parseArgs([]);
+    assert.deepEqual(opts, {});
+});
+
+test('parseArgs: --limit NaN produces NaN (caller validates)', () => {
+    const opts = parseArgs(['--limit', 'abc']);
+    assert.ok(Number.isNaN(opts.limit));
+});
+
+// ---------------------------------------------------------------------------
+// exportGbrainMemory — integration test
+// ---------------------------------------------------------------------------
 
 test('exportGbrainMemory: writes JSONL and Markdown under selected output directory', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-gbrain-export-'));
