@@ -327,6 +327,65 @@ describe('workflow_brief tool', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Malformed / missing loaded data guard
+// ---------------------------------------------------------------------------
+
+describe('malformed data guard', () => {
+    const MALFORMED_CASES = [
+        { label: 'contacts undefined, insights null', data: { contacts: undefined, insights: null } },
+        { label: 'contacts null, insights undefined', data: { contacts: null, insights: undefined } },
+        { label: 'contacts string, insights string', data: { contacts: 'not-array', insights: 'bad' } },
+        { label: 'contacts number, insights boolean', data: { contacts: 42, insights: true } },
+        { label: 'empty object', data: {} },
+    ];
+
+    for (const { label, data } of MALFORMED_CASES) {
+        it(`workflow_brief does not throw with ${label}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 70, method: 'tools/call',
+                params: { name: 'workflow_brief', arguments: { goal: 'test resilience' } },
+            }, data);
+
+            assert.equal(resp.jsonrpc, '2.0');
+            assert.equal(resp.id, 70);
+            assert.ok(resp.result);
+            const parsed = JSON.parse(resp.result.content[0].text);
+            assert.deepEqual(parsed.topPeople, []);
+            assert.equal(parsed.dataFreshness.contactCount, 0);
+            assert.equal(parsed.safety.readOnly, true);
+            assert.equal(parsed.safety.noLlmCalls, true);
+            assert.equal(parsed.safety.contactDetailsOmitted, true);
+        });
+
+        it(`search_network does not throw with ${label}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 71, method: 'tools/call',
+                params: { name: 'search_network', arguments: { query: 'anyone' } },
+            }, data);
+
+            assert.equal(resp.jsonrpc, '2.0');
+            assert.equal(resp.id, 71);
+            assert.ok(resp.result);
+            const parsed = JSON.parse(resp.result.content[0].text);
+            assert.ok(Array.isArray(parsed.results));
+        });
+
+        it(`person_context does not throw with ${label}`, async () => {
+            const resp = await handleMessage({
+                jsonrpc: '2.0', id: 72, method: 'tools/call',
+                params: { name: 'person_context', arguments: { person: 'Alice' } },
+            }, data);
+
+            assert.equal(resp.jsonrpc, '2.0');
+            assert.equal(resp.id, 72);
+            assert.ok(resp.result);
+            const parsed = JSON.parse(resp.result.content[0].text);
+            assert.ok(Array.isArray(parsed.matches));
+        });
+    }
+});
+
+// ---------------------------------------------------------------------------
 // Stdio transport regression tests
 // ---------------------------------------------------------------------------
 

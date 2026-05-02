@@ -93,7 +93,8 @@ function safeResult(r) {
 }
 
 function executeTool(name, args, data) {
-    const { contacts, insights } = data;
+    const contacts = Array.isArray(data.contacts) ? data.contacts : [];
+    const insights = (data.insights && typeof data.insights === 'object' && !Array.isArray(data.insights)) ? data.insights : {};
 
     if (name === 'search_network') {
         if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
