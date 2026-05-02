@@ -25,11 +25,24 @@ const REPLY_WINDOW_MS      = 14 * 24 * 60 * 60 * 1000; // 14 days
 const INITIATION_WINDOW_MS = 24 * 60 * 60 * 1000;      // new "convo" starts after 24h idle
 
 /**
- * Returns true if `ts` is a non-empty value that parses to a valid Date.
+ * Returns true if `ts` is an ISO date/datetime string with a real calendar date.
  */
 function isValidTimestamp(ts) {
-    if (!ts) return false;
-    return !isNaN(new Date(ts).getTime());
+    if (typeof ts !== 'string') return false;
+
+    const match = ts.match(/^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/);
+    if (!match) return false;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(ts);
+    if (Number.isNaN(parsed.getTime())) return false;
+
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+    return calendarDate.getUTCFullYear() === year &&
+        calendarDate.getUTCMonth() === month - 1 &&
+        calendarDate.getUTCDate() === day;
 }
 
 /**

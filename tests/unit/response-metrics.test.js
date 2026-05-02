@@ -370,6 +370,8 @@ test('[Metrics] labelMetrics: no data → empty chips', () => {
 
 test('[Metrics] isValidTimestamp: accepts valid ISO strings', () => {
     assert.ok(isValidTimestamp('2026-04-10T10:00:00Z'));
+    assert.ok(isValidTimestamp('2026-04-10T10:00:00.123Z'));
+    assert.ok(isValidTimestamp('2026-04-10T10:00:00+05:30'));
     assert.ok(isValidTimestamp('2026-01-01'));
 });
 
@@ -377,9 +379,16 @@ test('[Metrics] isValidTimestamp: rejects falsy and malformed values', () => {
     assert.equal(isValidTimestamp(null), false);
     assert.equal(isValidTimestamp(undefined), false);
     assert.equal(isValidTimestamp(''), false);
+    assert.equal(isValidTimestamp('   '), false);
     assert.equal(isValidTimestamp('not-a-date'), false);
     assert.equal(isValidTimestamp('bogus-timestamp'), false);
+    assert.equal(isValidTimestamp('2026-04-10T10:00:00'), false);
+    assert.equal(isValidTimestamp('2026-04-10 10:00:00Z'), false);
     assert.equal(isValidTimestamp('2026-99-99'), false);
+    assert.equal(isValidTimestamp('2026-02-30'), false);
+    assert.equal(isValidTimestamp(1772496000000), false);
+    assert.equal(isValidTimestamp({ timestamp: '2026-04-10T10:00:00Z' }), false);
+    assert.equal(isValidTimestamp(new Date('2026-04-10T10:00:00Z')), false);
 });
 
 // ---------------------------------------------------------------------------
