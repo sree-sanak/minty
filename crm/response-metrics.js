@@ -25,6 +25,14 @@ const REPLY_WINDOW_MS      = 14 * 24 * 60 * 60 * 1000; // 14 days
 const INITIATION_WINDOW_MS = 24 * 60 * 60 * 1000;      // new "convo" starts after 24h idle
 
 /**
+ * Returns true if `ts` is a non-empty value that parses to a valid Date.
+ */
+function isValidTimestamp(ts) {
+    if (!ts) return false;
+    return !isNaN(new Date(ts).getTime());
+}
+
+/**
  * Returns true if `from` identifies the user themselves.
  */
 function isFromSelf(from, selfIds) {
@@ -36,7 +44,7 @@ function isFromSelf(from, selfIds) {
 /**
  * Core pair-up: for each thread (contactId + chatId + source), walk in time
  * order and generate { userMsg, contactReply } pairs. Skips messages with no
- * timestamp. `userMsg` without a matching contact reply within REPLY_WINDOW_MS
+ * timestamp or a malformed timestamp. `userMsg` without a matching contact reply within REPLY_WINDOW_MS
  * is still emitted (with contactReply=null) so the reply-rate denominator is
  * correct.
  *
@@ -45,7 +53,7 @@ function isFromSelf(from, selfIds) {
  */
 function pairMessages(threadInteractions, selfIds) {
     const sorted = threadInteractions
-        .filter(i => i.timestamp)
+        .filter(i => isValidTimestamp(i.timestamp))
         .slice()
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -102,7 +110,7 @@ function computeContactMetrics(contactInteractions, selfIds) {
 
     for (const threadMsgs of Object.values(threads)) {
         const sorted = threadMsgs
-            .filter(i => i.timestamp)
+            .filter(i => isValidTimestamp(i.timestamp))
             .slice()
             .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
         if (sorted.length === 0) continue;
@@ -252,6 +260,7 @@ module.exports = {
     scoreEngagement,
     labelMetrics,
     isFromSelf,
+    isValidTimestamp,
     median,
     REPLY_WINDOW_MS,
     INITIATION_WINDOW_MS,
