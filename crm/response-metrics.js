@@ -25,6 +25,27 @@ const REPLY_WINDOW_MS      = 14 * 24 * 60 * 60 * 1000; // 14 days
 const INITIATION_WINDOW_MS = 24 * 60 * 60 * 1000;      // new "convo" starts after 24h idle
 
 /**
+ * Returns true if `ts` is an ISO date/datetime string with a real calendar date.
+ */
+function isValidTimestamp(ts) {
+    if (typeof ts !== 'string') return false;
+
+    const match = ts.match(/^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/);
+    if (!match) return false;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(ts);
+    if (Number.isNaN(parsed.getTime())) return false;
+
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+    return calendarDate.getUTCFullYear() === year &&
+        calendarDate.getUTCMonth() === month - 1 &&
+        calendarDate.getUTCDate() === day;
+}
+
+/**
  * Returns true if `from` identifies the user themselves.
  */
 function isFromSelf(from, selfIds) {
@@ -36,7 +57,7 @@ function isFromSelf(from, selfIds) {
 /**
  * Core pair-up: for each thread (contactId + chatId + source), walk in time
  * order and generate { userMsg, contactReply } pairs. Skips messages with no
- * timestamp. `userMsg` without a matching contact reply within REPLY_WINDOW_MS
+ * timestamp or a malformed timestamp. `userMsg` without a matching contact reply within REPLY_WINDOW_MS
  * is still emitted (with contactReply=null) so the reply-rate denominator is
  * correct.
  *
@@ -45,7 +66,7 @@ function isFromSelf(from, selfIds) {
  */
 function pairMessages(threadInteractions, selfIds) {
     const sorted = threadInteractions
-        .filter(i => i.timestamp)
+        .filter(i => isValidTimestamp(i.timestamp))
         .slice()
         .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
@@ -102,7 +123,7 @@ function computeContactMetrics(contactInteractions, selfIds) {
 
     for (const threadMsgs of Object.values(threads)) {
         const sorted = threadMsgs
-            .filter(i => i.timestamp)
+            .filter(i => isValidTimestamp(i.timestamp))
             .slice()
             .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
         if (sorted.length === 0) continue;
@@ -252,6 +273,7 @@ module.exports = {
     scoreEngagement,
     labelMetrics,
     isFromSelf,
+    isValidTimestamp,
     median,
     REPLY_WINDOW_MS,
     INITIATION_WINDOW_MS,

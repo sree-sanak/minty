@@ -13,6 +13,7 @@ const {
     scoreEngagement,
     labelMetrics,
     isFromSelf,
+    isValidTimestamp,
     median,
 } = require('../../crm/response-metrics');
 
@@ -361,4 +362,77 @@ test('[Metrics] labelMetrics: no data → empty chips', () => {
         initiationRate: null, theyStarted: 0, youStarted: 0 };
     const chips = labelMetrics(m);
     assert.deepEqual(chips, []);
+});
+
+// ---------------------------------------------------------------------------
+// isValidTimestamp
+// ---------------------------------------------------------------------------
+
+test('[Metrics] isValidTimestamp: accepts valid ISO strings', () => {
+    assert.ok(isValidTimestamp('2026-04-10T10:00:00Z'));
+    assert.ok(isValidTimestamp('2026-04-10T10:00:00.123Z'));
+    assert.ok(isValidTimestamp('2026-04-10T10:00:00+05:30'));
+    assert.ok(isValidTimestamp('2026-01-01'));
+});
+
+test('[Metrics] isValidTimestamp: rejects falsy and malformed values', () => {
+    assert.equal(isValidTimestamp(null), false);
+    assert.equal(isValidTimestamp(undefined), false);
+    assert.equal(isValidTimestamp(''), false);
+    assert.equal(isValidTimestamp('   '), false);
+    assert.equal(isValidTimestamp('not-a-date'), false);
+    assert.equal(isValidTimestamp('bogus-timestamp'), false);
+    assert.equal(isValidTimestamp('2026-04-10T10:00:00'), false);
+    assert.equal(isValidTimestamp('2026-04-10 10:00:00Z'), false);
+    assert.equal(isValidTimestamp('2026-99-99'), false);
+    assert.equal(isValidTimestamp('2026-02-30'), false);
+    assert.equal(isValidTimestamp(1772496000000), false);
+    assert.equal(isValidTimestamp({ timestamp: '2026-04-10T10:00:00Z' }), false);
+    assert.equal(isValidTimestamp(new Date('2026-04-10T10:00:00Z')), false);
+});
+
+// ---------------------------------------------------------------------------
+// Malformed-timestamp regression tests
+// ---------------------------------------------------------------------------
+
+test('[Metrics] pairMessages ignores messages with malformed timestamps', () => {
+    const msgs = [
+        mk('2026-04-10T10:00:00Z', 'me'),
+        mk('not-a-date', 'them'),           // malformed — should be dropped
+        mk('2026-04-10T10:30:00Z', 'them'),  // valid reply
+    ];
+    const pairs = pairMessages(msgs, SELF);
+    assert.equal(pairs.length, 1);
+    assert.ok(pairs[0].contactReply);
+    assert.equal(pairs[0].contactReply.timestamp, '2026-04-10T10:30:00Z');
+});
+
+test('[Metrics] computeContactMetrics excludes malformed timestamps from initiation count', () => {
+    const msgs = [
+        mk('garbage', 'them'),               // malformed — must not count as "they started"
+        mk('2026-04-10T10:00:00Z', 'me'),
+        mk('2026-04-10T10:05:00Z', 'them'),
+    ];
+    const m = computeContactMetrics(msgs, SELF);
+    // Only the valid messages should participate: you started 1, they started 0
+    assert.equal(m.youStarted, 1);
+    assert.equal(m.theyStarted, 0);
+    assert.equal(m.userMessages, 1);
+    assert.equal(m.contactReplies, 1);
+});
+
+test('[Metrics] computeContactMetrics: valid data unchanged when malformed messages mixed in', () => {
+    const msgs = [
+        mk('2026-04-10T10:00:00Z', 'me'),
+        mk('2026-04-10T10:05:00Z', 'them'),
+        mk('bogus', 'me'),
+        mk('2026-04-11T09:00:00Z', 'me'),
+        mk('2026-04-11T09:05:00Z', 'them'),
+        mk('xyz', 'them'),
+    ];
+    const m = computeContactMetrics(msgs, SELF);
+    assert.equal(m.replyRate, 1);
+    assert.equal(m.userMessages, 2);
+    assert.equal(m.contactReplies, 2);
+    assert.ok(m.medianReplyLatencyHours < 1);
 });
