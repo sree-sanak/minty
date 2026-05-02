@@ -236,3 +236,72 @@ test('reconnect/alternateOpener: single-sentence draft never produces em-dash th
         assert.ok(!result.includes('..'), `double period found in: "${result}"`);
     }
 });
+
+// ---------------------------------------------------------------------------
+// buildReconnectTemplate — edge cases (characterization coverage)
+// ---------------------------------------------------------------------------
+
+test('reconnect/buildReconnectTemplate: open loop too short after stripping is omitted', () => {
+    // "Asked him to do" → loopCore = "do" (length 2, ≤ 4) → skipped
+    const insights = { topics: [], openLoops: ['Asked him to do'], keywords: [] };
+    const draft = buildReconnectTemplate(makeContact(), insights);
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about you and wanted to reach out. Hope things are going well at Acme Corp. Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: open loop long enough after stripping is included', () => {
+    const insights = { topics: [], openLoops: ['Asked him to review the pitch deck'], keywords: [] };
+    const draft = buildReconnectTemplate(makeContact(), insights);
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about you and wanted to reach out. Hope things are going well at Acme Corp. Also wanted to follow up on review the pitch deck — did that ever work out? Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: Apollo currentCompany fallback for company line', () => {
+    const contact = makeContact({ sources: {}, apollo: { currentCompany: 'Neo Corp' } });
+    const draft = buildReconnectTemplate(contact);
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about you and wanted to reach out. Hope things are going well at Neo Corp. Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: keywords fallback when no topics and >= 2 keywords', () => {
+    const insights = { topics: [], openLoops: [], keywords: ['fundraising', 'strategy'] };
+    const draft = buildReconnectTemplate(makeContact(), insights);
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about our conversation around fundraising and strategy and wanted to reach out. Hope things are going well at Acme Corp. Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: single keyword used as standalone topic ref', () => {
+    const insights = { topics: [], openLoops: [], keywords: ['blockchain'] };
+    const draft = buildReconnectTemplate(makeContact(), insights);
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about our conversation around blockchain and wanted to reach out. Hope things are going well at Acme Corp. Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: snippet with only short words falls back to generic opening', () => {
+    // All words are ≤ 4 chars, so the words filter produces empty and the generic fallback fires
+    const draft = buildReconnectTemplate(makeContact({ name: 'Jay' }), null, ['hi ok bye']);
+    assert.equal(
+        draft,
+        "Hey Jay, it's been about a month — I was thinking about you and wanted to check in. Hope things are going well at Acme Corp. Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
+
+test('reconnect/buildReconnectTemplate: open loop with em-dash strips after dash', () => {
+    const insights = { topics: [], openLoops: ['Pending follow-up — waiting on their side'], keywords: [] };
+    const draft = buildReconnectTemplate(makeContact(), insights);
+    // loopCore should be derived from text before the em-dash, with "Pending" stripped
+    assert.equal(
+        draft,
+        "Hey Sarah, it's been about a month — I was thinking about you and wanted to reach out. Hope things are going well at Acme Corp. Also wanted to follow up on follow-up — did that ever work out? Would love to catch up — are you up for a coffee or a quick call sometime soon?"
+    );
+});
