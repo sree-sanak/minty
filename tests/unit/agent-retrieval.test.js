@@ -190,6 +190,23 @@ describe('agent-retrieval: queryNetwork()', () => {
             assert.ok(out.results[0].evidence.some(e => e.kind === 'keyword'));
         }
     });
+
+    it('excludes isGroup contacts from results', () => {
+        const contacts = [
+            {
+                id: 'g_001', name: 'Crypto Founders Chat', isGroup: true,
+                sources: { whatsapp: { id: 'g_001@g.us' } },
+                relationshipScore: 0, daysSinceContact: 1, interactionCount: 200,
+                emails: [], phones: [],
+            },
+            ...CONTACTS,
+        ];
+        const out = queryNetwork('crypto', { contacts, insights: INSIGHTS });
+        const ids = out.results.map(r => r.id);
+        assert.ok(!ids.includes('g_001'), 'group contact should be excluded from agent results');
+        // Ensure real contacts still come through
+        assert.ok(out.results.length >= 1, 'should still return non-group results');
+    });
 });
 
 // ---------------------------------------------------------------------------
