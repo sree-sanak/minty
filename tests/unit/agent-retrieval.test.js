@@ -191,6 +191,49 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('safety envelope includes readOnly flag', () => {
+        const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.safety.readOnly, true, 'readOnly must be true');
+    });
+
+    it('float limit falls back to safe default without truncating this four-result fixture', () => {
+        const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 3.5 });
+        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003']);
+    });
+
+    it('result envelope carries exact confidence and metadata for known contact', () => {
+        const out = queryNetwork('payments infrastructure', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.results.length, 1);
+        assert.deepEqual(out.results[0], {
+            id: 'c_004',
+            name: 'Dan Petrov',
+            title: 'Software Engineer at Stripe',
+            company: 'Stripe',
+            city: 'london',
+            relevance: 51,
+            relationshipScore: 85,
+            warmth: 'strong',
+            confidence: 'high',
+            evidence: [
+                { kind: 'keyword', label: 'stripe', detail: 'LinkedIn company: Stripe' },
+                { kind: 'topic', label: 'Recent conversation', detail: 'payments infrastructure' },
+                { kind: 'recent', label: 'Recent', detail: '2 days ago' },
+            ],
+            evidenceBacked: true,
+            suggestedAction: 'Reach out directly — strong existing relationship.',
+            daysSinceContact: 2,
+            interactionCount: 50,
+        });
+    });
+
+    it('empty query string returns deterministic generic ranking without crashing', () => {
+        const out = queryNetwork('', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.query, '');
+        assert.equal(out.intent, 'find');
+        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003']);
+        assert.equal(out.safety.readOnly, true);
+    });
+
     it('excludes isGroup contacts from results', () => {
         const contacts = [
             {
