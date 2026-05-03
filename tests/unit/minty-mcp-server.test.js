@@ -188,6 +188,27 @@ describe('search_network tool', () => {
         }
     });
 
+    it('strips all privacy-sensitive and internal fields from MCP results', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 14, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'crypto' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.results.length >= 1, 'need results to verify field stripping');
+        for (const r of parsed.results) {
+            // Fields queryNetwork returns but safeResult must strip
+            assert.equal(r.id, undefined, 'id must not leak through MCP');
+            assert.equal(r.relevance, undefined, 'relevance must not leak through MCP');
+            assert.equal(r.evidenceBacked, undefined, 'evidenceBacked must not leak through MCP');
+            assert.equal(r.activeChannels, undefined, 'activeChannels must not leak through MCP');
+            assert.equal(r.sources, undefined, 'sources must not leak through MCP');
+            assert.equal(r.emails, undefined, 'emails must not leak through MCP');
+            assert.equal(r.phones, undefined, 'phones must not leak through MCP');
+            assert.equal(r.rawContact, undefined, 'rawContact must not leak through MCP');
+        }
+    });
+
     it('respects limit parameter', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 12, method: 'tools/call',
@@ -439,6 +460,39 @@ describe('error handling', () => {
 
         assert.ok(resp.error || resp.result.isError);
     });
+
+    it('returns unknown-tool error when params is null', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 42, method: 'tools/call',
+            params: null,
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        assert.equal(resp.id, 42);
+        assert.ok(resp.result.isError);
+        assert.match(resp.result.content[0].text, /Unknown tool/);
+    });
+
+    it('returns unknown-tool error when params omits name', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 43, method: 'tools/call',
+            params: { arguments: { query: 'test' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        assert.equal(resp.id, 43);
+        assert.ok(resp.result.isError);
+        assert.match(resp.result.content[0].text, /Unknown tool/);
+    });
+
+    it('returns missing-argument error when arguments object is absent', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 44, method: 'tools/call',
+            params: { name: 'search_network' },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        assert.equal(resp.id, 44);
+        assert.ok(resp.result.isError);
+        assert.equal(resp.result.content[0].text, 'Missing required argument: query');
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -557,6 +611,9 @@ describe('safeResult', () => {
         suggestedAction: 'Send a message',
         daysSinceContact: 5,
         interactionCount: 12,
+        // Fields from queryNetwork that MUST be stripped at MCP layer:
+        relevance: 42,
+        evidenceBacked: true,
         // Sensitive fields that MUST be stripped:
         emails: ['test@example.com'],
         phones: ['+4912345'],
@@ -591,7 +648,7 @@ describe('safeResult', () => {
         assert.equal(safe.interactionCount, 12);
     });
 
-    it('strips emails, phones, rawContact, sources, id, activeChannels', () => {
+    it('strips emails, phones, rawContact, sources, id, activeChannels, relevance, evidenceBacked', () => {
         const safe = safeResult(FULL_RESULT);
         assert.equal(safe.emails, undefined);
         assert.equal(safe.phones, undefined);
@@ -599,6 +656,8 @@ describe('safeResult', () => {
         assert.equal(safe.sources, undefined);
         assert.equal(safe.id, undefined);
         assert.equal(safe.activeChannels, undefined);
+        assert.equal(safe.relevance, undefined, 'relevance is internal scoring detail');
+        assert.equal(safe.evidenceBacked, undefined, 'evidenceBacked is internal metadata');
     });
 
     it('handles result with missing optional fields gracefully', () => {
