@@ -304,6 +304,20 @@ describe('agent-retrieval: queryNetwork()', () => {
         const out = queryNetwork(normalQuery, { contacts: CONTACTS, insights: INSIGHTS });
         assert.equal(out.query, normalQuery, 'normal queries pass through unchanged');
     });
+
+    it('survives null opts without crashing', () => {
+        const out = queryNetwork('anyone', null);
+        assert.deepEqual(out.results, []);
+        assert.ok(out.safety);
+        assert.equal(out.safety.readOnly, true);
+    });
+
+    it('survives undefined opts (no second argument)', () => {
+        const out = queryNetwork('anyone');
+        assert.deepEqual(out.results, []);
+        assert.ok(out.safety);
+        assert.equal(out.safety.readOnly, true);
+    });
 });
 
 // ---------------------------------------------------------------------------

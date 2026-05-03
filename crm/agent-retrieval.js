@@ -85,7 +85,8 @@ const MAX_QUERY_LENGTH = 1000;
 
 function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
-    const { contacts: rawContacts, insights: rawInsights, limit = 10 } = opts;
+    const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
+    const { contacts: rawContacts, insights: rawInsights, limit = 10 } = safeOpts;
     const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
     const insights = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
 
