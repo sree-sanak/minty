@@ -52,6 +52,13 @@ const INSIGHTS = {
     wa_003: { topics: ['Node.js', 'devtools'], keywords: ['node', 'startup'], sentiment: 'warm' },
 };
 
+const INTERACTIONS = [
+    {
+        id: 'tg_001', contactId: 'wa_001', source: 'telegram',
+        body: 'We discussed DeFi lending protocols and collateral risk.',
+    },
+];
+
 function flattenStrings(value, out = []) {
     if (typeof value === 'string') out.push(value);
     else if (Array.isArray(value)) value.forEach(v => flattenStrings(v, out));
@@ -158,8 +165,8 @@ describe('search_network tool', () => {
     it('returns results for a valid query', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 10, method: 'tools/call',
-            params: { name: 'search_network', arguments: { query: 'crypto insurance' } },
-        }, { contacts: CONTACTS, insights: INSIGHTS });
+            params: { name: 'search_network', arguments: { query: 'DeFi lending protocols' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS, interactions: INTERACTIONS });
 
         assert.equal(resp.id, 10);
         assert.ok(resp.result);
@@ -169,6 +176,9 @@ describe('search_network tool', () => {
         assert.ok(parsed.query);
         assert.ok(Array.isArray(parsed.results));
         assert.ok(parsed.safety);
+        assert.ok(parsed.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(parsed.diagnostics.interactionEvidenceContacts, 1);
+        assert.equal(JSON.stringify(parsed).includes('collateral risk'), false, 'must not leak raw interaction text');
         assert.equal(parsed.safety.contactDetailsOmitted, true);
         assert.equal(parsed.safety.readOnly, true);
     });

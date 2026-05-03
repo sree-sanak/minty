@@ -92,6 +92,55 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('uses privacy-safe interaction evidence from non-LinkedIn sources', () => {
+        const contacts = [
+            {
+                id: 'c_tg', name: 'Tara Protocol',
+                sources: { telegram: { userId: 'tg_1' } },
+                relationshipScore: 62, daysSinceContact: 4, interactionCount: 12,
+                activeChannels: ['telegram'], emails: [], phones: [],
+            },
+            {
+                id: 'c_li', name: 'Generic Finance Person',
+                sources: { linkedin: { position: 'Finance Associate', company: 'BankCo' } },
+                relationshipScore: 80, daysSinceContact: 1, interactionCount: 30,
+                activeChannels: ['linkedin'], emails: [], phones: [],
+            },
+        ];
+        const interactions = [
+            {
+                id: 'i_1', source: 'telegram', contactId: 'c_tg',
+                body: 'We discussed DeFi lending protocols, Aave, and collateral risk.',
+                timestamp: '2026-05-01T00:00:00Z',
+            },
+        ];
+
+        const out = queryNetwork('Who do I know working in DeFi lending protocols?', { contacts, interactions });
+        assert.equal(out.results[0].id, 'c_tg');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction' && e.label === 'Telegram evidence'));
+        assert.ok(!JSON.stringify(out.results).includes('Aave'), 'must not leak raw interaction text');
+        assert.ok(out.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('falls back to matching personal chat names when interactions have no contactId', () => {
+        const contacts = [{
+            id: 'c_named', name: 'Nina DeFi',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_named', source: 'telegram', chatName: 'Nina DeFi', type: 'personal',
+            body: 'Talked about AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions });
+        assert.equal(out.results[0].id, 'c_named');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction'));
+    });
+
     it('respects limit option', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 2 });
         assert.ok(out.results.length <= 2, 'respects limit');
@@ -651,15 +700,18 @@ describe('agent-query: loadData()', () => {
         fs.writeFileSync(path.join(unified, filename), JSON.stringify(content));
     }
 
-    it('loads contacts and insights from unified directory', () => {
+    it('loads contacts, insights, and interactions from unified directory', () => {
         const contacts = [{ id: 'c1', name: 'Alice' }];
         const insights = { c1: { topics: ['fintech'] } };
+        const interactions = [{ id: 'i1', contactId: 'c1', source: 'telegram', body: 'DeFi lending' }];
         writeUnified('contacts.json', contacts);
         writeUnified('insights.json', insights);
+        writeUnified('interactions.json', interactions);
 
         const data = loadData(tmpDataDir);
         assert.deepEqual(data.contacts, contacts);
         assert.deepEqual(data.insights, insights);
+        assert.deepEqual(data.interactions, interactions);
     });
 
     it('returns empty array for contacts when file is missing', () => {
