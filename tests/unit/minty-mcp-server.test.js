@@ -332,6 +332,23 @@ describe('workflow_brief tool', () => {
         }
     });
 
+    it('topPeople entries include exact confidence and recency signals for agent prioritization', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 34, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'Find EU crypto insurance partners' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.deepEqual(parsed.topPeople.map(p => ({
+            name: p.name,
+            confidence: p.confidence,
+            daysSinceContact: p.daysSinceContact,
+        })), [
+            { name: 'Alice Müller', confidence: 'medium', daysSinceContact: 3 },
+            { name: 'Bob van Dijk', confidence: 'medium', daysSinceContact: 30 },
+        ]);
+    });
+
     it('handles contacts where all lastContactedAt are null/missing', async () => {
         const noDateContacts = [
             { id: 'nd_1', name: 'No Date', sources: {}, relationshipScore: 40 },
