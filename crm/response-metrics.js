@@ -94,7 +94,7 @@ function pairMessages(threadInteractions, selfIds) {
  * Falls back to (contactId + source) if chatId missing.
  */
 function groupByThread(interactions) {
-    const threads = {};
+    const threads = Object.create(null);
     for (const i of interactions) {
         if (!i._contactId) continue;
         const key = i._contactId + '|' + (i.chatId || '') + '|' + (i.source || '');

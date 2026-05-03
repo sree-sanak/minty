@@ -445,6 +445,33 @@ test('[Metrics] computeAllMetrics: __proto__ / constructor contact IDs do not po
         'result map must have null prototype');
 });
 
+test('[Metrics] groupByThread: prototype-colliding thread keys do not corrupt map', () => {
+    // Thread key = _contactId + '|' + chatId + '|' + source
+    // With a plain {}, threads['constructor|c|wa'] inherits [Function: Object]
+    // for the 'constructor' prefix check, but the full key with pipes is safe.
+    // However, threads['constructor||'] (no chatId/source) would match the
+    // inherited 'constructor' if the lookup hit the prototype. Use null-prototype
+    // maps to prevent any possibility.
+    const interactions = [
+        { timestamp: '2026-04-10T10:00:00Z', from: 'me',   _contactId: 'constructor', chatId: 'c1', source: 'wa' },
+        { timestamp: '2026-04-10T10:05:00Z', from: 'them', _contactId: 'constructor', chatId: 'c1', source: 'wa' },
+        { timestamp: '2026-04-11T10:00:00Z', from: 'me',   _contactId: 'toString',    chatId: 'c1', source: 'wa' },
+        { timestamp: '2026-04-11T10:05:00Z', from: 'them', _contactId: '__proto__',   chatId: 'c1', source: 'wa' },
+    ];
+    const threads = groupByThread(interactions);
+    assert.equal(Object.getPrototypeOf(threads), null,
+        'threads map must have null prototype');
+    assert.ok(Array.isArray(threads['constructor|c1|wa']),
+        'constructor thread must be a real array');
+    assert.equal(threads['constructor|c1|wa'].length, 2);
+    assert.ok(Array.isArray(threads['toString|c1|wa']),
+        'toString thread must be a real array');
+    assert.equal(threads['toString|c1|wa'].length, 1);
+    assert.ok(Array.isArray(threads['__proto__|c1|wa']),
+        '__proto__ thread must be a real array');
+    assert.equal(threads['__proto__|c1|wa'].length, 1);
+});
+
 test('[Metrics] computeContactMetrics: valid data unchanged when malformed messages mixed in', () => {
     const msgs = [
         mk('2026-04-10T10:00:00Z', 'me'),
