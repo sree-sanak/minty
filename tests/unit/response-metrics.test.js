@@ -232,11 +232,11 @@ test('[Metrics] computeAllMetrics skips interactions without _contactId', () => 
         { timestamp: '2026-01-01', from: 'me', chatId: 'c1', source: 'wa' },
     ];
     const result = computeAllMetrics(interactions, SELF);
-    assert.deepEqual(result, {});
+    assert.equal(Object.keys(result).length, 0);
 });
 
 test('[Metrics] computeAllMetrics with empty array returns empty object', () => {
-    assert.deepEqual(computeAllMetrics([], SELF), {});
+    assert.equal(Object.keys(computeAllMetrics([], SELF)).length, 0);
 });
 
 // ---------------------------------------------------------------------------
@@ -419,6 +419,30 @@ test('[Metrics] computeContactMetrics excludes malformed timestamps from initiat
     assert.equal(m.theyStarted, 0);
     assert.equal(m.userMessages, 1);
     assert.equal(m.contactReplies, 1);
+});
+
+test('[Metrics] computeAllMetrics: __proto__ / constructor contact IDs do not pollute result', () => {
+    const msgs = [
+        mk('2026-04-10T10:00:00Z', 'me',   { contactId: '__proto__' }),
+        mk('2026-04-10T10:05:00Z', 'them', { contactId: '__proto__' }),
+        mk('2026-04-11T09:00:00Z', 'me',   { contactId: 'constructor' }),
+        mk('2026-04-11T09:05:00Z', 'them', { contactId: 'constructor' }),
+        mk('2026-04-12T09:00:00Z', 'me',   { contactId: 'toString' }),
+        mk('2026-04-12T09:05:00Z', 'them', { contactId: 'toString' }),
+    ];
+    const result = computeAllMetrics(msgs, SELF);
+
+    // Dangerous keys must be stored as own data properties, not inherited.
+    assert.equal(Object.hasOwn(result, '__proto__'), true,
+        '__proto__ contact must appear as own result data');
+    assert.equal(Object.hasOwn(result, 'constructor'), true,
+        'constructor contact must appear as own result data');
+    assert.equal(Object.hasOwn(result, 'toString'), true,
+        'toString contact must appear as own result data');
+
+    // The result object itself must not have a polluted prototype.
+    assert.equal(Object.getPrototypeOf(result), null,
+        'result map must have null prototype');
 });
 
 test('[Metrics] computeContactMetrics: valid data unchanged when malformed messages mixed in', () => {
