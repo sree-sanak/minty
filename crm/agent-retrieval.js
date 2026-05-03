@@ -88,7 +88,9 @@ function queryNetwork(query, opts = {}) {
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, limit = 10 } = safeOpts;
     const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
-    const insights = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
+    const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
+    const insights = Object.create(null);
+    for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];
 
     // 1. Build in-memory index from contacts
     const index = contacts.map(c => buildIndexEntry(c));
