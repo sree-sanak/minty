@@ -191,6 +191,20 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('ignores inherited insight keys when building agent evidence', () => {
+        const contacts = [{
+            id: 'inherited-contact', name: 'Pat Safe',
+            sources: { linkedin: { position: 'Founder', company: 'SafeFoundry' } },
+            relationshipScore: 65, daysSinceContact: 3, interactionCount: 12,
+            emails: ['pat@example.com'], phones: ['+155****0123'],
+        }];
+        const insights = Object.create({
+            'inherited-contact': { topics: ['zero trust security'] },
+        });
+        const out = queryNetwork('zero trust security', { contacts, insights });
+        assert.deepEqual(out.results, [], 'inherited prototype data must not create source evidence');
+    });
+
     it('safety envelope includes readOnly flag', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS });
         assert.equal(out.safety.readOnly, true, 'readOnly must be true');
