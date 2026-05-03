@@ -98,4 +98,64 @@ describe('scrubEvent', () => {
         assert.equal(result.user.id, '1');
         assert.equal(result.user.email, undefined);
     });
+
+    // --- Breadcrumb scrubbing (PII in navigation/HTTP URLs) ---
+
+    it('strips breadcrumbs to prevent PII leaks in navigation URLs', () => {
+        const event = {
+            breadcrumbs: [
+                { category: 'navigation', data: { from: '/contacts?search=alice', to: '/contacts/c_42' } },
+                { category: 'http', data: { url: 'https://example.com/api/search?q=bob+smith' } },
+                { category: 'console', message: 'loaded contact Alice Chen' },
+            ],
+        };
+        const result = scrubEvent(event);
+        assert.equal(result.breadcrumbs, undefined, 'breadcrumbs should be stripped entirely');
+    });
+
+    it('handles event with empty breadcrumbs array', () => {
+        const event = { breadcrumbs: [] };
+        const result = scrubEvent(event);
+        assert.equal(result.breadcrumbs, undefined);
+    });
+
+    // --- Extra data scrubbing ---
+
+    it('strips extra field which may contain arbitrary debug PII', () => {
+        const event = {
+            extra: { contactName: 'Alice Chen', query: 'investors in SF' },
+            exception: { values: [{ type: 'Error' }] },
+        };
+        const result = scrubEvent(event);
+        assert.equal(result.extra, undefined);
+        assert.ok(result.exception, 'non-PII fields preserved');
+    });
+
+    // --- Server name scrubbing ---
+
+    it('strips server_name to prevent hostname leaking', () => {
+        const event = {
+            server_name: 'sree-macbook-pro.local',
+            exception: { values: [{ type: 'Error' }] },
+        };
+        const result = scrubEvent(event);
+        assert.equal(result.server_name, undefined);
+        assert.ok(result.exception);
+    });
+
+    it('strips breadcrumbs, extra, and server_name together', () => {
+        const event = {
+            request: { url: 'https://example.com/api?token=secret' },
+            user: { id: '1', email: 'a@b.com' },
+            breadcrumbs: [{ category: 'http', data: { url: '/api/contacts' } }],
+            extra: { debug: true },
+            server_name: 'prod-1',
+        };
+        const result = scrubEvent(event);
+        assert.equal(result.breadcrumbs, undefined);
+        assert.equal(result.extra, undefined);
+        assert.equal(result.server_name, undefined);
+        assert.equal(result.request.url, 'https://example.com/api');
+        assert.equal(result.user.email, undefined);
+    });
 });

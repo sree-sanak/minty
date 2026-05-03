@@ -44,6 +44,14 @@ function scrubEvent(event) {
         delete event.user.ip_address;
         delete event.user.username;
     }
+    // Breadcrumbs can contain navigation URLs with contact names/search queries,
+    // HTTP request URLs with PII in query params, and console messages with
+    // logged contact data. Strip entirely for a privacy-first app.
+    delete event.breadcrumbs;
+    // Extra can contain arbitrary debug data (contact names, queries, etc.)
+    delete event.extra;
+    // Server name reveals the user's hostname
+    delete event.server_name;
     return event;
 }
 
