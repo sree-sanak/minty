@@ -75,16 +75,22 @@ function normalizeNameKey(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
+const SAFE_SOURCE_LABELS = Object.freeze({
+    telegram: 'Telegram evidence',
+    whatsapp: 'WhatsApp evidence',
+    email: 'Email evidence',
+    sms: 'SMS evidence',
+    linkedin: 'LinkedIn evidence',
+    googlecontacts: 'Google Contacts evidence',
+});
+
+function canonicalSource(source) {
+    const key = String(source || 'interaction').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    return SAFE_SOURCE_LABELS[key] ? key : 'interaction';
+}
+
 function sourceLabel(source) {
-    const s = String(source || 'interaction').toLowerCase();
-    const labels = {
-        telegram: 'Telegram evidence',
-        whatsapp: 'WhatsApp evidence',
-        email: 'Email evidence',
-        sms: 'SMS evidence',
-        linkedin: 'LinkedIn evidence',
-    };
-    return labels[s] || 'Interaction evidence';
+    return SAFE_SOURCE_LABELS[canonicalSource(source)] || 'Interaction evidence';
 }
 
 function collectSearchedSources(contacts, interactions) {
@@ -94,13 +100,13 @@ function collectSearchedSources(contacts, interactions) {
             const nonEmpty = payload && typeof payload === 'object' && Object.values(payload).some(v =>
                 v != null && v !== '' && !(Array.isArray(v) && v.length === 0)
             );
-            if (nonEmpty) sources.add(source);
+            if (nonEmpty) sources.add(canonicalSource(source));
         }
-        for (const ch of c.activeChannels || []) sources.add(String(ch).toLowerCase());
+        for (const ch of c.activeChannels || []) sources.add(canonicalSource(ch));
     }
     for (const i of interactions) {
         const s = i && (i.source || i.channel);
-        if (s) sources.add(String(s).toLowerCase());
+        if (s) sources.add(canonicalSource(s));
     }
     return [...sources].sort();
 }
@@ -154,12 +160,11 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
         }
         if (!byId.has(contactId)) continue;
 
-        const source = String(i.source || i.channel || 'interaction').toLowerCase();
+        const source = canonicalSource(i.source || i.channel || 'interaction');
         if (!evidenceByContactId[contactId]) {
-            evidenceByContactId[contactId] = { sources: new Set(), terms: new Set(), count: 0 };
+            evidenceByContactId[contactId] = { sources: new Set(), count: 0 };
         }
         evidenceByContactId[contactId].sources.add(source);
-        for (const t of matched) evidenceByContactId[contactId].terms.add(t);
         evidenceByContactId[contactId].count += 1;
     }
 
@@ -171,10 +176,11 @@ function interactionReasonFor(contactId, evidenceByContactId) {
     if (!ev) return null;
     const sources = [...ev.sources].sort();
     const label = sources.length === 1 ? sourceLabel(sources[0]) : 'Cross-source interaction evidence';
+    const sourceCount = sources.filter(s => s !== 'interaction').length || sources.length;
     return {
         kind: 'interaction',
         label,
-        detail: `${ev.count} matching interaction${ev.count === 1 ? '' : 's'} across ${sources.join(', ')}`,
+        detail: `${ev.count} matching interaction${ev.count === 1 ? '' : 's'} across ${sourceCount} source type${sourceCount === 1 ? '' : 's'}`,
     };
 }
 
@@ -212,11 +218,22 @@ function queryNetwork(query, opts = {}) {
     //    excluded before evidence scoring. Structured role/location queries keep
     //    the fast prefilter.
     const parsed = parseQuery(q);
+    const interactionEvidenceByContactId = buildInteractionEvidence(contacts, interactions, parsed);
+    const interactionEvidenceIds = new Set(Object.keys(interactionEvidenceByContactId));
     const genericTerms = new Set(['contact', 'contacts', 'person', 'people', 'network', 'anyone', 'someone']);
     const hasSpecificFreeTerms = expandQuery(parsed).freeTerms
         .some(term => !genericTerms.has(term));
     const hasStructuredTerms = (parsed.roles || []).length > 0 || (parsed.locations || []).length > 0;
     let candidates = (hasSpecificFreeTerms && !hasStructuredTerms) ? index.slice() : filterIndex(index, parsed);
+    if (interactionEvidenceIds.size) {
+        const candidateIds = new Set(candidates.map(c => c.id));
+        for (const entry of index) {
+            if (interactionEvidenceIds.has(entry.id) && !candidateIds.has(entry.id)) {
+                candidates.push(entry);
+                candidateIds.add(entry.id);
+            }
+        }
+    }
     const usedFallback = candidates.length === 0 && index.length > 0;
     if (usedFallback) {
         candidates = index.slice();
@@ -232,7 +249,6 @@ function queryNetwork(query, opts = {}) {
         contactsById,
         insightsByContactId: insights,
     });
-    const interactionEvidenceByContactId = buildInteractionEvidence(contacts, interactions, parsed);
     for (const r of annotated) {
         const interactionReason = interactionReasonFor(r.id, interactionEvidenceByContactId);
         if (interactionReason) {

@@ -141,6 +141,24 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction'));
     });
 
+    it('sanitizes unknown interaction source labels in evidence and diagnostics', () => {
+        const contacts = [{
+            id: 'c_private', name: 'Private Source Person',
+            sources: {}, relationshipScore: 50, daysSinceContact: 3, interactionCount: 1,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_private', source: '+15551234567', contactId: 'c_private',
+            body: 'DeFi protocol risk and lending markets.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        const serialized = JSON.stringify(out);
+        assert.equal(out.results[0].evidence.find(e => e.kind === 'interaction').label, 'Interaction evidence');
+        assert.ok(out.diagnostics.searchedSources.includes('interaction'));
+        assert.equal(serialized.includes('+15551234567'), false, 'must not leak raw source/channel values');
+    });
+
     it('respects limit option', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 2 });
         assert.ok(out.results.length <= 2, 'respects limit');
