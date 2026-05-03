@@ -46,6 +46,15 @@ test('[Reasons] expandQuery expands free terms to synonyms', () => {
     assert.ok(expandedTerms.includes('billing'));
 });
 
+test('[Reasons] expandQuery expands DeFi into adjacent protocol terms', () => {
+    const parsed = { raw: 'Who do I know working in DeFi?', roles: [], locations: [] };
+    const { expandedTerms } = expandQuery(parsed);
+    assert.ok(expandedTerms.includes('defi'));
+    assert.ok(expandedTerms.includes('decentralized finance'));
+    assert.ok(expandedTerms.includes('lending protocol'));
+    assert.ok(expandedTerms.includes('staking'));
+});
+
 test('[Reasons] buildReasons emits role + location evidence', () => {
     const parsed = { raw: 'founders in London', roles: ['founder'], locations: ['london'], intent: 'find' };
     const c = { id: 'c_1', name: 'X', roles: ['founder'], city: 'london', relationshipScore: 30, company: 'Hooli' };
@@ -109,6 +118,7 @@ test('[Reasons] TERM_EXPANSIONS contains expected domain terms', () => {
     assert.ok(TERM_EXPANSIONS['ai']);
     assert.ok(TERM_EXPANSIONS['payments']);
     assert.ok(TERM_EXPANSIONS['fintech']);
+    assert.ok(TERM_EXPANSIONS['defi']);
     assert.ok(TERM_EXPANSIONS['raise']);
 });
 
@@ -186,14 +196,14 @@ test('[Reasons] explainKeywordMatch returns Title label for title match', () => 
     assert.equal(explainKeywordMatch(c, 'engineering'), 'Title: VP Engineering');
 });
 
-test('[Reasons] explainKeywordMatch returns LinkedIn company for linkedin source match', () => {
+test('[Reasons] explainKeywordMatch returns generic Company label for linkedin source match', () => {
     const c = { sources: { linkedin: { company: 'Revolut', position: 'Designer' } } };
-    assert.equal(explainKeywordMatch(c, 'revolut'), 'LinkedIn company: Revolut');
+    assert.equal(explainKeywordMatch(c, 'revolut'), 'Company: Revolut');
 });
 
-test('[Reasons] explainKeywordMatch returns LinkedIn title for linkedin position match', () => {
+test('[Reasons] explainKeywordMatch returns generic Title label for linkedin position match', () => {
     const c = { sources: { linkedin: { company: 'Acme', position: 'ML Engineer' } } };
-    assert.equal(explainKeywordMatch(c, 'ml engineer'), 'LinkedIn title: ML Engineer');
+    assert.equal(explainKeywordMatch(c, 'ml engineer'), 'Title: ML Engineer');
 });
 
 test('[Reasons] explainKeywordMatch returns Headline for Apollo headline match', () => {

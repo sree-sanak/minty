@@ -635,6 +635,7 @@ describe('safeResult', () => {
         relationshipScore: 80,
         confidence: 'high',
         evidence: [{ field: 'keywords', matched: 'fintech' }],
+        evidenceBacked: true,
         suggestedAction: 'Send a message',
         daysSinceContact: 5,
         interactionCount: 12,
@@ -655,8 +656,8 @@ describe('safeResult', () => {
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
             'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'name', 'relationshipScore',
-            'suggestedAction', 'title', 'warmth',
+            'evidence', 'evidenceBacked', 'interactionCount', 'name',
+            'relationshipScore', 'suggestedAction', 'title', 'warmth',
         ]);
     });
 
@@ -687,6 +688,15 @@ describe('safeResult', () => {
         assert.equal(safe.evidenceBacked, undefined, 'evidenceBacked is internal metadata');
     });
 
+    it('preserves evidenceBacked boolean', () => {
+        const safe = safeResult(FULL_RESULT);
+        assert.equal(safe.evidenceBacked, true);
+
+        const noEvidence = { ...FULL_RESULT, evidenceBacked: false };
+        const safeNo = safeResult(noEvidence);
+        assert.equal(safeNo.evidenceBacked, false);
+    });
+
     it('handles result with missing optional fields gracefully', () => {
         const minimal = { name: 'Sparse Contact' };
         const safe = safeResult(minimal);
@@ -694,5 +704,28 @@ describe('safeResult', () => {
         assert.equal(safe.title, undefined);
         assert.equal(safe.company, undefined);
         assert.equal(safe.emails, undefined);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// MCP evidence detail channel privacy
+// ---------------------------------------------------------------------------
+
+describe('MCP evidence channel privacy', () => {
+    it('search_network evidence details do not leak source channel names', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 80, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'crypto risk' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS, interactions: INTERACTIONS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        for (const r of parsed.results) {
+            for (const e of (r.evidence || [])) {
+                const detail = (e.detail || '').toLowerCase();
+                assert.ok(!detail.startsWith('linkedin '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+                assert.ok(!detail.startsWith('whatsapp '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+                assert.ok(!detail.startsWith('telegram '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+            }
+        }
     });
 });

@@ -86,6 +86,7 @@ function safeResult(r) {
         relationshipScore: r.relationshipScore,
         confidence: r.confidence,
         evidence: r.evidence,
+        evidenceBacked: r.evidenceBacked,
         suggestedAction: r.suggestedAction,
         daysSinceContact: r.daysSinceContact,
         interactionCount: r.interactionCount,

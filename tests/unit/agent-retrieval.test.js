@@ -296,7 +296,7 @@ describe('agent-retrieval: queryNetwork()', () => {
             warmth: 'strong',
             confidence: 'high',
             evidence: [
-                { kind: 'keyword', label: 'stripe', detail: 'LinkedIn company: Stripe' },
+                { kind: 'keyword', label: 'stripe', detail: 'Company: Stripe' },
                 { kind: 'topic', label: 'Recent conversation', detail: 'payments infrastructure' },
                 { kind: 'recent', label: 'Recent', detail: '2 days ago' },
             ],
@@ -330,6 +330,34 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(!ids.includes('g_001'), 'group contact should be excluded from agent results');
         // Ensure real contacts still come through
         assert.ok(out.results.length >= 1, 'should still return non-group results');
+    });
+
+    it('DeFi query surfaces contacts with DeFi-related topics or keywords', () => {
+        const out = queryNetwork('Who do I know working in DeFi?', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.ok(out.results.length >= 1, 'DeFi query returns at least one result');
+        assert.ok(out.results.some(r => r.name === 'Bob Chen'), 'Bob (DeFi insurance topic) should be in results');
+    });
+
+    it('DeFi query ranks DeFi-topic contacts above unrelated contacts', () => {
+        const out = queryNetwork('DeFi contacts', { contacts: CONTACTS, insights: INSIGHTS });
+        const names = out.results.map(r => r.name);
+        const bobIdx = names.indexOf('Bob Chen');
+        const danIdx = names.indexOf('Dan Petrov');
+        if (bobIdx !== -1 && danIdx !== -1) {
+            assert.ok(bobIdx < danIdx, 'Bob (DeFi topic) ranks above Dan (payments, no DeFi)');
+        }
+    });
+
+    it('evidence details do not leak source channel names', () => {
+        const out = queryNetwork('crypto insurance', { contacts: CONTACTS, insights: INSIGHTS });
+        for (const r of out.results) {
+            for (const e of r.evidence) {
+                const detail = (e.detail || '').toLowerCase();
+                assert.ok(!detail.startsWith('linkedin '), `evidence detail "${e.detail}" must not start with source channel name`);
+                assert.ok(!detail.startsWith('whatsapp '), `evidence detail "${e.detail}" must not start with source channel name`);
+                assert.ok(!detail.startsWith('telegram '), `evidence detail "${e.detail}" must not start with source channel name`);
+            }
+        }
     });
 
     // -----------------------------------------------------------------------
