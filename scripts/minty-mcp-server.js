@@ -143,6 +143,8 @@ function executeTool(name, args, data) {
             title: r.title,
             company: r.company,
             warmth: r.warmth,
+            confidence: r.confidence,
+            daysSinceContact: r.daysSinceContact,
             why: (r.evidence || []).map(e => e.label).join('; ') || 'General network match',
             suggestedAction: r.suggestedAction,
         }));
