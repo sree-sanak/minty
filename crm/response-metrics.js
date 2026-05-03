@@ -227,13 +227,13 @@ function scoreEngagement({ replyRate, medianReplyLatencyHours, initiationRate })
  * Returns a map { contactId -> metrics }.
  */
 function computeAllMetrics(interactions, selfIds) {
-    const byContact = {};
+    const byContact = Object.create(null);
     for (const i of interactions) {
         if (!i._contactId) continue;
         if (!byContact[i._contactId]) byContact[i._contactId] = [];
         byContact[i._contactId].push(i);
     }
-    const result = {};
+    const result = Object.create(null);
     for (const [cid, list] of Object.entries(byContact)) {
         result[cid] = computeContactMetrics(list, selfIds);
     }
