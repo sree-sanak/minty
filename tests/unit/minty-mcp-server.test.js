@@ -241,10 +241,27 @@ describe('search_network tool', () => {
             assertNoDirectContactDetails(parsed);
         }
     });
-});
+    it('uses precomputed contact evidence as a first-class source', async () => {
+        const contactEvidence = {
+            wa_003: {
+                topics: ['DeFi lending protocols', 'collateral risk'],
+                sources: ['telegram'],
+                confidence: 0.8,
+            },
+        };
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 15, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'DeFi lending protocols' } },
+        }, { contacts: CONTACTS, insights: {}, interactions: [], contactEvidence });
 
-// ---------------------------------------------------------------------------
-// tools/call tests — person_context
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.results[0].name, 'Carol Chen');
+        assert.equal(parsed.results[0].evidence.some(e => e.kind === 'contact_evidence'), true);
+        assert.equal(parsed.diagnostics.contactEvidenceContacts, 1);
+        assert.equal(parsed.diagnostics.searchedSources.includes('telegram'), true);
+        assertNoDirectContactDetails(parsed);
+    });
+});
 // ---------------------------------------------------------------------------
 
 describe('person_context tool', () => {
