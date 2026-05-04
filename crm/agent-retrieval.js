@@ -150,7 +150,9 @@ function interactionTermMatches(text, term) {
 
 function isNonPersonInteraction(i) {
     if (!i || typeof i !== 'object') return true;
-    if (i.isGroup || i.isChannel || i.isBroadcast || i.groupId || i.threadType === 'group') return true;
+    if (i.isGroup || i.isChannel || i.isBroadcast || i.groupId) return true;
+    const threadType = String(i.threadType || '').toLowerCase();
+    if (['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(threadType)) return true;
     if (Array.isArray(i.participants) && i.participants.length > 2) return true;
     const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
     return ['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(type);
