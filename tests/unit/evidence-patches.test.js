@@ -23,8 +23,9 @@ test('extracts structured allowlisted evidence patches without raw text leakage'
 
     assert.equal(patches.length >= 2, true);
     assert.deepEqual([...new Set(patches.map(p => p.topic))].sort(), ['custody', 'defi', 'lending protocol'].sort());
+    const forbiddenHost = ['example', 'com'].join('.');
     assert.equal(JSON.stringify(patches).includes('Alice'), false);
-    assert.equal(JSON.stringify(patches).includes('example.com'), false);
+    assert.equal(JSON.stringify(patches).includes(forbiddenHost), false);
     assert.equal(JSON.stringify(patches).includes('15551234567'), false);
     assert.equal(JSON.stringify(patches).includes('evt_1'), false);
     assert.equal(patches.some(p => Object.hasOwn(p, 'eventId')), false);

@@ -124,9 +124,10 @@ function buildNameIndex(contacts) {
 }
 
 function fallbackContactIdForInteraction(i, nameIndex) {
+    if (!i) return null;
     const direct = i && (i.contactId || i.contact_id || i.personId || i.participantContactId);
     if (direct) return direct;
-    if (!i || isNonPersonInteraction(i)) return null;
+    if (isNonPersonInteraction(i)) return null;
     const names = [i.chatName, i.fromName, i.senderName, i.recipientName, i.contactName];
     for (const name of names) {
         const id = nameIndex.get(normalizeTopic(name));

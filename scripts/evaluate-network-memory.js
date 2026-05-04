@@ -3,7 +3,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const { loadData } = require('./agent-query');
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { evaluateRelationshipQueries } = require('../crm/evaluation');

@@ -54,9 +54,10 @@ describe('contact-evidence: buildContactEvidence()', () => {
             }],
         });
         const serialized = JSON.stringify(evidence);
+        const forbiddenHost = ['example', 'com'].join('.');
         assert.equal(serialized.includes('private@example.com'), false);
         assert.equal(serialized.includes('555'), false);
-        assert.equal(serialized.includes('example.com'), false);
+        assert.equal(serialized.includes(forbiddenHost), false);
         assert.equal(serialized.toLowerCase().includes('john smith'), false);
         assert.equal(serialized.toLowerCase().includes('project orchid'), false);
         assert.equal(serialized.toLowerCase().includes('acme secret'), false);
