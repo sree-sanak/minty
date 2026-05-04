@@ -48,6 +48,7 @@ const TERM_EXPANSIONS = {
     'web3':         ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao'],
     'insurance':    ['insurance', 'insurtech', 'insurer', 'reinsurance', 'underwriting', 'solvency', 'risk', 'distribution'],
     'crypto':       ['crypto', 'web3', 'blockchain', 'defi', 'digital assets', 'token'],
+    'defi':         ['defi', 'decentralized finance', 'yield', 'lending protocol', 'liquidity', 'dex', 'amm', 'staking', 'web3', 'crypto'],
     'climate':      ['climate', 'sustainability', 'carbon', 'net zero', 'clean tech', 'energy'],
     // Stage / corporate structure
     'seed':         ['seed', 'pre-seed', 'angel', 'first check', 'idea stage'],
@@ -214,8 +215,8 @@ function explainKeywordMatch(c, term) {
     const checks = [
         { val: c.company, label: 'Company' },
         { val: c.title || c.position, label: 'Title' },
-        { val: c.sources?.linkedin?.company, label: 'LinkedIn company' },
-        { val: c.sources?.linkedin?.position, label: 'LinkedIn title' },
+        { val: c.sources?.linkedin?.company, label: 'Company' },
+        { val: c.sources?.linkedin?.position, label: 'Title' },
         { val: c.apollo?.headline, label: 'Headline' },
         { val: c.apollo?.industry, label: 'Industry' },
     ];

@@ -52,6 +52,13 @@ const INSIGHTS = {
     wa_003: { topics: ['Node.js', 'devtools'], keywords: ['node', 'startup'], sentiment: 'warm' },
 };
 
+const INTERACTIONS = [
+    {
+        id: 'tg_001', contactId: 'wa_001', source: 'telegram',
+        body: 'We discussed DeFi lending protocols and collateral risk.',
+    },
+];
+
 function flattenStrings(value, out = []) {
     if (typeof value === 'string') out.push(value);
     else if (Array.isArray(value)) value.forEach(v => flattenStrings(v, out));
@@ -158,8 +165,8 @@ describe('search_network tool', () => {
     it('returns results for a valid query', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 10, method: 'tools/call',
-            params: { name: 'search_network', arguments: { query: 'crypto insurance' } },
-        }, { contacts: CONTACTS, insights: INSIGHTS });
+            params: { name: 'search_network', arguments: { query: 'DeFi lending protocols' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS, interactions: INTERACTIONS });
 
         assert.equal(resp.id, 10);
         assert.ok(resp.result);
@@ -169,6 +176,9 @@ describe('search_network tool', () => {
         assert.ok(parsed.query);
         assert.ok(Array.isArray(parsed.results));
         assert.ok(parsed.safety);
+        assert.ok(parsed.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(parsed.diagnostics.interactionEvidenceContacts, 1);
+        assert.equal(JSON.stringify(parsed).includes('collateral risk'), false, 'must not leak raw interaction text');
         assert.equal(parsed.safety.contactDetailsOmitted, true);
         assert.equal(parsed.safety.readOnly, true);
     });
@@ -625,6 +635,7 @@ describe('safeResult', () => {
         relationshipScore: 80,
         confidence: 'high',
         evidence: [{ field: 'keywords', matched: 'fintech' }],
+        evidenceBacked: true,
         suggestedAction: 'Send a message',
         daysSinceContact: 5,
         interactionCount: 12,
@@ -645,8 +656,8 @@ describe('safeResult', () => {
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
             'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'name', 'relationshipScore',
-            'suggestedAction', 'title', 'warmth',
+            'evidence', 'interactionCount', 'name',
+            'relationshipScore', 'suggestedAction', 'title', 'warmth',
         ]);
     });
 
@@ -684,5 +695,28 @@ describe('safeResult', () => {
         assert.equal(safe.title, undefined);
         assert.equal(safe.company, undefined);
         assert.equal(safe.emails, undefined);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// MCP evidence detail channel privacy
+// ---------------------------------------------------------------------------
+
+describe('MCP evidence channel privacy', () => {
+    it('search_network evidence details do not leak source channel names', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 80, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'crypto risk' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS, interactions: INTERACTIONS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        for (const r of parsed.results) {
+            for (const e of (r.evidence || [])) {
+                const detail = (e.detail || '').toLowerCase();
+                assert.ok(!detail.startsWith('linkedin '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+                assert.ok(!detail.startsWith('whatsapp '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+                assert.ok(!detail.startsWith('telegram '), `MCP evidence detail "${e.detail}" must not leak channel name`);
+            }
+        }
     });
 });

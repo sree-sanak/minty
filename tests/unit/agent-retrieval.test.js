@@ -92,6 +92,149 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('uses privacy-safe interaction evidence from non-LinkedIn sources', () => {
+        const contacts = [
+            {
+                id: 'c_tg', name: 'Tara Patel',
+                sources: { telegram: { userId: 'tg_1' } },
+                relationshipScore: 62, daysSinceContact: 4, interactionCount: 12,
+                activeChannels: ['telegram'], emails: [], phones: [],
+            },
+            {
+                id: 'c_li', name: 'Generic Finance Person',
+                sources: { linkedin: { position: 'Finance Associate', company: 'BankCo' } },
+                relationshipScore: 80, daysSinceContact: 1, interactionCount: 30,
+                activeChannels: ['linkedin'], emails: [], phones: [],
+            },
+        ];
+        const interactions = [
+            {
+                id: 'i_1', source: 'telegram', contactId: 'c_tg',
+                body: 'We discussed DeFi lending protocols, Aave, and collateral risk.',
+                timestamp: '2026-05-01T00:00:00Z',
+            },
+        ];
+
+        const out = queryNetwork('Who do I know working in DeFi lending protocols?', { contacts, interactions });
+        assert.equal(out.results[0].id, 'c_tg');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction' && e.label === 'Telegram evidence'));
+        assert.ok(!JSON.stringify(out.results).includes('Aave'), 'must not leak raw interaction text');
+        assert.ok(out.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('does not use group chat names as person interaction evidence', () => {
+        const contacts = [{
+            id: 'c_named', name: 'Nina DeFi',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_group', source: 'telegram', contactId: 'c_named', chatName: 'Nina DeFi', type: 'group', isGroup: true,
+            participants: ['Nina DeFi', 'Alice', 'Bob'],
+            body: 'Group discussed AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0);
+        assert.ok(!out.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
+    });
+
+    it('does not create interaction evidence from embedded word fragments', () => {
+        const contacts = [{
+            id: 'c_ai', name: 'Aisha Yield',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_fragment', source: 'email', contactId: 'c_ai',
+            body: 'Aisha discussed yield risk in DeFi markets.',
+        }];
+
+        const out = queryNetwork('yield', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1, 'standalone yield should match');
+
+        const fragmentOnly = [{ ...interactions[0], body: 'Aisha is yielding well on unrelated operations.' }];
+        const no = queryNetwork('yield', { contacts, interactions: fragmentOnly });
+        assert.equal(no.diagnostics.interactionEvidenceContacts, 0, 'embedded yielding must not match yield');
+        assert.ok(!no.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
+    });
+
+    it('requires direct query-term or multi-term expansion evidence for interactions', () => {
+        const contacts = [{
+            id: 'c_crypto', name: 'Casey Crypto',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const weak = [{
+            id: 'i_weak', source: 'email', contactId: 'c_crypto',
+            body: 'We mentioned crypto once in a broad market chat.',
+        }];
+        const strong = [{
+            id: 'i_strong', source: 'email', contactId: 'c_crypto',
+            body: 'We discussed crypto liquidity and staking markets.',
+        }];
+
+        const weakOut = queryNetwork('defi', { contacts, interactions: weak });
+        assert.equal(weakOut.diagnostics.interactionEvidenceContacts, 0);
+
+        const strongOut = queryNetwork('defi', { contacts, interactions: strong });
+        assert.equal(strongOut.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('matches simple plural variants for interaction phrases', () => {
+        const contacts = [{
+            id: 'c_protocols', name: 'Paula Protocol',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_protocols', source: 'email', contactId: 'c_protocols',
+            body: 'We discussed lending protocols for DeFi risk.',
+        }];
+
+        const out = queryNetwork('lending protocol', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('falls back to matching personal chat names when interactions have no contactId', () => {
+        const contacts = [{
+            id: 'c_named', name: 'Nina DeFi',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_named', source: 'telegram', chatName: 'Nina DeFi', type: 'personal',
+            body: 'Talked about AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions });
+        assert.equal(out.results[0].id, 'c_named');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction'));
+    });
+
+    it('sanitizes unknown interaction source labels in evidence and diagnostics', () => {
+        const contacts = [{
+            id: 'c_private', name: 'Private Source Person',
+            sources: {}, relationshipScore: 50, daysSinceContact: 3, interactionCount: 1,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_private', source: '+15551234567', contactId: 'c_private',
+            body: 'DeFi protocol risk and lending markets.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        const serialized = JSON.stringify(out);
+        assert.equal(out.results[0].evidence.find(e => e.kind === 'interaction').label, 'Interaction evidence');
+        assert.ok(out.diagnostics.searchedSources.includes('interaction'));
+        assert.equal(serialized.includes('+15551234567'), false, 'must not leak raw source/channel values');
+    });
+
     it('respects limit option', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 2 });
         assert.ok(out.results.length <= 2, 'respects limit');
@@ -229,7 +372,7 @@ describe('agent-retrieval: queryNetwork()', () => {
             warmth: 'strong',
             confidence: 'high',
             evidence: [
-                { kind: 'keyword', label: 'stripe', detail: 'LinkedIn company: Stripe' },
+                { kind: 'keyword', label: 'stripe', detail: 'Company: Stripe' },
                 { kind: 'topic', label: 'Recent conversation', detail: 'payments infrastructure' },
                 { kind: 'recent', label: 'Recent', detail: '2 days ago' },
             ],
@@ -263,6 +406,34 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(!ids.includes('g_001'), 'group contact should be excluded from agent results');
         // Ensure real contacts still come through
         assert.ok(out.results.length >= 1, 'should still return non-group results');
+    });
+
+    it('DeFi query surfaces contacts with DeFi-related topics or keywords', () => {
+        const out = queryNetwork('Who do I know working in DeFi?', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.ok(out.results.length >= 1, 'DeFi query returns at least one result');
+        assert.ok(out.results.some(r => r.name === 'Bob Chen'), 'Bob (DeFi insurance topic) should be in results');
+    });
+
+    it('DeFi query ranks DeFi-topic contacts above unrelated contacts', () => {
+        const out = queryNetwork('DeFi contacts', { contacts: CONTACTS, insights: INSIGHTS });
+        const names = out.results.map(r => r.name);
+        const bobIdx = names.indexOf('Bob Chen');
+        const danIdx = names.indexOf('Dan Petrov');
+        if (bobIdx !== -1 && danIdx !== -1) {
+            assert.ok(bobIdx < danIdx, 'Bob (DeFi topic) ranks above Dan (payments, no DeFi)');
+        }
+    });
+
+    it('evidence details do not leak source channel names', () => {
+        const out = queryNetwork('crypto insurance', { contacts: CONTACTS, insights: INSIGHTS });
+        for (const r of out.results) {
+            for (const e of r.evidence) {
+                const detail = (e.detail || '').toLowerCase();
+                assert.ok(!detail.startsWith('linkedin '), `evidence detail "${e.detail}" must not start with source channel name`);
+                assert.ok(!detail.startsWith('whatsapp '), `evidence detail "${e.detail}" must not start with source channel name`);
+                assert.ok(!detail.startsWith('telegram '), `evidence detail "${e.detail}" must not start with source channel name`);
+            }
+        }
     });
 
     // -----------------------------------------------------------------------
@@ -651,15 +822,18 @@ describe('agent-query: loadData()', () => {
         fs.writeFileSync(path.join(unified, filename), JSON.stringify(content));
     }
 
-    it('loads contacts and insights from unified directory', () => {
+    it('loads contacts, insights, and interactions from unified directory', () => {
         const contacts = [{ id: 'c1', name: 'Alice' }];
         const insights = { c1: { topics: ['fintech'] } };
+        const interactions = [{ id: 'i1', contactId: 'c1', source: 'telegram', body: 'DeFi lending' }];
         writeUnified('contacts.json', contacts);
         writeUnified('insights.json', insights);
+        writeUnified('interactions.json', interactions);
 
         const data = loadData(tmpDataDir);
         assert.deepEqual(data.contacts, contacts);
         assert.deepEqual(data.insights, insights);
+        assert.deepEqual(data.interactions, interactions);
     });
 
     it('returns empty array for contacts when file is missing', () => {

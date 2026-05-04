@@ -48,7 +48,7 @@ function hasContacts(dir) {
 /**
  * Load contacts and insights from a resolved data directory.
  * @param {string} dataDir - Path to data directory (contains unified/ subdir)
- * @returns {{ contacts: object[], insights: object }}
+ * @returns {{ contacts: object[], insights: object, interactions: object[] }}
  */
 function loadData(dataDir) {
     function loadJson(file) {
@@ -64,6 +64,7 @@ function loadData(dataDir) {
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
+        interactions: loadJson('interactions.json'),
     };
 }
 
@@ -86,9 +87,9 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    const { contacts, insights } = loadData(dataDir);
+    const { contacts, insights, interactions } = loadData(dataDir);
 
-    const result = queryNetwork(query, { contacts, insights, limit: 10 });
+    const result = queryNetwork(query, { contacts, insights, interactions, limit: 10 });
 
     // Pretty-print for terminal, machine-readable JSON on stdout
     if (process.stdout.isTTY) {
