@@ -125,6 +125,44 @@ function buildInteractionTerms(parsed) {
         .filter(t => t.length >= 3 && !INTERACTION_TERM_STOPWORDS.has(t));
 }
 
+function buildDirectInteractionTerms(parsed) {
+    const query = expandQuery(parsed);
+    return [...new Set(query.freeTerms || [])]
+        .map(t => String(t || '').toLowerCase().trim())
+        .filter(t => t.length >= 3 && !INTERACTION_TERM_STOPWORDS.has(t));
+}
+
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeEvidenceText(value) {
+    return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function interactionTermMatches(text, term) {
+    const normalizedText = normalizeEvidenceText(text);
+    const normalizedTerm = normalizeEvidenceText(term);
+    if (!normalizedText || !normalizedTerm) return false;
+    const words = normalizedTerm.split(' ').map(w => `${escapeRegExp(w)}s?`);
+    return new RegExp(`(^| )${words.join(' ')}( |$)`).test(normalizedText);
+}
+
+function isNonPersonInteraction(i) {
+    if (!i || typeof i !== 'object') return true;
+    if (i.isGroup || i.isChannel || i.isBroadcast || i.groupId || i.threadType === 'group') return true;
+    if (Array.isArray(i.participants) && i.participants.length > 2) return true;
+    const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
+    return ['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(type);
+}
+
+function isPersonalInteractionNameFallback(i) {
+    if (isNonPersonInteraction(i)) return false;
+    const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
+    if (!type) return false;
+    return ['personal', 'direct', 'dm', 'one_to_one', 'one-to-one', 'private'].includes(type);
+}
+
 function buildInteractionEvidence(contacts, interactions, parsed) {
     const evidenceByContactId = Object.create(null);
     const rawInteractions = Array.isArray(interactions) ? interactions : [];
@@ -138,21 +176,24 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
     }
 
     const terms = buildInteractionTerms(parsed);
+    const directTerms = buildDirectInteractionTerms(parsed);
     if (!terms.length) return evidenceByContactId;
 
     for (const i of rawInteractions) {
         if (!i || typeof i !== 'object') continue;
+        if (isNonPersonInteraction(i)) continue;
         const text = [i.body, i.subject, i.summary, i.topic, i.topics, i.raw?.text]
             .flat()
             .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
+            .join(' ');
         if (!text) continue;
-        const matched = terms.filter(t => text.includes(t)).slice(0, 3);
+        const matched = terms.filter(t => interactionTermMatches(text, t)).slice(0, 3);
+        const directMatched = directTerms.filter(t => interactionTermMatches(text, t));
         if (!matched.length) continue;
+        if (!directMatched.length && matched.length < 2) continue;
 
         let contactId = i.contactId || i.contact_id || i.personId || i.participantContactId;
-        if (!byId.has(contactId)) {
+        if (!byId.has(contactId) && isPersonalInteractionNameFallback(i)) {
             const candidates = [i.chatName, i.from, i.to, i.senderName, i.recipientName]
                 .map(normalizeNameKey)
                 .filter(Boolean);
@@ -221,7 +262,8 @@ function queryNetwork(query, opts = {}) {
     const interactionEvidenceByContactId = buildInteractionEvidence(contacts, interactions, parsed);
     const interactionEvidenceIds = new Set(Object.keys(interactionEvidenceByContactId));
     const genericTerms = new Set(['contact', 'contacts', 'person', 'people', 'network', 'anyone', 'someone']);
-    const hasSpecificFreeTerms = expandQuery(parsed).freeTerms
+    const queryTerms = expandQuery(parsed);
+    const hasSpecificFreeTerms = [...(queryTerms.freeTerms || []), ...(queryTerms.expandedTerms || [])]
         .some(term => !genericTerms.has(term));
     const hasStructuredTerms = (parsed.roles || []).length > 0 || (parsed.locations || []).length > 0;
     let candidates = (hasSpecificFreeTerms && !hasStructuredTerms) ? index.slice() : filterIndex(index, parsed);

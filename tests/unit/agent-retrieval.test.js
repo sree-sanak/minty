@@ -95,7 +95,7 @@ describe('agent-retrieval: queryNetwork()', () => {
     it('uses privacy-safe interaction evidence from non-LinkedIn sources', () => {
         const contacts = [
             {
-                id: 'c_tg', name: 'Tara Protocol',
+                id: 'c_tg', name: 'Tara Patel',
                 sources: { telegram: { userId: 'tg_1' } },
                 relationshipScore: 62, daysSinceContact: 4, interactionCount: 12,
                 activeChannels: ['telegram'], emails: [], phones: [],
@@ -120,6 +120,82 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction' && e.label === 'Telegram evidence'));
         assert.ok(!JSON.stringify(out.results).includes('Aave'), 'must not leak raw interaction text');
         assert.ok(out.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('does not use group chat names as person interaction evidence', () => {
+        const contacts = [{
+            id: 'c_named', name: 'Nina DeFi',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_group', source: 'telegram', contactId: 'c_named', chatName: 'Nina DeFi', type: 'group', isGroup: true,
+            participants: ['Nina DeFi', 'Alice', 'Bob'],
+            body: 'Group discussed AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0);
+        assert.ok(!out.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
+    });
+
+    it('does not create interaction evidence from embedded word fragments', () => {
+        const contacts = [{
+            id: 'c_ai', name: 'Aisha Yield',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_fragment', source: 'email', contactId: 'c_ai',
+            body: 'Aisha discussed yield risk in DeFi markets.',
+        }];
+
+        const out = queryNetwork('yield', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1, 'standalone yield should match');
+
+        const fragmentOnly = [{ ...interactions[0], body: 'Aisha is yielding well on unrelated operations.' }];
+        const no = queryNetwork('yield', { contacts, interactions: fragmentOnly });
+        assert.equal(no.diagnostics.interactionEvidenceContacts, 0, 'embedded yielding must not match yield');
+        assert.ok(!no.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
+    });
+
+    it('requires direct query-term or multi-term expansion evidence for interactions', () => {
+        const contacts = [{
+            id: 'c_crypto', name: 'Casey Crypto',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const weak = [{
+            id: 'i_weak', source: 'email', contactId: 'c_crypto',
+            body: 'We mentioned crypto once in a broad market chat.',
+        }];
+        const strong = [{
+            id: 'i_strong', source: 'email', contactId: 'c_crypto',
+            body: 'We discussed crypto liquidity and staking markets.',
+        }];
+
+        const weakOut = queryNetwork('defi', { contacts, interactions: weak });
+        assert.equal(weakOut.diagnostics.interactionEvidenceContacts, 0);
+
+        const strongOut = queryNetwork('defi', { contacts, interactions: strong });
+        assert.equal(strongOut.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('matches simple plural variants for interaction phrases', () => {
+        const contacts = [{
+            id: 'c_protocols', name: 'Paula Protocol',
+            sources: {}, relationshipScore: 30, daysSinceContact: 20, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_protocols', source: 'email', contactId: 'c_protocols',
+            body: 'We discussed lending protocols for DeFi risk.',
+        }];
+
+        const out = queryNetwork('lending protocol', { contacts, interactions });
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
     });
 
