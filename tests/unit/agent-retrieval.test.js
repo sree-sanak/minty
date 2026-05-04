@@ -174,7 +174,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         }];
         const strong = [{
             id: 'i_strong', source: 'email', contactId: 'c_crypto',
-            body: 'We discussed crypto liquidity and staking markets.',
+            body: 'We discussed decentralized finance and DeFi markets.',
         }];
 
         const weakOut = queryNetwork('defi', { contacts, interactions: weak });
