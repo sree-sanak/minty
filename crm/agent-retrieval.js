@@ -13,6 +13,9 @@
 const { parseQuery, filterIndex, buildIndexEntry } = require('./network-query');
 const { annotateResults, expandQuery } = require('./query-reasons');
 const { scoreContactForGoal } = require('./utils');
+const { matchContactEvidence } = require('./contact-evidence');
+const { buildSourceEvents, summarizeSourceCoverage, safeContactRef } = require('./source-events');
+const { buildHybridIndex, queryHybridIndex } = require('./hybrid-index');
 
 // ---------------------------------------------------------------------------
 // Warmth label from relationship score
@@ -93,7 +96,7 @@ function sourceLabel(source) {
     return SAFE_SOURCE_LABELS[canonicalSource(source)] || 'Interaction evidence';
 }
 
-function collectSearchedSources(contacts, interactions) {
+function collectSearchedSources(contacts, interactions, contactEvidence) {
     const sources = new Set();
     for (const c of contacts) {
         for (const [source, payload] of Object.entries(c.sources || {})) {
@@ -107,6 +110,12 @@ function collectSearchedSources(contacts, interactions) {
     for (const i of interactions) {
         const s = i && (i.source || i.channel);
         if (s) sources.add(canonicalSource(s));
+    }
+    for (const ev of Object.values(contactEvidence && typeof contactEvidence === 'object' ? contactEvidence : {})) {
+        for (const s of ev && Array.isArray(ev.sources) ? ev.sources : []) sources.add(canonicalSource(s));
+        for (const row of ev && Array.isArray(ev.topicEvidence) ? ev.topicEvidence : []) {
+            for (const s of Array.isArray(row.sources) ? row.sources : []) sources.add(canonicalSource(s));
+        }
     }
     return [...sources].sort();
 }
@@ -227,6 +236,34 @@ function interactionReasonFor(contactId, evidenceByContactId) {
     };
 }
 
+function contactEvidenceReasonFor(contactId, matchesByContactId) {
+    const match = matchesByContactId[contactId];
+    if (!match || !match.matched) return null;
+    const sources = (match.sources || []).map(canonicalSource).sort();
+    const label = sources.length === 1 ? sourceLabel(sources[0]) : 'Cross-source topic evidence';
+    const topicCount = (match.topics || []).length;
+    const sourceCount = sources.filter(s => s !== 'interaction').length || sources.length || 1;
+    return {
+        kind: 'contact_evidence',
+        label,
+        detail: `${topicCount || 1} matching topic${topicCount === 1 ? '' : 's'} across ${sourceCount} source type${sourceCount === 1 ? '' : 's'}`,
+    };
+}
+
+function hybridReasonFor(contactId, matchesByContactId) {
+    const match = matchesByContactId[contactId];
+    if (!match) return null;
+    const topics = Array.isArray(match.matchedTopics) ? match.matchedTopics : [];
+    if (!topics.length) return null;
+    const sources = (match.sources || []).map(canonicalSource).sort();
+    const label = sources.length === 1 ? sourceLabel(sources[0]) : 'Hybrid relationship evidence';
+    return {
+        kind: 'hybrid_evidence',
+        label,
+        detail: `${topics.length} topic anchor${topics.length === 1 ? '' : 's'} matched in local hybrid index`,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -246,12 +283,23 @@ const MAX_QUERY_LENGTH = 1000;
 function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
-    const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, limit = 10 } = safeOpts;
+    const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
     const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
     for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];
     const interactions = Array.isArray(rawInteractions) ? rawInteractions : [];
+    const sourceEvents = Array.isArray(rawSourceEvents)
+        ? rawSourceEvents
+        : buildSourceEvents({ contacts, interactions, insights });
+    const contactIds = new Set(contacts.map(c => c.id));
+    const contactEvidence = Object.create(null);
+    const evidenceSource = rawContactEvidence && typeof rawContactEvidence === 'object' ? rawContactEvidence : {};
+    for (const c of contacts) {
+        const ref = safeContactRef(c.id);
+        const ev = evidenceSource[c.id] || evidenceSource[ref];
+        if (ev) contactEvidence[c.id] = ev;
+    }
 
     // 1. Build in-memory index from contacts
     const index = contacts.map(c => buildIndexEntry(c));
@@ -261,18 +309,35 @@ function queryNetwork(query, opts = {}) {
     //    excluded before evidence scoring. Structured role/location queries keep
     //    the fast prefilter.
     const parsed = parseQuery(q);
+    const queryTerms = expandQuery(parsed);
     const interactionEvidenceByContactId = buildInteractionEvidence(contacts, interactions, parsed);
     const interactionEvidenceIds = new Set(Object.keys(interactionEvidenceByContactId));
+    const contactEvidenceMatches = Object.create(null);
+    const queryTermsForEvidence = [...new Set([...(queryTerms.freeTerms || []), ...(queryTerms.expandedTerms || [])])];
+    for (const id of Object.keys(contactEvidence)) {
+        const match = matchContactEvidence(contactEvidence[id], queryTermsForEvidence);
+        if (match.matched) contactEvidenceMatches[id] = match;
+    }
+    const contactEvidenceIds = new Set(Object.keys(contactEvidenceMatches));
+    const hybridIndex = Array.isArray(rawHybridIndex)
+        ? rawHybridIndex
+        : buildHybridIndex({ contacts, contactEvidence, sourceEvents });
+    const contactIdByRef = new Map(contacts.map(c => [safeContactRef(c.id), c.id]));
+    const hybridMatches = Object.create(null);
+    for (const match of queryHybridIndex(q, { index: hybridIndex, limit: 50 })) {
+        const id = match.id && contactIds.has(match.id) ? match.id : contactIdByRef.get(match.contactRef);
+        if (id) hybridMatches[id] = match;
+    }
+    const hybridMatchIds = new Set(Object.keys(hybridMatches));
     const genericTerms = new Set(['contact', 'contacts', 'person', 'people', 'network', 'anyone', 'someone']);
-    const queryTerms = expandQuery(parsed);
     const hasSpecificFreeTerms = [...(queryTerms.freeTerms || []), ...(queryTerms.expandedTerms || [])]
         .some(term => !genericTerms.has(term));
     const hasStructuredTerms = (parsed.roles || []).length > 0 || (parsed.locations || []).length > 0;
     let candidates = (hasSpecificFreeTerms && !hasStructuredTerms) ? index.slice() : filterIndex(index, parsed);
-    if (interactionEvidenceIds.size) {
-        const candidateIds = new Set(candidates.map(c => c.id));
+    const candidateIds = new Set(candidates.map(c => c.id));
+    if (interactionEvidenceIds.size || contactEvidenceIds.size || hybridMatchIds.size) {
         for (const entry of index) {
-            if (interactionEvidenceIds.has(entry.id) && !candidateIds.has(entry.id)) {
+            if ((interactionEvidenceIds.has(entry.id) || contactEvidenceIds.has(entry.id) || hybridMatchIds.has(entry.id)) && !candidateIds.has(entry.id)) {
                 candidates.push(entry);
                 candidateIds.add(entry.id);
             }
@@ -299,12 +364,22 @@ function queryNetwork(query, opts = {}) {
             r.reasons = [...(r.reasons || []), interactionReason];
             r.matchScore = (r.matchScore || 0) + 35;
         }
+        const contactEvidenceReason = contactEvidenceReasonFor(r.id, contactEvidenceMatches);
+        if (contactEvidenceReason) {
+            r.reasons = [...(r.reasons || []), contactEvidenceReason];
+            r.matchScore = (r.matchScore || 0) + (contactEvidenceMatches[r.id].score || 30);
+        }
+        const hybridReason = hybridReasonFor(r.id, hybridMatches);
+        if (hybridReason) {
+            r.reasons = [...(r.reasons || []), hybridReason];
+            r.matchScore = (r.matchScore || 0) + Math.min(45, hybridMatches[r.id].score || 20);
+        }
     }
 
     // 5. Blend matchScore with goal-scoring for keyword relevance.
     //    In fallback mode, require at least one semantic evidence reason so
     //    impossible queries do not return unrelated warm contacts.
-    const semanticKinds = new Set(['role', 'location', 'company', 'topic', 'keyword', 'interaction']);
+    const semanticKinds = new Set(['role', 'location', 'company', 'topic', 'keyword', 'interaction', 'contact_evidence', 'hybrid_evidence']);
     const requireSemanticEvidence = usedFallback || (hasSpecificFreeTerms && !hasStructuredTerms);
     const evidenced = annotated.filter(r =>
         !requireSemanticEvidence || (r.reasons || []).some(reason => semanticKinds.has(reason.kind))
@@ -341,17 +416,23 @@ function queryNetwork(query, opts = {}) {
         interactionCount:  r.interactionCount || 0,
     }));
 
+    const matchingContactIds = results.map(r => r.id);
+    const sourceCoverage = summarizeSourceCoverage({ contacts, sourceEvents, matchingContactIds });
+
     return {
         query: q,
         intent: parsed.intent,
         results,
         diagnostics: {
-            searchedSources: collectSearchedSources(contacts, interactions),
+            searchedSources: collectSearchedSources(contacts, interactions, contactEvidence),
             contactsConsidered: contacts.length,
             candidatesConsidered: candidates.length,
             resultsReturned: results.length,
             usedFallback,
             interactionEvidenceContacts: Object.keys(interactionEvidenceByContactId).length,
+            contactEvidenceContacts: Object.keys(contactEvidenceMatches).length,
+            hybridEvidenceContacts: Object.keys(hybridMatches).length,
+            sourceCoverage,
         },
         safety: {
             contactDetailsOmitted: true,

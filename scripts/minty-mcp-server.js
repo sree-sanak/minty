@@ -96,6 +96,9 @@ function executeTool(name, args, data) {
     const contacts = Array.isArray(data.contacts) ? data.contacts : [];
     const interactions = Array.isArray(data.interactions) ? data.interactions : [];
     const insights = (data.insights && typeof data.insights === 'object' && !Array.isArray(data.insights)) ? data.insights : {};
+    const contactEvidence = (data.contactEvidence && typeof data.contactEvidence === 'object' && !Array.isArray(data.contactEvidence)) ? data.contactEvidence : {};
+    const sourceEvents = Array.isArray(data.sourceEvents) ? data.sourceEvents : undefined;
+    const hybridIndex = Array.isArray(data.hybridIndex) ? data.hybridIndex : undefined;
 
     if (name === 'search_network') {
         if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
@@ -106,6 +109,9 @@ function executeTool(name, args, data) {
             contacts,
             insights,
             interactions,
+            contactEvidence,
+            sourceEvents,
+            hybridIndex,
             limit: clampLimit(args.limit, 10),
         });
         const envelope = {
@@ -124,7 +130,7 @@ function executeTool(name, args, data) {
         }
         const person = args.person.trim();
         const limit = clampLimit(args.limit, 3);
-        const result = queryNetwork(person, { contacts, insights, interactions, limit });
+        const result = queryNetwork(person, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
         const matches = result.results.map(safeResult);
         const envelope = {
             person,
@@ -141,7 +147,7 @@ function executeTool(name, args, data) {
         }
         const goal = args.goal.trim();
         const limit = clampLimit(args.limit, 5);
-        const result = queryNetwork(goal, { contacts, insights, interactions, limit });
+        const result = queryNetwork(goal, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
         const topPeople = result.results.map(r => ({
             name: r.name,
             title: r.title,

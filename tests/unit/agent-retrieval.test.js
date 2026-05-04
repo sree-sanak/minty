@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { queryNetwork, warmthLabel, confidenceLevel, suggestAction } = require('../../crm/agent-retrieval');
+const { safeContactRef } = require('../../crm/source-events');
 const { resolveDataDir, hasContacts, loadData } = require('../../scripts/agent-query');
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,57 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('uses precomputed contact evidence as a first-class retrieval source', () => {
+        const contacts = [
+            {
+                id: 'c_ev', name: 'Evidence Only Person',
+                sources: {}, relationshipScore: 25, daysSinceContact: 90, interactionCount: 0,
+                activeChannels: [], emails: [], phones: [],
+            },
+            {
+                id: 'c_warm', name: 'Warm Unrelated Person',
+                sources: { linkedin: { position: 'Finance operator', company: 'BankCo' } },
+                relationshipScore: 90, daysSinceContact: 1, interactionCount: 40,
+                activeChannels: ['linkedin'], emails: [], phones: [],
+            },
+        ];
+        const contactEvidence = {
+            c_ev: {
+                contactId: 'c_ev',
+                topics: ['defi', 'lending protocol', 'risk'],
+                topicEvidence: [
+                    { topic: 'defi', count: 2, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                    { topic: 'lending protocol', count: 1, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                ],
+                sources: ['telegram'],
+                interactionCount: 2,
+                confidence: 0.75,
+            },
+        };
+
+        const out = queryNetwork('Who do I know working in DeFi lending protocols?', { contacts, contactEvidence });
+        assert.equal(out.results[0].id, 'c_ev');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'contact_evidence'));
+        assert.ok(out.diagnostics.searchedSources.includes('telegram'));
+        assert.equal(out.diagnostics.contactEvidenceContacts, 1);
+        assert.equal(JSON.stringify(out).includes('2026-05-01'), false, 'must not leak raw evidence timestamps');
+    });
+
+    it('ignores orphan and group-only precomputed contact evidence', () => {
+        const contacts = [
+            { id: 'c_person', name: 'Person', sources: {}, relationshipScore: 10, daysSinceContact: 20, interactionCount: 0, activeChannels: [] },
+            { id: 'c_group', name: 'DeFi Group', isGroup: true, sources: {}, relationshipScore: 99, daysSinceContact: 1, interactionCount: 100, activeChannels: [] },
+        ];
+        const contactEvidence = {
+            c_group: { contactId: 'c_group', topics: ['defi'], topicEvidence: [{ topic: 'defi', count: 5, sources: ['telegram'] }], sources: ['telegram'], confidence: 1 },
+            c_orphan: { contactId: 'c_orphan', topics: ['defi'], topicEvidence: [{ topic: 'defi', count: 5, sources: ['whatsapp'] }], sources: ['whatsapp'], confidence: 1 },
+        };
+
+        const out = queryNetwork('Who do I know working in DeFi?', { contacts, contactEvidence });
+        assert.deepEqual(out.results, []);
+        assert.equal(out.diagnostics.contactEvidenceContacts, 0);
+    });
+
     it('uses privacy-safe interaction evidence from non-LinkedIn sources', () => {
         const contacts = [
             {
@@ -174,7 +226,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         }];
         const strong = [{
             id: 'i_strong', source: 'email', contactId: 'c_crypto',
-            body: 'We discussed crypto liquidity and staking markets.',
+            body: 'We discussed decentralized finance and DeFi markets.',
         }];
 
         const weakOut = queryNetwork('defi', { contacts, interactions: weak });
@@ -1262,18 +1314,21 @@ describe('agent-query: loadData()', () => {
         fs.writeFileSync(path.join(unified, filename), JSON.stringify(content));
     }
 
-    it('loads contacts, insights, and interactions from unified directory', () => {
+    it('loads contacts, insights, interactions, and contact evidence from unified directory', () => {
         const contacts = [{ id: 'c1', name: 'Alice' }];
         const insights = { c1: { topics: ['fintech'] } };
         const interactions = [{ id: 'i1', contactId: 'c1', source: 'telegram', body: 'DeFi lending' }];
+        const contactEvidence = { [safeContactRef('c1')]: { topics: ['defi'], sources: ['telegram'] } };
         writeUnified('contacts.json', contacts);
         writeUnified('insights.json', insights);
         writeUnified('interactions.json', interactions);
+        writeUnified('contact-evidence.json', contactEvidence);
 
         const data = loadData(tmpDataDir);
         assert.deepEqual(data.contacts, contacts);
         assert.deepEqual(data.insights, insights);
         assert.deepEqual(data.interactions, interactions);
+        assert.deepEqual(data.contactEvidence, contactEvidence);
     });
 
     it('returns empty array for contacts when file is missing', () => {
@@ -1295,6 +1350,19 @@ describe('agent-query: loadData()', () => {
         const data = loadData(tmpDataDir);
         assert.deepEqual(data.contacts, []);
         assert.deepEqual(data.insights, {});
+    });
+
+    it('distinguishes missing optional generated artifacts from present empty artifacts', () => {
+        writeUnified('contacts.json', [{ id: 'c1' }]);
+        let data = loadData(tmpDataDir);
+        assert.equal(data.sourceEvents, undefined);
+        assert.equal(data.hybridIndex, undefined);
+
+        writeUnified('source-events.json', []);
+        writeUnified('hybrid-index.json', []);
+        data = loadData(tmpDataDir);
+        assert.deepEqual(data.sourceEvents, []);
+        assert.deepEqual(data.hybridIndex, []);
     });
 
     it('returns empty array when contacts.json contains malformed JSON', () => {

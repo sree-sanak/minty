@@ -35,6 +35,14 @@ const TERM_EXPANSIONS = {
     'ai':           ['ai', 'machine learning', 'ml', 'llm', 'gpt', 'transformer', 'foundation model', 'deep learning'],
     'ml':           ['ml', 'machine learning', 'ai', 'llm', 'deep learning', 'training', 'inference'],
     'llm':          ['llm', 'large language model', 'foundation model', 'gpt', 'claude', 'transformer'],
+    // Generic work/company context — reusable for "who do I know building X?" across any domain.
+    'startup':      ['startup', 'startups', 'company', 'venture', 'founder', 'co-founder', 'building', 'product'],
+    'startups':     ['startup', 'startups', 'company', 'venture', 'founder', 'co-founder', 'building', 'product'],
+    'building':     ['building', 'built', 'founding', 'founder', 'co-founder', 'started', 'creating', 'working on'],
+    'build':        ['build', 'building', 'built', 'founding', 'founder', 'co-founder', 'started', 'creating'],
+    'founded':      ['founded', 'founder', 'co-founder', 'started', 'building'],
+    'founding':     ['founding', 'founder', 'co-founder', 'started', 'building'],
+    'company':      ['company', 'startup', 'venture', 'product', 'business'],
     'data':         ['data', 'analytics', 'warehouse', 'etl', 'elt', 'snowflake', 'databricks'],
     'devtools':     ['devtools', 'developer tools', 'dx', 'ide', 'build', 'ci', 'cd', 'deploy'],
     'infra':        ['infra', 'infrastructure', 'platform', 'devops', 'sre', 'reliability'],
@@ -45,10 +53,10 @@ const TERM_EXPANSIONS = {
     'hr':           ['hr', 'people', 'talent', 'recruiting', 'hiring', 'l&d', 'talent ops'],
     'legal':        ['legal', 'counsel', 'compliance', 'lawyer', 'attorney', 'privacy'],
     'mobile':       ['mobile', 'ios', 'android', 'react native', 'flutter', 'swift', 'kotlin'],
-    'web3':         ['web3', 'crypto', 'blockchain', 'defi', 'nft', 'dao'],
+    'web3':         ['web3', 'crypto', 'blockchain'],
     'insurance':    ['insurance', 'insurtech', 'insurer', 'reinsurance', 'underwriting', 'solvency', 'risk', 'distribution'],
-    'crypto':       ['crypto', 'web3', 'blockchain', 'defi', 'digital assets', 'token'],
-    'defi':         ['defi', 'decentralized finance', 'yield', 'lending protocol', 'liquidity', 'dex', 'amm', 'staking', 'web3', 'crypto'],
+    'crypto':       ['crypto', 'web3', 'blockchain', 'digital assets', 'token'],
+    'defi':         ['defi', 'decentralized finance'],
     'climate':      ['climate', 'sustainability', 'carbon', 'net zero', 'clean tech', 'energy'],
     // Stage / corporate structure
     'seed':         ['seed', 'pre-seed', 'angel', 'first check', 'idea stage'],
@@ -67,9 +75,13 @@ const TERM_EXPANSIONS = {
 // Words that are too common to index as free-text matches.
 const STOP = new Set([
     'the', 'and', 'for', 'with', 'from', 'that', 'this', 'have', 'are', 'you',
-    'who', 'what', 'how', 'can', 'someone', 'anybody', 'anyone', 'people',
-    'my', 'me', 'your', 'our',
+    'who', 'what', 'how', 'can', 'do', 'does', 'did', 'know', 'knows', 'known',
+    'work', 'works', 'worked', 'working',
+    'someone', 'anybody', 'anyone', 'people', 'person', 'contacts', 'contact',
+    'my', 'me', 'your', 'our', 'right', 'now', 'space',
 ]);
+
+const ALLOWED_SHORT_TERMS = new Set(['ai', 'ml']);
 
 // ---------------------------------------------------------------------------
 // Query → expanded term set
@@ -94,7 +106,7 @@ function extractFreeTerms(raw, parsed) {
     // Multi-word bigrams first (so "notification systems" is one term)
     const tokens = lower
         .split(/[^a-z0-9]+/)
-        .filter(t => t && t.length > 2 && !STOP.has(t) && !usedFragments.has(t));
+        .filter(t => t && (t.length > 2 || ALLOWED_SHORT_TERMS.has(t)) && !STOP.has(t) && !usedFragments.has(t));
     const bigrams = [];
     for (let i = 0; i < tokens.length - 1; i++) {
         bigrams.push(tokens[i] + ' ' + tokens[i + 1]);

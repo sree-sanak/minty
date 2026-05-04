@@ -48,29 +48,36 @@ function hasContacts(dir) {
 /**
  * Load contacts and insights from a resolved data directory.
  * @param {string} dataDir - Path to data directory (contains unified/ subdir)
- * @returns {{ contacts: object[], insights: object, interactions: object[] }}
+ * @returns {{ contacts: object[], insights: object, interactions: object[], contactEvidence: object, sourceEvents?: object[], hybridIndex?: object[] }}
  */
 function loadData(dataDir) {
+    function fallbackFor(file, missing = false) {
+        if (file === 'insights.json' || file === 'contact-evidence.json') return {};
+        if (missing && (file === 'source-events.json' || file === 'hybrid-index.json')) return undefined;
+        return [];
+    }
     function loadJson(file) {
-        const fallback = file === 'insights.json' ? {} : [];
         const p = path.join(dataDir, 'unified', file);
-        if (!fs.existsSync(p)) return fallback;
+        if (!fs.existsSync(p)) return fallbackFor(file, true);
         try {
             const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
-            if (file === 'insights.json') {
-                if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+            if (file === 'insights.json' || file === 'contact-evidence.json') {
+                if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallbackFor(file, false);
             } else {
-                if (!Array.isArray(parsed)) return fallback;
+                if (!Array.isArray(parsed)) return fallbackFor(file, false);
             }
             return parsed;
         } catch {
-            return fallback;
+            return fallbackFor(file, false);
         }
     }
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
         interactions: loadJson('interactions.json'),
+        contactEvidence: loadJson('contact-evidence.json'),
+        sourceEvents: loadJson('source-events.json'),
+        hybridIndex: loadJson('hybrid-index.json'),
     };
 }
 
@@ -93,9 +100,9 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    const { contacts, insights, interactions } = loadData(dataDir);
+    const { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex } = loadData(dataDir);
 
-    const result = queryNetwork(query, { contacts, insights, interactions, limit: 10 });
+    const result = queryNetwork(query, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit: 10 });
 
     // Pretty-print for terminal, machine-readable JSON on stdout
     if (process.stdout.isTTY) {

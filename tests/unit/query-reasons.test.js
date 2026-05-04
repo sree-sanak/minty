@@ -46,13 +46,25 @@ test('[Reasons] expandQuery expands free terms to synonyms', () => {
     assert.ok(expandedTerms.includes('billing'));
 });
 
-test('[Reasons] expandQuery expands DeFi into adjacent protocol terms', () => {
-    const parsed = { raw: 'Who do I know working in DeFi?', roles: [], locations: [] };
-    const { expandedTerms } = expandQuery(parsed);
+test('[Reasons] expandQuery keeps DeFi expansion narrow and non-protocol-specific', () => {
+    const parsed = { raw: 'Who do I know working in DeFi space?', roles: [], locations: [] };
+    const { freeTerms, expandedTerms } = expandQuery(parsed);
+    assert.deepEqual(freeTerms, ['defi']);
     assert.ok(expandedTerms.includes('defi'));
     assert.ok(expandedTerms.includes('decentralized finance'));
-    assert.ok(expandedTerms.includes('lending protocol'));
-    assert.ok(expandedTerms.includes('staking'));
+    assert.ok(!expandedTerms.includes('lending protocol'));
+    assert.ok(!expandedTerms.includes('staking'));
+});
+
+test('[Reasons] expandQuery expands generic building/startup phrasing around any domain', () => {
+    const parsed = { raw: "Who do I know right now that's building an AI startup?", roles: [], locations: [] };
+    const { freeTerms, expandedTerms } = expandQuery(parsed);
+    assert.ok(freeTerms.includes('ai'));
+    assert.ok(freeTerms.includes('building'));
+    assert.ok(freeTerms.includes('startup'));
+    assert.ok(expandedTerms.includes('llm'));
+    assert.ok(expandedTerms.includes('founder'));
+    assert.ok(expandedTerms.includes('company'));
 });
 
 test('[Reasons] buildReasons emits role + location evidence', () => {

@@ -1,0 +1,86 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+
+const {
+    buildSourceEvents,
+    summarizeSourceCoverage,
+    canonicalSafeSource,
+    safeContactRef,
+} = require('../../crm/source-events');
+
+test('builds privacy-safe canonical source events from interactions and profile evidence', () => {
+    const contacts = [
+        { id: 'c1', name: 'Alice Example', sources: { telegram: { userId: 'u1' }, linkedin: { headline: 'Founder' } } },
+        { id: 'c2', name: 'Group Chat', isGroup: true, sources: { telegram: { userId: 'g1' } } },
+    ];
+    const interactions = [
+        { id: 'i1', contactId: 'c1', source: 'telegram', body: 'secret raw DeFi lending thing', timestamp: '2026-05-01T10:00:00Z' },
+        { id: 'i2', contactId: 'missing', source: 'sms', body: 'unattributed', timestamp: '2026-05-02T10:00:00Z' },
+        { id: 'i3', contactId: 'c2', source: 'telegram', body: 'group', timestamp: '2026-05-03T10:00:00Z' },
+    ];
+
+    const events = buildSourceEvents({ contacts, interactions });
+
+    assert.equal(events.length, 4);
+    assert.deepEqual(events.map(e => e.type).sort(), ['message', 'profile', 'profile', 'unattributed_interaction']);
+    const message = events.find(e => e.type === 'message');
+    assert.equal(message.contactRef, safeContactRef('c1'));
+    assert.equal(message.contactId, undefined);
+    assert.equal(message.source, 'telegram');
+    assert.equal(message.timestamp, '2026-05-01T10:00:00.000Z');
+    assert.equal(message.hasTextSignal, true);
+    assert.equal(JSON.stringify(message).includes('secret raw'), false);
+    assert.equal(JSON.stringify(message).includes('Alice Example'), false);
+});
+
+test('source coverage diagnostics are aggregate-only and source-aware', () => {
+    const contacts = [
+        { id: 'c1', sources: { telegram: { userId: 'u1' }, email: {} } },
+        { id: 'c2', sources: { whatsapp: { id: 'w2' } } },
+    ];
+    const events = buildSourceEvents({
+        contacts,
+        interactions: [
+            { contactId: 'c1', source: 'telegram', body: 'hi', timestamp: '2026-05-01T10:00:00Z' },
+            { source: 'telegram', body: 'lost', timestamp: '2026-05-02T10:00:00Z' },
+        ],
+    });
+    const summary = summarizeSourceCoverage({ contacts, sourceEvents: events, matchingContactIds: ['c1'] });
+
+    assert.deepEqual(summary.availableSources, ['telegram', 'whatsapp']);
+    assert.deepEqual(summary.matchingSources, ['telegram']);
+    assert.equal(summary.profileContactsBySource.telegram, 1);
+    assert.equal(summary.profileContactsBySource.whatsapp, 1);
+    assert.equal(summary.eventCountsBySource.telegram, 3);
+    assert.equal(summary.attributedEvents, 3);
+    assert.equal(summary.unattributedEvents, 1);
+    assert.equal(summary.matchingContacts, 1);
+});
+
+test('canonicalSafeSource never echoes arbitrary channel names', () => {
+    assert.equal(canonicalSafeSource('Alice private thread'), 'interaction');
+    assert.equal(canonicalSafeSource('google contacts'), 'googlecontacts');
+    assert.equal(canonicalSafeSource('SMS'), 'sms');
+});
+
+test('source event ids do not persist raw upstream ids or contact handles', () => {
+    const contacts = [{ id: 'alice@example.com', sources: { telegram: { userId: '+15551234567' } } }];
+    const interactions = [{
+        id: 'https://private.example/thread/alice@example.com',
+        eventId: '+15551234567',
+        contactId: 'alice@example.com',
+        source: 'telegram',
+        body: 'DeFi lending protocol note',
+        timestamp: '2026-05-01T10:00:00Z',
+    }];
+
+    const events = buildSourceEvents({ contacts, interactions, insights: { 'alice@example.com': { topics: ['defi'] } } });
+    const ids = events.map(e => e.id).join('\n');
+
+    assert.equal(ids.includes('alice@example.com'), false);
+    assert.equal(ids.includes('15551234567'), false);
+    assert.equal(ids.includes('private.example'), false);
+    assert.deepEqual(events.map(e => e.id), ['insight:2', 'interaction:0', 'profile:0:telegram']);
+});
