@@ -1054,6 +1054,107 @@ describe('agent-retrieval: suggestAction()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Full-envelope PII scan — characterization coverage
+// ---------------------------------------------------------------------------
+
+describe('agent-retrieval: full envelope PII exclusion (characterization)', () => {
+    const PII_CONTACTS = [
+        {
+            id: 'pii_001', name: 'Sentinel PII Person',
+            sources: { linkedin: { position: 'DeFi Analyst', company: 'CryptoVault', location: 'Zurich' } },
+            relationshipScore: 70, daysSinceContact: 3, interactionCount: 15,
+            activeChannels: ['telegram', 'whatsapp'],
+            emails: ['sentinel-leak@pii-test.example'], phones: ['raw-phone-555-0199'],
+        },
+        {
+            id: 'pii_002', name: 'Another PII Contact',
+            sources: { whatsapp: { id: 'wa_secret_handle_xyz' } },
+            relationshipScore: 40, daysSinceContact: 20, interactionCount: 4,
+            activeChannels: ['whatsapp'],
+            emails: ['another-leak@pii-test.example'], phones: ['raw-phone-555-0200'],
+        },
+    ];
+
+    const PII_INSIGHTS = {
+        pii_001: { topics: ['defi analysis', 'crypto custody'] },
+    };
+
+    const PII_INTERACTIONS = [
+        {
+            id: 'i_pii_secret', source: 'telegram', contactId: 'pii_001',
+            body: 'We discussed DeFi custody risk and cold wallet infrastructure.',
+            timestamp: '2026-05-02T10:30:00Z',
+        },
+    ];
+
+    it('full JSON.stringify of queryNetwork output contains no PII sentinel strings', () => {
+        const out = queryNetwork('defi custody', {
+            contacts: PII_CONTACTS,
+            insights: PII_INSIGHTS,
+            interactions: PII_INTERACTIONS,
+        });
+        const serialized = JSON.stringify(out);
+
+        // Emails must not appear anywhere in the envelope
+        assert.equal(serialized.includes('sentinel-leak@pii-test.example'), false,
+            'full envelope must not contain email sentinel');
+        assert.equal(serialized.includes('another-leak@pii-test.example'), false,
+            'full envelope must not contain second email sentinel');
+
+        // Phones must not appear anywhere in the envelope
+        assert.equal(serialized.includes('raw-phone-555-0199'), false,
+            'full envelope must not contain phone sentinel');
+        assert.equal(serialized.includes('raw-phone-555-0200'), false,
+            'full envelope must not contain second phone sentinel');
+
+        // Source account handles must not appear
+        assert.equal(serialized.includes('wa_secret_handle_xyz'), false,
+            'full envelope must not contain source account handle');
+
+        // Raw interaction body must not appear
+        assert.equal(serialized.includes('cold wallet infrastructure'), false,
+            'full envelope must not contain raw interaction body text');
+
+        // Interaction timestamps must not appear
+        assert.equal(serialized.includes('2026-05-02T10:30:00Z'), false,
+            'full envelope must not contain interaction timestamp');
+
+        // Internal interaction ID must not appear
+        assert.equal(serialized.includes('i_pii_secret'), false,
+            'full envelope must not contain interaction id');
+    });
+
+    it('full envelope excludes PII even when query matches by name', () => {
+        const out = queryNetwork('Sentinel PII Person', {
+            contacts: PII_CONTACTS,
+            insights: PII_INSIGHTS,
+        });
+        const serialized = JSON.stringify(out);
+
+        assert.equal(serialized.includes('sentinel-leak@pii-test.example'), false,
+            'name-matched envelope must not contain email');
+        assert.equal(serialized.includes('raw-phone-555-0199'), false,
+            'name-matched envelope must not contain phone');
+    });
+
+    it('diagnostics section specifically contains no PII sentinels', () => {
+        const out = queryNetwork('defi custody', {
+            contacts: PII_CONTACTS,
+            insights: PII_INSIGHTS,
+            interactions: PII_INTERACTIONS,
+        });
+        const diagSerialized = JSON.stringify(out.diagnostics);
+
+        assert.equal(diagSerialized.includes('sentinel-leak'), false,
+            'diagnostics must not contain email fragments');
+        assert.equal(diagSerialized.includes('raw-phone'), false,
+            'diagnostics must not contain phone fragments');
+        assert.equal(diagSerialized.includes('wa_secret_handle'), false,
+            'diagnostics must not contain source handle fragments');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // resolveDataDir / hasContacts
 // ---------------------------------------------------------------------------
 
