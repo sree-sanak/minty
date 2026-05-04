@@ -673,6 +673,57 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
             'threadType "group" must be excluded from interaction evidence');
     });
 
+    it('excludes interactions with threadType "channel" from evidence', () => {
+        const contacts = [{
+            id: 'c_thread_chan', name: 'Thread Channel Contact',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_thread_channel', source: 'telegram', contactId: 'c_thread_chan',
+            threadType: 'Channel',
+            body: 'DeFi protocol risk and lending market strategies discussed.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
+            'threadType "channel" must be excluded from interaction evidence');
+    });
+
+    it('excludes interactions with threadType "broadcast" from evidence', () => {
+        const contacts = [{
+            id: 'c_thread_bcast', name: 'Thread Broadcast Contact',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_thread_bcast', source: 'whatsapp', contactId: 'c_thread_bcast',
+            threadType: 'BROADCAST',
+            body: 'DeFi protocol risk and lending market strategies discussed.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
+            'threadType "broadcast" must be excluded from interaction evidence');
+    });
+
+    it('excludes interactions with threadType "mailing_list" from evidence', () => {
+        const contacts = [{
+            id: 'c_thread_list', name: 'Thread List Contact',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_thread_list', source: 'email', contactId: 'c_thread_list',
+            threadType: 'mailing_list',
+            body: 'DeFi protocol risk and lending market strategies discussed.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
+            'threadType "mailing_list" must be excluded from interaction evidence');
+    });
+
     it('excludes interactions with groupId set from evidence', () => {
         const contacts = [{
             id: 'c_gid', name: 'GroupId Contact',
