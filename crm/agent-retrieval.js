@@ -278,12 +278,56 @@ function hybridReasonFor(contactId, matchesByContactId) {
  * @param {number}   [opts.limit=10] - Max results to return
  * @returns {{ query: string, intent: string, results: object[], safety: object }}
  */
+// ---------------------------------------------------------------------------
+// Source filter normalization
+// ---------------------------------------------------------------------------
+
+const ALLOWED_SOURCE_FILTERS = new Set(Object.keys(SAFE_SOURCE_LABELS));
+
+function normalizeSourceFilter(opts) {
+    const raw = opts.sources || opts.source;
+    if (!raw) return null;
+    const arr = Array.isArray(raw) ? raw : [raw];
+    const normalized = [...new Set(
+        arr.map(s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''))
+            .filter(s => ALLOWED_SOURCE_FILTERS.has(s))
+    )].sort();
+    return normalized.length > 0 ? normalized : null;
+}
+
+function matchedSourcesForContact(contact, sourceFilter, evidence = {}) {
+    const matched = new Set();
+    for (const [source] of Object.entries(contact.sources || {})) {
+        const canon = canonicalSource(source);
+        if (sourceFilter.includes(canon)) matched.add(canon);
+    }
+    for (const ch of contact.activeChannels || []) {
+        const canon = canonicalSource(ch);
+        if (sourceFilter.includes(canon)) matched.add(canon);
+    }
+    const evidenceSources = [
+        ...(evidence.interactionSources || []),
+        ...(evidence.contactEvidenceSources || []),
+        ...(evidence.hybridSources || []),
+    ];
+    for (const source of evidenceSources) {
+        const canon = canonicalSource(source);
+        if (sourceFilter.includes(canon)) matched.add(canon);
+    }
+    return [...matched].sort();
+}
+
+// ---------------------------------------------------------------------------
+// Main entry point
+// ---------------------------------------------------------------------------
+
 const MAX_QUERY_LENGTH = 1000;
 
 function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
+    const sourceFilter = normalizeSourceFilter(safeOpts);
     const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
@@ -393,31 +437,61 @@ function queryNetwork(query, opts = {}) {
     // 6. Sort by blended score descending
     evidenced.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
 
-    // 7. Shape into stable agent envelope
+    function matchedSourcesForResult(r) {
+        const contact = contactsById[r.id];
+        if (!sourceFilter || !contact) return undefined;
+        return matchedSourcesForContact(contact, sourceFilter, {
+            interactionSources: interactionEvidenceByContactId[r.id] ? [...interactionEvidenceByContactId[r.id].sources] : [],
+            contactEvidenceSources: contactEvidenceMatches[r.id] ? contactEvidenceMatches[r.id].sources : [],
+            hybridSources: hybridMatches[r.id] ? hybridMatches[r.id].sources : [],
+        });
+    }
+
+    // 7. Apply source filter if active
+    let filtered = evidenced;
+    if (sourceFilter) {
+        filtered = evidenced.filter(r => (matchedSourcesForResult(r) || []).length > 0);
+    }
+
+    // 8. Shape into stable agent envelope
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
-    const results = evidenced.slice(0, safeLimit).map(r => ({
-        id:                r.id,
-        name:              r.name,
-        title:             r.title || null,
-        company:           r.company || null,
-        city:              r.city || null,
-        relevance:         r.matchScore || 0,
-        relationshipScore: r.relationshipScore || 0,
-        warmth:            warmthLabel(r.relationshipScore || 0),
-        confidence:        confidenceLevel(r.matchScore, r.relationshipScore),
-        evidence:          (r.reasons || []).map(reason => ({
-            kind:   reason.kind,
-            label:  reason.label,
-            detail: reason.detail || null,
-        })),
-        evidenceBacked:    (r.reasons || []).length > 0,
-        suggestedAction:   suggestAction(r, parsed.intent),
-        daysSinceContact:  r.daysSinceContact ?? null,
-        interactionCount:  r.interactionCount || 0,
-    }));
+    const results = filtered.slice(0, safeLimit).map(r => {
+        const matchedSources = matchedSourcesForResult(r);
+        return {
+            id:                r.id,
+            name:              r.name,
+            title:             r.title || null,
+            company:           r.company || null,
+            city:              r.city || null,
+            relevance:         r.matchScore || 0,
+            relationshipScore: r.relationshipScore || 0,
+            warmth:            warmthLabel(r.relationshipScore || 0),
+            confidence:        confidenceLevel(r.matchScore, r.relationshipScore),
+            evidence:          (r.reasons || []).map(reason => ({
+                kind:   reason.kind,
+                label:  reason.label,
+                detail: reason.detail || null,
+            })),
+            evidenceBacked:    (r.reasons || []).length > 0,
+            suggestedAction:   suggestAction(r, parsed.intent),
+            daysSinceContact:  r.daysSinceContact ?? null,
+            interactionCount:  r.interactionCount || 0,
+            ...(matchedSources ? { matchedSources } : {}),
+        };
+    });
 
     const matchingContactIds = results.map(r => r.id);
-    const sourceCoverage = summarizeSourceCoverage({ contacts, sourceEvents, matchingContactIds });
+    const sourceCoverageContacts = sourceFilter
+        ? contacts.filter(c => {
+            const id = c.id;
+            return matchedSourcesForContact(c, sourceFilter, {
+                interactionSources: interactionEvidenceByContactId[id] ? [...interactionEvidenceByContactId[id].sources] : [],
+                contactEvidenceSources: contactEvidenceMatches[id] ? contactEvidenceMatches[id].sources : [],
+                hybridSources: hybridMatches[id] ? hybridMatches[id].sources : [],
+            }).length > 0;
+        })
+        : contacts;
+    const sourceCoverage = summarizeSourceCoverage({ contacts: sourceCoverageContacts, sourceEvents, matchingContactIds });
 
     return {
         query: q,
@@ -432,6 +506,7 @@ function queryNetwork(query, opts = {}) {
             interactionEvidenceContacts: Object.keys(interactionEvidenceByContactId).length,
             contactEvidenceContacts: Object.keys(contactEvidenceMatches).length,
             hybridEvidenceContacts: Object.keys(hybridMatches).length,
+            ...(sourceFilter ? { sourceFilter } : {}),
             sourceCoverage,
         },
         safety: {
