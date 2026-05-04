@@ -656,7 +656,7 @@ describe('safeResult', () => {
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
             'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'evidenceBacked', 'interactionCount', 'name',
+            'evidence', 'interactionCount', 'name',
             'relationshipScore', 'suggestedAction', 'title', 'warmth',
         ]);
     });
@@ -686,15 +686,6 @@ describe('safeResult', () => {
         assert.equal(safe.activeChannels, undefined);
         assert.equal(safe.relevance, undefined, 'relevance is internal scoring detail');
         assert.equal(safe.evidenceBacked, undefined, 'evidenceBacked is internal metadata');
-    });
-
-    it('preserves evidenceBacked boolean', () => {
-        const safe = safeResult(FULL_RESULT);
-        assert.equal(safe.evidenceBacked, true);
-
-        const noEvidence = { ...FULL_RESULT, evidenceBacked: false };
-        const safeNo = safeResult(noEvidence);
-        assert.equal(safeNo.evidenceBacked, false);
     });
 
     it('handles result with missing optional fields gracefully', () => {
