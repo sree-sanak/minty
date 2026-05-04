@@ -89,7 +89,86 @@ const SAFE_SOURCE_LABELS = Object.freeze({
 
 function canonicalSource(source) {
     const key = String(source || 'interaction').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    if (key === 'gmail') return 'email';
+    if (key === 'googlecontact' || key === 'google') return 'googlecontacts';
     return SAFE_SOURCE_LABELS[key] ? key : 'interaction';
+}
+
+function normalizeSourceFilter(value) {
+    const raw = Array.isArray(value) ? value : (value == null ? [] : [value]);
+    return [...new Set(raw
+        .map(canonicalSource)
+        .filter(s => s && s !== 'interaction'))]
+        .sort();
+}
+
+function hasMeaningfulPayload(payload) {
+    return !!(payload && typeof payload === 'object' && Object.values(payload).some(v =>
+        v != null && v !== '' && !(Array.isArray(v) && v.length === 0)
+    ));
+}
+
+function contactSources(contact) {
+    const sources = new Set();
+    if (!contact || typeof contact !== 'object') return [];
+    for (const [source, payload] of Object.entries(contact.sources || {})) {
+        const canonical = canonicalSource(source);
+        if (canonical !== 'interaction' && hasMeaningfulPayload(payload)) {
+            sources.add(canonical);
+        }
+    }
+    for (const source of contact.activeChannels || []) {
+        const canonical = canonicalSource(source);
+        if (canonical !== 'interaction') sources.add(canonical);
+    }
+    return [...sources].sort();
+}
+
+function contactMatchesSourceFilter(contact, sourceFilter) {
+    if (!sourceFilter.length) return true;
+    const sources = new Set(contactSources(contact));
+    return sourceFilter.some(s => sources.has(s));
+}
+
+function interactionMatchesSourceFilter(interaction, sourceFilter) {
+    if (!sourceFilter.length) return true;
+    return sourceFilter.includes(canonicalSource(interaction && (interaction.source || interaction.channel)));
+}
+
+function evidenceSources(evidence) {
+    const sources = new Set();
+    for (const s of evidence && Array.isArray(evidence.sources) ? evidence.sources : []) {
+        const canonical = canonicalSource(s);
+        if (canonical !== 'interaction') sources.add(canonical);
+    }
+    for (const row of evidence && Array.isArray(evidence.topicEvidence) ? evidence.topicEvidence : []) {
+        for (const s of Array.isArray(row.sources) ? row.sources : []) {
+            const canonical = canonicalSource(s);
+            if (canonical !== 'interaction') sources.add(canonical);
+        }
+    }
+    return [...sources].sort();
+}
+
+function evidenceMatchesSourceFilter(evidence, sourceFilter) {
+    if (!sourceFilter.length) return true;
+    const sources = new Set(evidenceSources(evidence));
+    return sourceFilter.some(s => sources.has(s));
+}
+
+function filterSourceEvents(sourceEvents, sourceFilter) {
+    if (!sourceFilter.length || !Array.isArray(sourceEvents)) return sourceEvents;
+    return sourceEvents.filter(e => sourceFilter.includes(canonicalSource(e && e.source)));
+}
+
+function matchedSourcesForContact(contact, sourceFilter, interactionEvidence, contactEvidenceMatch, hybridMatch) {
+    const sources = new Set(contactSources(contact));
+    for (const s of interactionEvidence && interactionEvidence.sources ? interactionEvidence.sources : []) sources.add(canonicalSource(s));
+    for (const s of contactEvidenceMatch && contactEvidenceMatch.sources ? contactEvidenceMatch.sources : []) sources.add(canonicalSource(s));
+    for (const s of hybridMatch && hybridMatch.sources ? hybridMatch.sources : []) sources.add(canonicalSource(s));
+    const safe = [...sources].filter(s => s && s !== 'interaction');
+    const filtered = sourceFilter.length ? safe.filter(s => sourceFilter.includes(s)) : safe;
+    return [...new Set(filtered)].sort();
 }
 
 function sourceLabel(source) {
@@ -170,8 +249,11 @@ function isNonPersonInteraction(i) {
 function isPersonalInteractionNameFallback(i) {
     if (isNonPersonInteraction(i)) return false;
     const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
-    if (!type) return false;
-    return ['personal', 'direct', 'dm', 'one_to_one', 'one-to-one', 'private'].includes(type);
+    if (['personal', 'direct', 'dm', 'one_to_one', 'one-to-one', 'private'].includes(type)) return true;
+    // Telegram exports ordinary one-to-one chat rows as type="message" without a
+    // contactId. After group/channel guards above, an exact chatName/from match is
+    // safe enough for attribution and avoids treating "telegram" as dead data.
+    return canonicalSource(i.source || i.channel) === 'telegram' && type === 'message';
 }
 
 function buildInteractionEvidence(contacts, interactions, parsed) {
@@ -284,21 +366,24 @@ function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
-    const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
+    const sourceFilter = normalizeSourceFilter(safeOpts.sources !== undefined ? safeOpts.sources : safeOpts.source);
+    const contacts = (Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [])
+        .filter(c => contactMatchesSourceFilter(c, sourceFilter));
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
     for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];
-    const interactions = Array.isArray(rawInteractions) ? rawInteractions : [];
-    const sourceEvents = Array.isArray(rawSourceEvents)
+    const interactions = (Array.isArray(rawInteractions) ? rawInteractions : [])
+        .filter(i => interactionMatchesSourceFilter(i, sourceFilter));
+    const sourceEvents = filterSourceEvents(Array.isArray(rawSourceEvents)
         ? rawSourceEvents
-        : buildSourceEvents({ contacts, interactions, insights });
+        : buildSourceEvents({ contacts, interactions, insights }), sourceFilter);
     const contactIds = new Set(contacts.map(c => c.id));
     const contactEvidence = Object.create(null);
     const evidenceSource = rawContactEvidence && typeof rawContactEvidence === 'object' ? rawContactEvidence : {};
     for (const c of contacts) {
         const ref = safeContactRef(c.id);
         const ev = evidenceSource[c.id] || evidenceSource[ref];
-        if (ev) contactEvidence[c.id] = ev;
+        if (ev && evidenceMatchesSourceFilter(ev, sourceFilter)) contactEvidence[c.id] = ev;
     }
 
     // 1. Build in-memory index from contacts
@@ -395,7 +480,9 @@ function queryNetwork(query, opts = {}) {
 
     // 7. Shape into stable agent envelope
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
-    const results = evidenced.slice(0, safeLimit).map(r => ({
+    const results = evidenced.slice(0, safeLimit).map(r => {
+        const contact = contactsById[r.id];
+        return {
         id:                r.id,
         name:              r.name,
         title:             r.title || null,
@@ -411,10 +498,12 @@ function queryNetwork(query, opts = {}) {
             detail: reason.detail || null,
         })),
         evidenceBacked:    (r.reasons || []).length > 0,
+        matchedSources:    matchedSourcesForContact(contact, sourceFilter, interactionEvidenceByContactId[r.id], contactEvidenceMatches[r.id], hybridMatches[r.id]),
         suggestedAction:   suggestAction(r, parsed.intent),
         daysSinceContact:  r.daysSinceContact ?? null,
         interactionCount:  r.interactionCount || 0,
-    }));
+        };
+    });
 
     const matchingContactIds = results.map(r => r.id);
     const sourceCoverage = summarizeSourceCoverage({ contacts, sourceEvents, matchingContactIds });
@@ -429,6 +518,7 @@ function queryNetwork(query, opts = {}) {
             candidatesConsidered: candidates.length,
             resultsReturned: results.length,
             usedFallback,
+            sourceFilter,
             interactionEvidenceContacts: Object.keys(interactionEvidenceByContactId).length,
             contactEvidenceContacts: Object.keys(contactEvidenceMatches).length,
             hybridEvidenceContacts: Object.keys(hybridMatches).length,

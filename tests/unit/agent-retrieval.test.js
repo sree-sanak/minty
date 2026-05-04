@@ -175,6 +175,52 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
     });
 
+    it('filters results to requested source and exposes safe matched source attribution', () => {
+        const contacts = [
+            {
+                id: 'c_tg', name: 'Tara Telegram',
+                sources: { telegram: { userId: 'tg_1' }, linkedin: {} },
+                relationshipScore: 35, daysSinceContact: 8, interactionCount: 3,
+                activeChannels: ['telegram'], emails: [], phones: [],
+            },
+            {
+                id: 'c_li', name: 'Lina LinkedIn',
+                sources: { telegram: {}, linkedin: { position: 'Founder', company: 'DeFi Protocol Co' } },
+                relationshipScore: 95, daysSinceContact: 1, interactionCount: 30,
+                activeChannels: ['linkedin'], emails: [], phones: [],
+            },
+        ];
+        const interactions = [
+            { id: 'i_tg', source: 'telegram', contactId: 'c_tg', body: 'DeFi protocol founder chat.' },
+            { id: 'i_li', source: 'linkedin', contactId: 'c_li', body: 'DeFi protocol founder chat.' },
+        ];
+
+        const out = queryNetwork('DeFi protocol founder', { contacts, interactions, sources: ['telegram'] });
+        assert.deepEqual(out.results.map(r => r.id), ['c_tg']);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+        assert.deepEqual(out.diagnostics.sourceCoverage.matchingSources, ['telegram']);
+    });
+
+    it('matches Telegram message rows to personal chat names when no contactId exists', () => {
+        const contacts = [{
+            id: 'c_named', name: 'Nina DeFi',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_named', source: 'telegram', chatName: 'Nina DeFi', type: 'message',
+            body: 'Talked about AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions, sources: ['telegram'] });
+        assert.equal(out.results[0].id, 'c_named');
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction' && e.label === 'Telegram evidence'));
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
     it('does not use group chat names as person interaction evidence', () => {
         const contacts = [{
             id: 'c_named', name: 'Nina DeFi',
@@ -429,6 +475,7 @@ describe('agent-retrieval: queryNetwork()', () => {
                 { kind: 'recent', label: 'Recent', detail: '2 days ago' },
             ],
             evidenceBacked: true,
+            matchedSources: ['email', 'linkedin', 'whatsapp'],
             suggestedAction: 'Reach out directly — strong existing relationship.',
             daysSinceContact: 2,
             interactionCount: 50,

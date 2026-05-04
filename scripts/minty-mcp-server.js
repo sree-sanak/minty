@@ -30,6 +30,8 @@ const TOOLS = [
             type: 'object',
             properties: {
                 query: { type: 'string', description: 'Natural-language query, e.g. "investors in London" or "who knows about crypto insurance"' },
+                source: { type: 'string', description: 'Optional single source filter, e.g. "telegram", "linkedin", "email", "whatsapp", "sms", "googlecontacts"' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Optional source filters. Results must have at least one requested source.' },
                 limit: { type: 'number', description: 'Max results (1-50, default 10)' },
             },
             required: ['query'],
@@ -86,6 +88,7 @@ function safeResult(r) {
         relationshipScore: r.relationshipScore,
         confidence: r.confidence,
         evidence: r.evidence,
+        matchedSources: r.matchedSources,
         suggestedAction: r.suggestedAction,
         daysSinceContact: r.daysSinceContact,
         interactionCount: r.interactionCount,
@@ -113,6 +116,7 @@ function executeTool(name, args, data) {
             sourceEvents,
             hybridIndex,
             limit: clampLimit(args.limit, 10),
+            sources: args.sources !== undefined ? args.sources : args.source,
         });
         const envelope = {
             query: result.query,

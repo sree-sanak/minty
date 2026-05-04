@@ -134,10 +134,12 @@ describe('MCP protocol', () => {
 // ---------------------------------------------------------------------------
 
 describe('tool definitions', () => {
-    it('search_network has query and optional limit', () => {
+    it('search_network has query, optional source filters, and optional limit', () => {
         const tool = TOOLS.find(t => t.name === 'search_network');
         assert.ok(tool);
         assert.ok(tool.inputSchema.properties.query);
+        assert.ok(tool.inputSchema.properties.source);
+        assert.ok(tool.inputSchema.properties.sources);
         assert.ok(tool.inputSchema.properties.limit);
         assert.deepEqual(tool.inputSchema.required, ['query']);
     });
@@ -259,6 +261,37 @@ describe('search_network tool', () => {
         assert.equal(parsed.results[0].evidence.some(e => e.kind === 'contact_evidence'), true);
         assert.equal(parsed.diagnostics.contactEvidenceContacts, 1);
         assert.equal(parsed.diagnostics.searchedSources.includes('telegram'), true);
+        assertNoDirectContactDetails(parsed);
+    });
+
+    it('passes source filters through MCP and returns safe matched source labels', async () => {
+        const contacts = [
+            {
+                id: 'tg_001', name: 'Telegram Founder',
+                sources: { telegram: { userId: 'tg_1' } },
+                relationshipScore: 40, daysSinceContact: 7, interactionCount: 2,
+                activeChannels: ['telegram'], emails: ['tg@example.com'], phones: [],
+            },
+            {
+                id: 'li_001', name: 'LinkedIn Founder',
+                sources: { linkedin: { position: 'Founder', company: 'DeFi Protocol Co' } },
+                relationshipScore: 95, daysSinceContact: 1, interactionCount: 12,
+                activeChannels: ['linkedin'], emails: ['li@example.com'], phones: [],
+            },
+        ];
+        const interactions = [
+            { id: 'i_tg', source: 'telegram', contactId: 'tg_001', body: 'DeFi protocol founder chat.' },
+            { id: 'i_li', source: 'linkedin', contactId: 'li_001', body: 'DeFi protocol founder chat.' },
+        ];
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 16, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'DeFi protocol founder', source: 'telegram' } },
+        }, { contacts, insights: {}, interactions });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.deepEqual(parsed.results.map(r => r.name), ['Telegram Founder']);
+        assert.deepEqual(parsed.results[0].matchedSources, ['telegram']);
+        assert.deepEqual(parsed.diagnostics.sourceFilter, ['telegram']);
         assertNoDirectContactDetails(parsed);
     });
 });
@@ -652,6 +685,7 @@ describe('safeResult', () => {
         relationshipScore: 80,
         confidence: 'high',
         evidence: [{ field: 'keywords', matched: 'fintech' }],
+        matchedSources: ['telegram'],
         evidenceBacked: true,
         suggestedAction: 'Send a message',
         daysSinceContact: 5,
@@ -673,7 +707,7 @@ describe('safeResult', () => {
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
             'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'name',
+            'evidence', 'interactionCount', 'matchedSources', 'name',
             'relationshipScore', 'suggestedAction', 'title', 'warmth',
         ]);
     });
@@ -688,6 +722,7 @@ describe('safeResult', () => {
         assert.equal(safe.relationshipScore, 80);
         assert.equal(safe.confidence, 'high');
         assert.deepEqual(safe.evidence, [{ field: 'keywords', matched: 'fintech' }]);
+        assert.deepEqual(safe.matchedSources, ['telegram']);
         assert.equal(safe.suggestedAction, 'Send a message');
         assert.equal(safe.daysSinceContact, 5);
         assert.equal(safe.interactionCount, 12);
