@@ -60,4 +60,7 @@ test('applies structured patches into compact contact evidence summaries', () =>
     assert.deepEqual(evidence.c1.topics, ['defi']);
     assert.equal(evidence.c1.topicEvidence[0].count, 2);
     assert.equal(evidence.c1.topicEvidence[0].latestAt, '2026-05-02T10:00:00.000Z');
+    assert.equal(JSON.stringify(evidence).includes('eventId'), false);
+    assert.equal(JSON.stringify(evidence).includes('e1'), false);
+    assert.equal(JSON.stringify(evidence).includes('e2'), false);
 });
