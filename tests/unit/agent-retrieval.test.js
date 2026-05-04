@@ -506,6 +506,158 @@ describe('agent-retrieval: queryNetwork()', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Interaction evidence: cross-source, name-fallback, and privacy edge cases
+// ---------------------------------------------------------------------------
+
+describe('agent-retrieval: interaction evidence edge cases', () => {
+
+    it('multi-source interaction evidence uses cross-source label', () => {
+        const contacts = [{
+            id: 'c_multi', name: 'Multi Source Person',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 10,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [
+            {
+                id: 'i_tg', source: 'telegram', contactId: 'c_multi',
+                body: 'Discussed DeFi protocol risk and lending strategies.',
+            },
+            {
+                id: 'i_em', source: 'email', contactId: 'c_multi',
+                body: 'Follow up on DeFi lending protocol analysis.',
+            },
+        ];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.results.length, 1);
+        const interactionEvidence = out.results[0].evidence.find(e => e.kind === 'interaction');
+        assert.ok(interactionEvidence, 'interaction evidence exists');
+        assert.equal(interactionEvidence.label, 'Cross-source interaction evidence');
+        assert.match(interactionEvidence.detail, /2 matching interactions across 2 source types/);
+    });
+
+    it('name fallback resolves via "from" field on personal DM interactions', () => {
+        const contacts = [{
+            id: 'c_from', name: 'Fiona Reply',
+            sources: { telegram: { userId: 'tg_f' } },
+            relationshipScore: 40, daysSinceContact: 8, interactionCount: 3,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_from', source: 'telegram', type: 'direct',
+            from: 'Fiona Reply',
+            body: 'Talked about DeFi staking and yield farms.',
+        }];
+
+        const out = queryNetwork('defi staking yield', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+        assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction'));
+    });
+
+    it('name fallback resolves via "senderName" field on private interactions', () => {
+        const contacts = [{
+            id: 'c_sender', name: 'Sam Sender',
+            sources: {}, relationshipScore: 35, daysSinceContact: 12, interactionCount: 2,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_sender', source: 'whatsapp', type: 'private',
+            senderName: 'Sam Sender',
+            body: 'Talked about DeFi insurance and underwriting protocols.',
+        }];
+
+        const out = queryNetwork('defi insurance underwriting', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('name fallback resolves via "recipientName" on one-to-one interactions', () => {
+        const contacts = [{
+            id: 'c_recip', name: 'Rita Recipient',
+            sources: {}, relationshipScore: 30, daysSinceContact: 15, interactionCount: 1,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_recip', source: 'email', type: 'one_to_one',
+            recipientName: 'Rita Recipient',
+            body: 'DeFi protocol lending risk and collateral management.',
+        }];
+
+        const out = queryNetwork('defi lending collateral', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('name fallback does NOT resolve without a personal interaction type', () => {
+        const contacts = [{
+            id: 'c_notype', name: 'Nora NoType',
+            sources: {}, relationshipScore: 30, daysSinceContact: 15, interactionCount: 1,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_notype', source: 'telegram',
+            // No type, no contactId — fallback path should NOT match without type
+            chatName: 'Nora NoType',
+            body: 'DeFi protocol risk and lending strategies discussion.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
+            'name fallback must require a personal interaction type for safety');
+    });
+
+    it('single-source interaction evidence uses source-specific label', () => {
+        const contacts = [{
+            id: 'c_wa', name: 'Wendy WhatsApp',
+            sources: {}, relationshipScore: 45, daysSinceContact: 3, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [
+            {
+                id: 'i_wa1', source: 'whatsapp', contactId: 'c_wa',
+                body: 'DeFi lending protocol risk discussion.',
+            },
+            {
+                id: 'i_wa2', source: 'whatsapp', contactId: 'c_wa',
+                body: 'Follow up on DeFi lending strategies.',
+            },
+        ];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        const interactionEvidence = out.results[0].evidence.find(e => e.kind === 'interaction');
+        assert.ok(interactionEvidence);
+        assert.equal(interactionEvidence.label, 'WhatsApp evidence');
+        assert.match(interactionEvidence.detail, /2 matching interactions across 1 source type/);
+    });
+
+    it('interaction evidence never leaks contactId, raw text, or timestamps', () => {
+        const contacts = [{
+            id: 'secret_id_123', name: 'Evidence Privacy Check',
+            sources: { telegram: { userId: 'tg_secret' } },
+            relationshipScore: 60, daysSinceContact: 2, interactionCount: 5,
+            activeChannels: ['telegram'], emails: ['secret@test.com'], phones: ['raw-phone-555-0101'],
+        }];
+        const interactions = [{
+            id: 'i_secret', source: 'telegram', contactId: 'secret_id_123',
+            body: 'Discussed DeFi protocol risk and lending market analysis.',
+            timestamp: '2026-04-30T12:00:00Z',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        const evidenceJson = JSON.stringify(out.results[0].evidence);
+        // Evidence should not contain raw interaction body text
+        assert.ok(!evidenceJson.includes('market analysis'), 'evidence must not contain raw body text');
+        // Evidence should not contain timestamps
+        assert.ok(!evidenceJson.includes('2026-04-30'), 'evidence must not contain interaction timestamps');
+        // Evidence should not contain contact or interaction identifiers
+        assert.ok(!evidenceJson.includes('secret_id_123'), 'evidence must not contain contactId');
+        assert.ok(!evidenceJson.includes('i_secret'), 'evidence must not contain interaction id');
+        assert.ok(!evidenceJson.includes('tg_secret'), 'evidence must not contain source account id');
+        // Evidence should not contain email/phone
+        assert.ok(!evidenceJson.includes('secret@test.com'), 'evidence must not contain email');
+        assert.ok(!evidenceJson.includes('raw-phone-555-0101'), 'evidence must not contain phone');
+    });
+});
+
+// ---------------------------------------------------------------------------
 // warmthLabel — isolated boundary tests
 // ---------------------------------------------------------------------------
 
