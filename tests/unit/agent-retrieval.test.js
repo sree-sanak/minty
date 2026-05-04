@@ -1194,4 +1194,66 @@ describe('agent-query: loadData()', () => {
         assert.equal(data.contacts[0].relationshipScore, 65);
         assert.deepEqual(data.contacts[0].phones, ['+441234']);
     });
+
+    // --- Shape validation: parsed but wrong type degrades to safe defaults ---
+
+    it('returns [] for contacts.json when it parses to a non-array value (object)', () => {
+        writeUnified('contacts.json', { id: 'not-an-array' });
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+    });
+
+    it('returns [] for contacts.json when it parses to a string', () => {
+        writeUnified('contacts.json', 'hello');
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+    });
+
+    it('returns [] for contacts.json when it parses to a number', () => {
+        writeUnified('contacts.json', 42);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+    });
+
+    it('returns [] for contacts.json when it parses to null', () => {
+        writeUnified('contacts.json', null);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.contacts, []);
+    });
+
+    it('returns [] for interactions.json when it parses to a non-array value', () => {
+        writeUnified('interactions.json', { type: 'not-array' });
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.interactions, []);
+    });
+
+    it('returns [] for interactions.json when it parses to null', () => {
+        writeUnified('interactions.json', null);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.interactions, []);
+    });
+
+    it('returns {} for insights.json when it parses to null', () => {
+        writeUnified('insights.json', null);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.insights, {});
+    });
+
+    it('returns {} for insights.json when it parses to an array', () => {
+        writeUnified('insights.json', ['not', 'an', 'object']);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.insights, {});
+    });
+
+    it('returns {} for insights.json when it parses to a string', () => {
+        writeUnified('insights.json', 'hello');
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.insights, {});
+    });
+
+    it('returns {} for insights.json when it parses to a number', () => {
+        writeUnified('insights.json', 99);
+        const data = loadData(tmpDataDir);
+        assert.deepEqual(data.insights, {});
+    });
 });

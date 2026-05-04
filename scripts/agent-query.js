@@ -56,7 +56,13 @@ function loadData(dataDir) {
         const p = path.join(dataDir, 'unified', file);
         if (!fs.existsSync(p)) return fallback;
         try {
-            return JSON.parse(fs.readFileSync(p, 'utf8'));
+            const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+            if (file === 'insights.json') {
+                if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallback;
+            } else {
+                if (!Array.isArray(parsed)) return fallback;
+            }
+            return parsed;
         } catch {
             return fallback;
         }
