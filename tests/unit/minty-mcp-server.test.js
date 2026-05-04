@@ -719,6 +719,55 @@ describe('safeResult', () => {
 // MCP evidence detail channel privacy
 // ---------------------------------------------------------------------------
 
+describe('search_network source filter', () => {
+    it('search_network tool schema exposes optional source and sources args', () => {
+        const tool = TOOLS.find(t => t.name === 'search_network');
+        assert.ok(tool.inputSchema.properties.source, 'source property must exist in schema');
+        assert.ok(tool.inputSchema.properties.sources, 'sources property must exist in schema');
+        assert.equal(tool.inputSchema.properties.source.type, 'string');
+    });
+
+    it('passes source filter through and returns safe matchedSources', async () => {
+        const contacts = [
+            {
+                id: 'tg_contact', name: 'Telegram DeFi Person',
+                sources: { telegram: { userId: 'tg_secret_handle' } },
+                relationshipScore: 60, daysSinceContact: 3, interactionCount: 10,
+                activeChannels: ['telegram'], emails: ['secret@test.com'], phones: ['+15550101'],
+            },
+            {
+                id: 'li_contact', name: 'LinkedIn DeFi Person',
+                sources: { linkedin: { position: 'DeFi Analyst', company: 'CryptoFirm' } },
+                relationshipScore: 70, daysSinceContact: 5, interactionCount: 15,
+                activeChannels: ['linkedin'], emails: ['li@test.com'], phones: [],
+            },
+        ];
+        const interactions = [
+            { id: 'i_tg', source: 'telegram', contactId: 'tg_contact', body: 'Discussed DeFi lending protocols and risk.' },
+            { id: 'i_li', source: 'linkedin', contactId: 'li_contact', body: 'Discussed DeFi lending protocols and collateral.' },
+        ];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 90, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'DeFi lending protocols', source: 'telegram' } },
+        }, { contacts, insights: {}, interactions });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.results.length, 1);
+        assert.equal(parsed.results[0].name, 'Telegram DeFi Person');
+        // matchedSources must be safe canonical labels
+        assert.ok(parsed.results[0].matchedSources);
+        assert.deepEqual(parsed.results[0].matchedSources, ['telegram']);
+        // Must not leak direct contact details
+        assertNoDirectContactDetails(parsed);
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('tg_secret_handle'), false, 'must not leak source handle');
+        assert.equal(serialized.includes('secret@test.com'), false, 'must not leak email');
+        // Diagnostics must include sourceFilter
+        assert.deepEqual(parsed.diagnostics.sourceFilter, ['telegram']);
+    });
+});
+
 describe('MCP evidence channel privacy', () => {
     it('search_network evidence details do not leak source channel names', async () => {
         const resp = await handleMessage({

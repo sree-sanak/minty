@@ -31,6 +31,8 @@ const TOOLS = [
             properties: {
                 query: { type: 'string', description: 'Natural-language query, e.g. "investors in London" or "who knows about crypto insurance"' },
                 limit: { type: 'number', description: 'Max results (1-50, default 10)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, email, sms, googlecontacts)' },
             },
             required: ['query'],
         },
@@ -77,7 +79,7 @@ function clampLimit(value, fallback) {
 }
 
 function safeResult(r) {
-    return {
+    const safe = {
         name: r.name,
         title: r.title,
         company: r.company,
@@ -90,6 +92,8 @@ function safeResult(r) {
         daysSinceContact: r.daysSinceContact,
         interactionCount: r.interactionCount,
     };
+    if (r.matchedSources) safe.matchedSources = r.matchedSources;
+    return safe;
 }
 
 function executeTool(name, args, data) {
@@ -105,7 +109,7 @@ function executeTool(name, args, data) {
             return { isError: true, content: [{ type: 'text', text: 'Missing required argument: query' }] };
         }
         const query = args.query.trim();
-        const result = queryNetwork(query, {
+        const queryOpts = {
             contacts,
             insights,
             interactions,
@@ -113,7 +117,10 @@ function executeTool(name, args, data) {
             sourceEvents,
             hybridIndex,
             limit: clampLimit(args.limit, 10),
-        });
+        };
+        if (args.source) queryOpts.source = args.source;
+        if (args.sources) queryOpts.sources = args.sources;
+        const result = queryNetwork(query, queryOpts);
         const envelope = {
             query: result.query,
             intent: result.intent,
