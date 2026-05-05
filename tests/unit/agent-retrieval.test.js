@@ -312,6 +312,42 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.results.length <= 10, 'safe default limit is bounded');
     });
 
+    it('clamps limit to 50 to prevent unbounded result extraction', () => {
+        const manyContacts = Array.from({ length: 60 }, (_, i) => ({
+            id: `c_limit_${String(i).padStart(2, '0')}`,
+            name: `Limit Fixture ${i}`,
+            sources: { linkedin: { position: 'Founder', company: 'LimitCo', location: 'London, UK' } },
+            relationshipScore: 60 - i,
+            daysSinceContact: i,
+            interactionCount: 1,
+            activeChannels: ['linkedin'],
+            emails: [],
+            phones: [],
+        }));
+
+        const out = queryNetwork('LimitCo', { contacts: manyContacts, insights: {}, limit: 999 });
+
+        assert.equal(out.results.length, 50);
+    });
+
+    it('treats zero limit as invalid and falls back to safe default', () => {
+        const manyContacts = Array.from({ length: 15 }, (_, i) => ({
+            id: `c_zero_limit_${String(i).padStart(2, '0')}`,
+            name: `Zero Limit Fixture ${i}`,
+            sources: { linkedin: { position: 'Founder', company: 'ZeroLimitCo', location: 'London, UK' } },
+            relationshipScore: 40,
+            daysSinceContact: i,
+            interactionCount: 1,
+            activeChannels: ['linkedin'],
+            emails: [],
+            phones: [],
+        }));
+
+        const out = queryNetwork('ZeroLimitCo', { contacts: manyContacts, insights: {}, limit: 0 });
+
+        assert.equal(out.results.length, 10);
+    });
+
     it('works with empty contacts', () => {
         const out = queryNetwork('anyone', { contacts: [], insights: {} });
         assert.deepEqual(out.results, []);
