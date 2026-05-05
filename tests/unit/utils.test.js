@@ -17,6 +17,8 @@ const {
     atomicWriteJsonSync,
     healthRingColor,
     healthRingOffset,
+    scoreContactForGoal,
+    rankContactsForGoal,
 } = require('../../crm/utils');
 
 // ---------------------------------------------------------------------------
@@ -410,5 +412,131 @@ test('healthRingOffset: clamps scores above 100', () => {
 test('healthRingOffset: null/undefined treated as 0', () => {
     assert.equal(healthRingOffset(null), healthRingOffset(0));
     assert.equal(healthRingOffset(undefined), healthRingOffset(0));
+});
+
+// ---------------------------------------------------------------------------
+// scoreContactForGoal — characterization tests (pure function, no I/O)
+// These exact scores intentionally pin the current role/keyword/warmth weights.
+// ---------------------------------------------------------------------------
+
+test('scoreContactForGoal: returns 0 for null/missing inputs', () => {
+    assert.equal(scoreContactForGoal(null, 'raise a seed round'), 0);
+    assert.equal(scoreContactForGoal({ name: 'Alice' }, ''), 0);
+    assert.equal(scoreContactForGoal({ name: 'Alice' }, null), 0);
+    assert.equal(scoreContactForGoal(null, null), 0);
+});
+
+test('scoreContactForGoal: fundraise intent boosts investor role contact', () => {
+    const contact = { name: 'Sentinel Investor', position: 'Partner at VC Fund', relationshipScore: 0 };
+    const score = scoreContactForGoal(contact, 'raise a seed round');
+    // "seed" triggers fundraise intent → investor role signals include "partner"
+    assert.equal(score, 40);
+});
+
+test('scoreContactForGoal: hire intent boosts engineer role contact', () => {
+    const contact = { name: 'Sentinel Engineer', position: 'Senior Software Engineer', relationshipScore: 0 };
+    const score = scoreContactForGoal(contact, 'hire a backend engineer');
+    // Role match = 40, plus one keyword match for "engineer" = 12.
+    assert.equal(score, 52);
+});
+
+test('scoreContactForGoal: keyword overlap caps at 40', () => {
+    const contact = {
+        name: 'Sentinel Specialist',
+        company: 'Acme Widgets',
+        position: 'Widget Design Expertise Lead',
+        apollo: { industry: 'Automation Systems' },
+        relationshipScore: 0,
+    };
+    const score = scoreContactForGoal(contact, 'widget design expertise automation systems');
+    // Five keyword matches would be 60 points, capped at 40.
+    assert.equal(score, 40);
+});
+
+test('scoreContactForGoal: warmth bonus adds relationship score / 5 capped at 20', () => {
+    const contact = { name: 'Sentinel Friend', position: 'Independent', relationshipScore: 80 };
+    const score = scoreContactForGoal(contact, 'xyzzy zzzzz');
+    assert.equal(score, 16);
+});
+
+test('scoreContactForGoal: warmth caps at 20 for very high relationship scores', () => {
+    const contact = { name: 'Sentinel Best Friend', position: 'Nobody', relationshipScore: 200 };
+    const score = scoreContactForGoal(contact, 'xyzzy zzzzz');
+    assert.equal(score, 20);
+});
+
+test('scoreContactForGoal: combined role + keyword + warmth caps at 100', () => {
+    const contact = {
+        name: 'Sentinel VC',
+        position: 'General Partner at Venture Capital Fund',
+        company: 'Seed Stage Portfolio Investor',
+        relationshipScore: 100,
+    };
+    const score = scoreContactForGoal(contact, 'raise a seed round of capital for venture portfolio investor');
+    // Role match = 40, keyword overlap caps at 40, warmth caps at 20.
+    assert.equal(score, 100);
+});
+
+test('scoreContactForGoal: apollo and linkedin source fields contribute to contact text', () => {
+    const contact = {
+        name: 'Sentinel Apollo',
+        apollo: { headline: 'Angel Investor & Startup Mentor', industry: 'Technology' },
+        sources: { linkedin: { company: 'TechFund', position: 'Managing Partner' } },
+        relationshipScore: 0,
+    };
+    // fundraise intent from "invest" → investor role
+    // "angel", "investor", "partner" all in contactText → role match = 40
+    const score = scoreContactForGoal(contact, 'find investors for our series A');
+    assert.equal(score, 40);
+});
+
+// ---------------------------------------------------------------------------
+// rankContactsForGoal — characterization tests
+// ---------------------------------------------------------------------------
+
+test('rankContactsForGoal: returns empty for null/empty inputs', () => {
+    assert.deepEqual(rankContactsForGoal(null, 'raise money'), []);
+    assert.deepEqual(rankContactsForGoal([], 'raise money'), []);
+    assert.deepEqual(rankContactsForGoal([{ name: 'A' }], ''), []);
+    assert.deepEqual(rankContactsForGoal([{ name: 'A' }], null), []);
+});
+
+test('rankContactsForGoal: excludes zero-score and group contacts', () => {
+    const contacts = [
+        { name: 'Sentinel Relevant', position: 'VC Partner', relationshipScore: 50 },
+        { name: 'Sentinel Irrelevant', position: 'Baker', relationshipScore: 0 },
+        { name: 'Sentinel Group', position: 'Investor', isGroup: true },
+        { position: 'Investor' }, // no name
+    ];
+    const result = rankContactsForGoal(contacts, 'raise a seed round');
+    assert.deepEqual(result.map(c => c.name), ['Sentinel Relevant']);
+    assert.equal(result[0].goalRelevance, scoreContactForGoal(contacts[0], 'raise a seed round'));
+});
+
+test('rankContactsForGoal: respects limit parameter', () => {
+    const contacts = Array.from({ length: 10 }, (_, i) => ({
+        name: `Sentinel Contact ${i}`,
+        position: 'Venture Partner',
+        relationshipScore: i * 10,
+    }));
+    const result = rankContactsForGoal(contacts, 'raise funding', 3);
+    assert.equal(result.length, 3);
+});
+
+test('rankContactsForGoal: sorts by goalRelevance desc, then relationshipScore desc', () => {
+    const contacts = [
+        { name: 'Sentinel Low', position: 'Baker', relationshipScore: 100 },
+        { name: 'Sentinel High', position: 'VC Partner', relationshipScore: 10 },
+        { name: 'Sentinel Mid', position: 'Angel Investor', relationshipScore: 50 },
+    ];
+    const result = rankContactsForGoal(contacts, 'raise a seed round', 10);
+    assert.deepEqual(
+        result.map(c => ({ name: c.name, goalRelevance: c.goalRelevance, relationshipScore: c.relationshipScore })),
+        [
+            { name: 'Sentinel Mid', goalRelevance: 50, relationshipScore: 50 },
+            { name: 'Sentinel High', goalRelevance: 42, relationshipScore: 10 },
+            { name: 'Sentinel Low', goalRelevance: 20, relationshipScore: 100 },
+        ]
+    );
 });
 
