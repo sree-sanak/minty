@@ -651,6 +651,58 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
     });
 
+    it('source filters can match contacts through precomputed contactEvidence sources', () => {
+        const contacts = [{
+            id: 'c_cev', name: 'ContactEvidence Only',
+            sources: {},
+            relationshipScore: 40, daysSinceContact: 10, interactionCount: 3,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const contactEvidence = {
+            c_cev: {
+                contactId: 'c_cev',
+                topics: ['defi', 'lending protocol'],
+                topicEvidence: [
+                    { topic: 'defi', count: 3, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                    { topic: 'lending protocol', count: 1, sources: ['telegram'], lastEvidenceAt: '2026-04-28T00:00:00.000Z' },
+                ],
+                sources: ['telegram'],
+                interactionCount: 3,
+                confidence: 0.8,
+            },
+        };
+
+        const out = queryNetwork('DeFi lending protocol', { contacts, contactEvidence, source: 'telegram' });
+        assert.deepEqual(out.results.map(r => r.id), ['c_cev']);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+    });
+
+    it('source filter excludes contacts whose contactEvidence is from a different source', () => {
+        const contacts = [{
+            id: 'c_wa_only', name: 'WhatsApp Evidence Only',
+            sources: {},
+            relationshipScore: 40, daysSinceContact: 10, interactionCount: 3,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const contactEvidence = {
+            c_wa_only: {
+                contactId: 'c_wa_only',
+                topics: ['defi', 'lending'],
+                topicEvidence: [
+                    { topic: 'defi', count: 2, sources: ['whatsapp'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                ],
+                sources: ['whatsapp'],
+                interactionCount: 2,
+                confidence: 0.7,
+            },
+        };
+
+        const out = queryNetwork('DeFi lending', { contacts, contactEvidence, source: 'telegram' });
+        assert.deepEqual(out.results, [], 'contact with whatsapp evidence excluded when filtering for telegram');
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+    });
+
     it('matchedSources does not leak raw channel/thread names', () => {
         const contacts = [
             {
