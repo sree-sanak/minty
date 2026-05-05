@@ -285,9 +285,18 @@ function isPersonalInteractionNameFallback(i) {
     const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
     if (['personal', 'direct', 'dm', 'one_to_one', 'one-to-one', 'private'].includes(type)) return true;
     // Telegram exports ordinary one-to-one chat rows as type="message" without a
-    // contactId. After group/channel guards above, an exact chatName/from match is
-    // safe enough for attribution and avoids treating "telegram" as dead data.
-    return canonicalSource(i.source || i.channel) === 'telegram' && type === 'message';
+    // contactId. For that ambiguous shape, only allow exact chatName matching;
+    // sender/from fields can appear inside group exports and must not become
+    // person evidence by themselves.
+    return canonicalSource(i.source || i.channel) === 'telegram' && type === 'message' && !!normalizeNameKey(i.chatName);
+}
+
+function fallbackNameCandidates(i) {
+    const type = String(i && (i.type || i.chatType || i.conversationType) || '').toLowerCase();
+    if (canonicalSource(i && (i.source || i.channel)) === 'telegram' && type === 'message') {
+        return [i.chatName];
+    }
+    return [i.chatName, i.from, i.to, i.senderName, i.recipientName];
 }
 
 function buildInteractionEvidence(contacts, interactions, parsed) {
@@ -323,7 +332,7 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
 
         let contactId = i.contactId || i.contact_id || i.personId || i.participantContactId;
         if (!byId.has(contactId) && isPersonalInteractionNameFallback(i)) {
-            const candidates = [i.chatName, i.from, i.to, i.senderName, i.recipientName]
+            const candidates = fallbackNameCandidates(i)
                 .map(normalizeNameKey)
                 .filter(Boolean);
             contactId = candidates.map(k => byName.get(k)).find(Boolean);
@@ -450,8 +459,7 @@ function queryNetwork(query, opts = {}) {
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
     const explicitSourceFilter = normalizeSourceFilter(safeOpts.sources !== undefined ? safeOpts.sources : safeOpts.source);
     const sourceFilter = explicitSourceFilter.length ? explicitSourceFilter : inferSourceFilterFromQuery(q);
-    const contacts = (Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [])
-        .filter(c => contactMatchesSourceFilter(c, sourceFilter));
+    const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
     for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];
@@ -559,12 +567,22 @@ function queryNetwork(query, opts = {}) {
         r.matchScore = (r.matchScore || 0) + goalScore;
     }
 
+    const sourceMatched = sourceFilter.length
+        ? evidenced.filter(r => matchedSourcesForContact(
+            contactsById[r.id],
+            sourceFilter,
+            interactionEvidenceByContactId[r.id],
+            contactEvidenceMatches[r.id],
+            hybridMatches[r.id]
+        ).length > 0)
+        : evidenced;
+
     // 6. Sort by blended score descending
-    evidenced.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+    sourceMatched.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
 
     // 7. Shape into stable agent envelope
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
-    const results = evidenced.slice(0, safeLimit).map(r => {
+    const results = sourceMatched.slice(0, safeLimit).map(r => {
         const contact = contactsById[r.id];
         return {
         id:                r.id,

@@ -240,6 +240,42 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(!out.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
     });
 
+    it('does not use Telegram message sender fields as person evidence without a direct chat name', () => {
+        const contacts = [{
+            id: 'c_sender', name: 'Nina Sender',
+            sources: { telegram: { userId: null } },
+            relationshipScore: 45, daysSinceContact: 10, interactionCount: 5,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_groupish', source: 'telegram', chatName: 'Crypto Builders', type: 'message', from: 'Nina Sender',
+            body: 'Group-like export row discussed AMMs, staking and Ethereum DeFi risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('ethereum defi staking', { contacts, interactions, sources: ['telegram'] });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0);
+        assert.equal(out.results.length, 0);
+    });
+
+    it('source filters keep contacts backed only by matching source interactions', () => {
+        const contacts = [{
+            id: 'c_interaction_only', name: 'Iris Payments',
+            sources: {}, activeChannels: [],
+            relationshipScore: 25, daysSinceContact: 40, interactionCount: 1,
+            emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_interaction_only', source: 'telegram', type: 'direct', contactId: 'c_interaction_only',
+            body: 'Discussed payments checkout and banking infrastructure.',
+        }];
+
+        const out = queryNetwork('telegram payments checkout', { contacts, interactions, sources: ['telegram'] });
+        assert.deepEqual(out.results.map(r => r.id), ['c_interaction_only']);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
     it('does not create interaction evidence from embedded word fragments', () => {
         const contacts = [{
             id: 'c_ai', name: 'Aisha Yield',
