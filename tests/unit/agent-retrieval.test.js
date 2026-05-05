@@ -635,7 +635,7 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
         assert.match(interactionEvidence.detail, /2 matching interactions across 2 source types/);
     });
 
-    it('DeFi interaction evidence requires a DeFi anchor, not only generic building/platform words', () => {
+    it('domain-builder interaction evidence requires a domain anchor, not only generic building/platform words', () => {
         const contacts = [
             {
                 id: 'c_generic', name: 'Generic Platform Builder',
@@ -643,8 +643,8 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
                 relationshipScore: 50, daysSinceContact: 5, interactionCount: 3,
             },
             {
-                id: 'c_defi', name: 'DeFi Protocol Builder',
-                sources: { telegram: { userId: 'tg_defi' } }, activeChannels: ['telegram'],
+                id: 'c_domain', name: 'Payments Platform Builder',
+                sources: { telegram: { userId: 'tg_domain' } }, activeChannels: ['telegram'],
                 relationshipScore: 30, daysSinceContact: 20, interactionCount: 1,
             },
         ];
@@ -654,14 +654,14 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
                 body: 'They are building a new developer platform for teams.',
             },
             {
-                id: 'i_defi', source: 'telegram', type: 'direct', contactId: 'c_defi',
-                body: 'They are building a DeFi lending protocol for onchain credit.',
+                id: 'i_domain', source: 'telegram', type: 'direct', contactId: 'c_domain',
+                body: 'They are building payments checkout tooling for platforms.',
             },
         ];
 
-        const out = queryNetwork('who is building DeFi platforms', { contacts, interactions });
+        const out = queryNetwork('who is building payments platforms', { contacts, interactions });
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
-        assert.deepEqual(out.results.map(r => r.id), ['c_defi']);
+        assert.deepEqual(out.results.map(r => r.id), ['c_domain']);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
     });
 

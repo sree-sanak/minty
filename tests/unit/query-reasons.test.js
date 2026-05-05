@@ -46,15 +46,14 @@ test('[Reasons] expandQuery expands free terms to synonyms', () => {
     assert.ok(expandedTerms.includes('billing'));
 });
 
-test('[Reasons] expandQuery expands DeFi to protocol-specific anchors', () => {
+test('[Reasons] expandQuery keeps DeFi expansion narrow and non-protocol-specific', () => {
     const parsed = { raw: 'Who do I know working in DeFi space?', roles: [], locations: [] };
     const { freeTerms, expandedTerms } = expandQuery(parsed);
     assert.deepEqual(freeTerms, ['defi']);
     assert.ok(expandedTerms.includes('defi'));
     assert.ok(expandedTerms.includes('decentralized finance'));
-    assert.ok(expandedTerms.includes('lending protocol'));
-    assert.ok(expandedTerms.includes('staking'));
-    assert.ok(expandedTerms.includes('stablecoin'));
+    assert.ok(!expandedTerms.includes('lending protocol'));
+    assert.ok(!expandedTerms.includes('staking'));
 });
 
 test('[Reasons] expandQuery expands generic building/startup phrasing around any domain', () => {
@@ -135,22 +134,22 @@ test('[Reasons] TERM_EXPANSIONS contains expected domain terms', () => {
     assert.ok(TERM_EXPANSIONS['raise']);
 });
 
-test('[Reasons] annotateResults weights exact DeFi evidence above generic builder wording', () => {
-    const parsed = { raw: 'people building DeFi platforms', roles: [], locations: [], intent: 'find' };
+test('[Reasons] annotateResults weights exact domain evidence above generic builder wording', () => {
+    const parsed = { raw: 'people building payments platforms', roles: [], locations: [], intent: 'find' };
     const candidates = [
         {
             id: 'generic_builder', name: 'Generic Builder', title: 'Building something new',
             relationshipScore: 0, daysSinceContact: 30,
         },
         {
-            id: 'defi_lead', name: 'DeFi Lead', title: 'DeFi Lead',
+            id: 'payments_lead', name: 'Payments Lead', title: 'Payments Lead',
             relationshipScore: 0, daysSinceContact: 30,
         },
     ];
-    const [generic, defi] = annotateResults(parsed, candidates, {
+    const [generic, domain] = annotateResults(parsed, candidates, {
         contactsById: Object.fromEntries(candidates.map(c => [c.id, c])),
     });
-    assert.ok(defi.matchScore > generic.matchScore, 'exact DeFi keyword should outrank generic building keyword');
+    assert.ok(domain.matchScore > generic.matchScore, 'exact domain keyword should outrank generic building keyword');
 });
 
 // ---- titleCase ----

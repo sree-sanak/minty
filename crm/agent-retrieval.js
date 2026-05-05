@@ -221,19 +221,20 @@ function buildDirectInteractionTerms(parsed) {
         .filter(t => t.length >= 3 && !INTERACTION_TERM_STOPWORDS.has(t));
 }
 
-const DEFI_ANCHOR_TERMS = new Set([
-    'defi', 'decentralized finance', 'lending protocol', 'borrowing protocol', 'dex',
-    'amm', 'staking', 'yield', 'liquidity pool', 'stablecoin', 'onchain credit',
+const GENERIC_INTERACTION_TERMS = new Set([
+    'build', 'building', 'built', 'founding', 'founder', 'co-founder', 'started',
+    'creating', 'working on', 'startup', 'startups', 'company', 'venture', 'product',
+    'platform', 'platforms',
 ]);
 
 function requiredInteractionAnchorTerms(parsed) {
     const query = expandQuery(parsed);
-    const allTerms = [...new Set([...(query.freeTerms || []), ...(query.expandedTerms || [])])]
-        .map(t => String(t || '').toLowerCase().trim());
-    if (allTerms.some(t => t === 'defi' || t === 'decentralized finance')) {
-        return allTerms.filter(t => DEFI_ANCHOR_TERMS.has(t));
-    }
-    return [];
+    const freeTerms = [...new Set(query.freeTerms || [])]
+        .map(t => String(t || '').toLowerCase().trim())
+        .filter(t => t.length >= 3 && !INTERACTION_TERM_STOPWORDS.has(t));
+    const hasGenericTerm = freeTerms.some(t => GENERIC_INTERACTION_TERMS.has(t));
+    const domainTerms = freeTerms.filter(t => !GENERIC_INTERACTION_TERMS.has(t));
+    return hasGenericTerm && domainTerms.length ? domainTerms : [];
 }
 
 function escapeRegExp(value) {
