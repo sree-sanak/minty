@@ -5,13 +5,13 @@
   "type": "commonjs",
   "license": "AGPL-3.0-only",
   "author": "Sree Sanakkayala",
-  "homepage": "https://github.com/zalatar242/minty#readme",
+  "homepage": "https://github.com/sree-sanak/minty#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zalatar242/minty.git"
+    "url": "git+https://github.com/sree-sanak/minty.git"
   },
   "bugs": {
-    "url": "https://github.com/zalatar242/minty/issues"
+    "url": "https://github.com/sree-sanak/minty/issues"
   },
   "keywords": [
     "crm",
