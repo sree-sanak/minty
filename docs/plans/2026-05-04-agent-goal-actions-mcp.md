@@ -196,7 +196,11 @@ test('[AgentGoalActions]: includes warm intro path when direct relationship is c
 
     assert.equal(out.briefs[0].introPaths[0].target.name, 'Target Investor');
     assert.equal(out.briefs[0].introPaths[0].intermediary.name, 'Warm Founder');
+    assert.equal(out.briefs[0].introPaths[0].sharedContext.label, 'small shared group');
+    assert.equal(out.briefs[0].introPaths[0].sharedContext.groupSize, 3);
+    assert.equal(out.briefs[0].introPaths[0].citation.source, 'group-memberships');
     assert.equal(JSON.stringify(out).includes('seed@g.us'), false);
+    assert.equal(JSON.stringify(out).includes('Seed Founders'), false);
 });
 
 test('[AgentGoalActions]: redacts direct contact details and returns honest empty state', () => {
@@ -249,6 +253,12 @@ function warmth(score) {
     if (score >= 50) return 'warm';
     if (score >= 30) return 'cool';
     return 'cold';
+}
+
+function groupLabel(size) {
+    if (size <= 6) return 'small shared group';
+    if (size <= 30) return 'shared community';
+    return 'large shared community';
 }
 
 function byContactId(interactions) {
@@ -314,10 +324,17 @@ function introPaths(goal, ranked, contacts, groupMemberships, assignedIds) {
                 relationshipScore: top.intermediaryScore || 0,
             },
             sharedContext: top.sharedGroupsWithTarget[0] ? {
-                name: top.sharedGroupsWithTarget[0].name || 'Shared group',
-                size: top.sharedGroupsWithTarget[0].size || null,
+                label: groupLabel(top.sharedGroupsWithTarget[0].size || 999),
+                groupSize: top.sharedGroupsWithTarget[0].size || null,
             } : null,
             reason: 'Warmer path through shared small-group context.',
+            citation: {
+                ref: 'goal:' + goal.id + ':intro:' + (paths.length + 1),
+                source: 'group-memberships',
+                field: 'sharedGroup',
+                provenance: 'local-whatsapp-roster',
+                groupSize: top.sharedGroupsWithTarget[0] ? top.sharedGroupsWithTarget[0].size || null : null,
+            },
             citationRef: 'goal:' + goal.id + ':intro:' + (paths.length + 1),
         });
         if (paths.length >= 2) break;
@@ -615,7 +632,7 @@ for msg in messages:
 PY
 ```
 
-Expected: JSON-RPC response for id `2` includes `"status"`, `"briefs"`, and `"safety"`; it must not include raw emails or phones from fixtures.
+Expected: JSON-RPC response for id `2` includes `"status"`, `"briefs"`, and `"safety"`; it must not include raw emails, phones, raw group chat IDs, or raw group names from fixtures.
 
 **Step 4: Commit**
 
