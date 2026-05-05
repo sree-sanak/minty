@@ -513,6 +513,37 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.results.length >= 1, 'should still return non-group results');
     });
 
+    it('excludes isChannel contacts from results', () => {
+        const contacts = [
+            {
+                id: 'ch_001', name: 'Crypto News Channel', isChannel: true,
+                sources: { telegram: { id: 'ch_001' } },
+                relationshipScore: 0, daysSinceContact: 1, interactionCount: 500,
+                emails: [], phones: [],
+            },
+            ...CONTACTS,
+        ];
+        const out = queryNetwork('crypto', { contacts, insights: INSIGHTS });
+        const ids = out.results.map(r => r.id);
+        assert.ok(!ids.includes('ch_001'), 'channel contact should be excluded from agent results');
+        assert.ok(out.results.length >= 1, 'should still return non-channel results');
+    });
+
+    it('excludes isBroadcast contacts from results', () => {
+        const contacts = [
+            {
+                id: 'bc_001', name: 'Weekly Broadcast List', isBroadcast: true,
+                sources: { whatsapp: { id: 'bc_001@broadcast' } },
+                relationshipScore: 0, daysSinceContact: 1, interactionCount: 300,
+                emails: [], phones: [],
+            },
+            ...CONTACTS,
+        ];
+        const out = queryNetwork('weekly', { contacts, insights: INSIGHTS });
+        const ids = out.results.map(r => r.id);
+        assert.ok(!ids.includes('bc_001'), 'broadcast contact should be excluded from agent results');
+    });
+
     it('DeFi query surfaces contacts with DeFi-related topics or keywords', () => {
         const out = queryNetwork('Who do I know working in DeFi?', { contacts: CONTACTS, insights: INSIGHTS });
         assert.ok(out.results.length >= 1, 'DeFi query returns at least one result');
