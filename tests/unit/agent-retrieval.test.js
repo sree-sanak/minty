@@ -635,6 +635,52 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
         assert.match(interactionEvidence.detail, /2 matching interactions across 2 source types/);
     });
 
+    it('DeFi interaction evidence requires a DeFi anchor, not only generic building/platform words', () => {
+        const contacts = [
+            {
+                id: 'c_generic', name: 'Generic Platform Builder',
+                sources: { telegram: { userId: 'tg_generic' } }, activeChannels: ['telegram'],
+                relationshipScore: 50, daysSinceContact: 5, interactionCount: 3,
+            },
+            {
+                id: 'c_defi', name: 'DeFi Protocol Builder',
+                sources: { telegram: { userId: 'tg_defi' } }, activeChannels: ['telegram'],
+                relationshipScore: 30, daysSinceContact: 20, interactionCount: 1,
+            },
+        ];
+        const interactions = [
+            {
+                id: 'i_generic', source: 'telegram', type: 'direct', contactId: 'c_generic',
+                body: 'They are building a new developer platform for teams.',
+            },
+            {
+                id: 'i_defi', source: 'telegram', type: 'direct', contactId: 'c_defi',
+                body: 'They are building a DeFi lending protocol for onchain credit.',
+            },
+        ];
+
+        const out = queryNetwork('who is building DeFi platforms', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+        assert.deepEqual(out.results.map(r => r.id), ['c_defi']);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+    });
+
+    it('matchedSources prefer evidence sources over every channel on a multi-channel contact', () => {
+        const contacts = [{
+            id: 'c_multi_evidence', name: 'Multi Channel Person',
+            sources: { telegram: { userId: 'tg_m' }, whatsapp: { id: 'wa_m' }, linkedin: { id: 'li_m' } },
+            activeChannels: ['telegram', 'whatsapp'], relationshipScore: 40, daysSinceContact: 3, interactionCount: 5,
+        }];
+        const interactions = [{
+            id: 'i_multi_evidence', source: 'telegram', type: 'direct', contactId: 'c_multi_evidence',
+            body: 'Discussed DeFi staking and liquidity pool risk.',
+        }];
+
+        const out = queryNetwork('defi staking', { contacts, interactions });
+        assert.equal(out.results.length, 1);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+    });
+
     it('name fallback resolves via "from" field on personal DM interactions', () => {
         const contacts = [{
             id: 'c_from', name: 'Fiona Reply',

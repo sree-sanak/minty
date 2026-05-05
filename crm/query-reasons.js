@@ -56,7 +56,9 @@ const TERM_EXPANSIONS = {
     'web3':         ['web3', 'crypto', 'blockchain'],
     'insurance':    ['insurance', 'insurtech', 'insurer', 'reinsurance', 'underwriting', 'solvency', 'risk', 'distribution'],
     'crypto':       ['crypto', 'web3', 'blockchain', 'digital assets', 'token'],
-    'defi':         ['defi', 'decentralized finance'],
+    // Keep DeFi specific enough to beat generic "founder/building/platform" matches.
+    'defi':         ['defi', 'decentralized finance', 'lending protocol', 'borrowing protocol', 'dex', 'amm', 'staking', 'yield', 'liquidity pool', 'stablecoin', 'onchain credit'],
+    'decentralized finance': ['defi', 'decentralized finance', 'lending protocol', 'borrowing protocol', 'dex', 'amm', 'staking', 'yield', 'liquidity pool', 'stablecoin', 'onchain credit'],
     'climate':      ['climate', 'sustainability', 'carbon', 'net zero', 'clean tech', 'energy'],
     // Stage / corporate structure
     'seed':         ['seed', 'pre-seed', 'angel', 'first check', 'idea stage'],
@@ -267,12 +269,32 @@ function titleCase(s) {
  *   - conversation topic match (medium)
  *   - warmth / recency bonuses (tiny — only used as tie-breakers)
  */
+const GENERIC_BUILDER_KEYWORDS = new Set([
+    'build', 'building', 'built', 'founding', 'founder', 'co-founder', 'started',
+    'creating', 'working on', 'startup', 'startups', 'company', 'venture', 'product',
+    'platform', 'platforms',
+]);
+
+const HIGH_SIGNAL_DOMAIN_KEYWORDS = new Set([
+    'defi', 'decentralized finance', 'lending protocol', 'borrowing protocol', 'dex',
+    'amm', 'staking', 'yield', 'liquidity pool', 'stablecoin', 'onchain credit',
+]);
+
+function keywordReasonWeight(label) {
+    const key = String(label || '').toLowerCase();
+    if (HIGH_SIGNAL_DOMAIN_KEYWORDS.has(key)) return 18;
+    if (GENERIC_BUILDER_KEYWORDS.has(key)) return 4;
+    return 10;
+}
+
 function annotateResults(parsed, candidates, ctx = {}) {
     return candidates.map(c => {
         const reasons = buildReasons(c, parsed, ctx);
-        const kindWeights = { role: 40, location: 25, company: 20, topic: 20, keyword: 10, warmth: 6, recent: 4 };
+        const kindWeights = { role: 40, location: 25, company: 20, topic: 20, warmth: 6, recent: 4 };
         let matchScore = 0;
-        for (const r of reasons) matchScore += kindWeights[r.kind] || 1;
+        for (const r of reasons) {
+            matchScore += r.kind === 'keyword' ? keywordReasonWeight(r.label) : (kindWeights[r.kind] || 1);
+        }
         return { ...c, reasons, matchScore };
     });
 }

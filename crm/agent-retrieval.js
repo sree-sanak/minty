@@ -162,10 +162,11 @@ function filterSourceEvents(sourceEvents, sourceFilter) {
 }
 
 function matchedSourcesForContact(contact, sourceFilter, interactionEvidence, contactEvidenceMatch, hybridMatch) {
-    const sources = new Set(contactSources(contact));
-    for (const s of interactionEvidence && interactionEvidence.sources ? interactionEvidence.sources : []) sources.add(canonicalSource(s));
-    for (const s of contactEvidenceMatch && contactEvidenceMatch.sources ? contactEvidenceMatch.sources : []) sources.add(canonicalSource(s));
-    for (const s of hybridMatch && hybridMatch.sources ? hybridMatch.sources : []) sources.add(canonicalSource(s));
+    const evidenceSources = new Set();
+    for (const s of interactionEvidence && interactionEvidence.sources ? interactionEvidence.sources : []) evidenceSources.add(canonicalSource(s));
+    for (const s of contactEvidenceMatch && contactEvidenceMatch.sources ? contactEvidenceMatch.sources : []) evidenceSources.add(canonicalSource(s));
+    for (const s of hybridMatch && hybridMatch.sources ? hybridMatch.sources : []) evidenceSources.add(canonicalSource(s));
+    const sources = evidenceSources.size ? evidenceSources : new Set(contactSources(contact));
     const safe = [...sources].filter(s => s && s !== 'interaction');
     const filtered = sourceFilter.length ? safe.filter(s => sourceFilter.includes(s)) : safe;
     return [...new Set(filtered)].sort();
@@ -220,6 +221,21 @@ function buildDirectInteractionTerms(parsed) {
         .filter(t => t.length >= 3 && !INTERACTION_TERM_STOPWORDS.has(t));
 }
 
+const DEFI_ANCHOR_TERMS = new Set([
+    'defi', 'decentralized finance', 'lending protocol', 'borrowing protocol', 'dex',
+    'amm', 'staking', 'yield', 'liquidity pool', 'stablecoin', 'onchain credit',
+]);
+
+function requiredInteractionAnchorTerms(parsed) {
+    const query = expandQuery(parsed);
+    const allTerms = [...new Set([...(query.freeTerms || []), ...(query.expandedTerms || [])])]
+        .map(t => String(t || '').toLowerCase().trim());
+    if (allTerms.some(t => t === 'defi' || t === 'decentralized finance')) {
+        return allTerms.filter(t => DEFI_ANCHOR_TERMS.has(t));
+    }
+    return [];
+}
+
 function escapeRegExp(value) {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -270,6 +286,7 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
 
     const terms = buildInteractionTerms(parsed);
     const directTerms = buildDirectInteractionTerms(parsed);
+    const requiredAnchorTerms = requiredInteractionAnchorTerms(parsed);
     if (!terms.length) return evidenceByContactId;
 
     for (const i of rawInteractions) {
@@ -283,6 +300,7 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
         const matched = terms.filter(t => interactionTermMatches(text, t)).slice(0, 3);
         const directMatched = directTerms.filter(t => interactionTermMatches(text, t));
         if (!matched.length) continue;
+        if (requiredAnchorTerms.length && !matched.some(t => requiredAnchorTerms.includes(t))) continue;
         if (!directMatched.length && matched.length < 2) continue;
 
         let contactId = i.contactId || i.contact_id || i.personId || i.participantContactId;
