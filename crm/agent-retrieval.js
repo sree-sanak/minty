@@ -328,7 +328,7 @@ function queryNetwork(query, opts = {}) {
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
     const sourceFilter = normalizeSourceFilter(safeOpts);
-    const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
+    const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => c != null && typeof c === 'object' && !Array.isArray(c) && !c.isGroup) : [];
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
     for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];

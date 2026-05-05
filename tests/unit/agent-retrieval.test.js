@@ -353,6 +353,23 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.deepEqual(out.results, [], 'impossible query returns empty');
     });
 
+    it('survives malformed entries (null/undefined/non-object) within contacts array', () => {
+        const contacts = [
+            null,
+            undefined,
+            42,
+            'not-a-contact',
+            { id: 'c_valid', name: 'Valid Person', sources: { linkedin: { position: 'Engineer', company: 'ACME' } }, relationshipScore: 60, daysSinceContact: 5, interactionCount: 10, activeChannels: ['linkedin'], emails: [], phones: [] },
+            false,
+            [],
+        ];
+        const out = queryNetwork('engineer', { contacts, insights: {} });
+        assert.ok(out.safety);
+        assert.equal(out.diagnostics.contactsConsidered, 1, 'only valid object contacts are considered');
+        assert.equal(out.results.length, 1);
+        assert.equal(out.results[0].id, 'c_valid');
+    });
+
     it('survives null contacts without crashing', () => {
         const out = queryNetwork('anyone', { contacts: null, insights: {} });
         assert.deepEqual(out.results, []);
