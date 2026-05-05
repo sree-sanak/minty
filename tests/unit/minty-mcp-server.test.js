@@ -295,6 +295,133 @@ describe('person_context tool', () => {
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.matches.length, 0);
     });
+
+    it('safety envelope includes readOnly, contactDetailsOmitted, noLlmCalls', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 22, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Alice' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.safety, 'envelope must include safety section');
+        assert.equal(parsed.safety.readOnly, true);
+        assert.equal(parsed.safety.contactDetailsOmitted, true);
+        assert.equal(parsed.safety.noLlmCalls, true);
+    });
+
+    it('strips internal fields (id, sources, activeChannels, relevance, evidenceBacked) from matches', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 23, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Alice' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.matches.length >= 1, 'need matches to verify field stripping');
+        for (const m of parsed.matches) {
+            assert.equal(m.id, undefined, 'id must not leak through person_context');
+            assert.equal(m.sources, undefined, 'sources must not leak through person_context');
+            assert.equal(m.activeChannels, undefined, 'activeChannels must not leak through person_context');
+            assert.equal(m.relevance, undefined, 'relevance must not leak through person_context');
+            assert.equal(m.evidenceBacked, undefined, 'evidenceBacked must not leak through person_context');
+            assert.equal(m.rawContact, undefined, 'rawContact must not leak through person_context');
+        }
+    });
+
+    it('full JSON.stringify of person_context output contains no PII sentinel strings', async () => {
+        const piiContacts = [
+            {
+                id: 'pii_pc_001', name: 'PII Sentinel Person',
+                phones: ['+49-pii-sentinel-phone'], emails: ['pii-sentinel@leak-test.example'],
+                sources: { whatsapp: { id: 'wa_pii_sentinel_handle' } },
+                lastContactedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+                relationshipScore: 72, daysSinceContact: 3, interactionCount: 18,
+                activeChannels: ['whatsapp'],
+            },
+        ];
+        const piiInteractions = [
+            {
+                id: 'i_pii_pc_secret', source: 'telegram', contactId: 'pii_pc_001',
+                body: 'We discussed confidential merger details and acquisition targets.',
+                timestamp: '2026-05-03T14:00:00Z',
+            },
+        ];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 24, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'PII Sentinel Person' } },
+        }, { contacts: piiContacts, insights: {}, interactions: piiInteractions });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const serialized = JSON.stringify(parsed);
+
+        // Emails must not appear
+        assert.equal(serialized.includes('pii-sentinel@leak-test.example'), false,
+            'person_context must not contain email sentinel');
+        // Phones must not appear
+        assert.equal(serialized.includes('+49-pii-sentinel-phone'), false,
+            'person_context must not contain phone sentinel');
+        // Source account handles must not appear
+        assert.equal(serialized.includes('wa_pii_sentinel_handle'), false,
+            'person_context must not contain source handle');
+        // Raw interaction body must not appear
+        assert.equal(serialized.includes('acquisition targets'), false,
+            'person_context must not contain raw interaction body');
+        // Internal IDs must not appear
+        assert.equal(serialized.includes('pii_pc_001'), false,
+            'person_context must not contain contact id');
+        assert.equal(serialized.includes('i_pii_pc_secret'), false,
+            'person_context must not contain interaction id');
+        // Interaction timestamps must not appear
+        assert.equal(serialized.includes('2026-05-03T14:00:00Z'), false,
+            'person_context must not contain interaction timestamp');
+    });
+
+    it('diagnostics section contains no PII sentinels', async () => {
+        const piiContacts = [
+            {
+                id: 'pii_diag_001', name: 'Diag PII Person',
+                phones: ['+44-diag-pii-phone'], emails: ['diag-pii@leak-test.example'],
+                sources: { linkedin: { position: 'CTO', company: 'DiagCo' } },
+                relationshipScore: 60, daysSinceContact: 5, interactionCount: 10,
+                activeChannels: ['linkedin'],
+            },
+        ];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 25, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Diag PII Person' } },
+        }, { contacts: piiContacts, insights: {} });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const diagSerialized = JSON.stringify(parsed.diagnostics);
+
+        assert.equal(diagSerialized.includes('diag-pii@leak-test.example'), false,
+            'diagnostics must not contain email');
+        assert.equal(diagSerialized.includes('+44-diag-pii-phone'), false,
+            'diagnostics must not contain phone');
+        assert.equal(diagSerialized.includes('pii_diag_001'), false,
+            'diagnostics must not contain contact id');
+    });
+
+    it('matches include only safeResult allowlisted fields', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 26, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Alice' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.matches.length >= 1);
+        const ALLOWED = new Set([
+            'name', 'title', 'company', 'city', 'warmth', 'relationshipScore',
+            'confidence', 'evidence', 'suggestedAction', 'daysSinceContact',
+            'interactionCount', 'matchedSources',
+        ]);
+        for (const m of parsed.matches) {
+            for (const key of Object.keys(m)) {
+                assert.ok(ALLOWED.has(key), `unexpected field "${key}" in person_context match`);
+            }
+        }
+    });
 });
 
 // ---------------------------------------------------------------------------
