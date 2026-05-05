@@ -684,6 +684,7 @@ describe('safeResult', () => {
         warmth: 'warm',
         relationshipScore: 80,
         confidence: 'high',
+        matchType: 'direct_evidence',
         evidence: [{ field: 'keywords', matched: 'fintech' }],
         matchedSources: ['telegram'],
         evidenceBacked: true,
@@ -707,7 +708,7 @@ describe('safeResult', () => {
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
             'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'matchedSources', 'name',
+            'evidence', 'interactionCount', 'matchType', 'matchedSources', 'name',
             'relationshipScore', 'suggestedAction', 'title', 'warmth',
         ]);
     });
@@ -721,6 +722,7 @@ describe('safeResult', () => {
         assert.equal(safe.warmth, 'warm');
         assert.equal(safe.relationshipScore, 80);
         assert.equal(safe.confidence, 'high');
+        assert.equal(safe.matchType, 'direct_evidence');
         assert.deepEqual(safe.evidence, [{ field: 'keywords', matched: 'fintech' }]);
         assert.deepEqual(safe.matchedSources, ['telegram']);
         assert.equal(safe.suggestedAction, 'Send a message');

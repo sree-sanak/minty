@@ -469,6 +469,7 @@ describe('agent-retrieval: queryNetwork()', () => {
             relationshipScore: 85,
             warmth: 'strong',
             confidence: 'high',
+            matchType: 'direct_evidence',
             evidence: [
                 { kind: 'keyword', label: 'stripe', detail: 'Company: Stripe' },
                 { kind: 'topic', label: 'Recent conversation', detail: 'payments infrastructure' },
@@ -663,6 +664,51 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
         assert.deepEqual(out.results.map(r => r.id), ['c_domain']);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+    });
+
+    it('natural-language source and recency constraints become structured query plan fields', () => {
+        const contacts = [
+            {
+                id: 'c_tg_payments', name: 'Telegram Payments Builder',
+                sources: { telegram: { userId: 'tg_payments' } }, activeChannels: ['telegram'],
+                relationshipScore: 45, daysSinceContact: 3, interactionCount: 4,
+            },
+            {
+                id: 'c_li_payments', name: 'LinkedIn Payments Builder',
+                sources: { linkedin: { position: 'Payments Founder', company: 'CheckoutCo' } }, activeChannels: ['linkedin'],
+                relationshipScore: 90, daysSinceContact: 1, interactionCount: 20,
+            },
+        ];
+        const interactions = [{
+            id: 'i_tg_payments', source: 'telegram', type: 'direct', contactId: 'c_tg_payments',
+            body: 'They are building payments platforms for checkout teams.',
+        }];
+
+        const out = queryNetwork('who from Telegram is building payments platforms recently', { contacts, interactions });
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+        assert.deepEqual(out.diagnostics.queryPlan.sourceFilter, ['telegram']);
+        assert.equal(out.diagnostics.queryPlan.recency, 'recent');
+        assert.deepEqual(out.diagnostics.queryPlan.domainTerms, ['payments']);
+        assert.deepEqual(out.results.map(r => r.id), ['c_tg_payments']);
+        assert.ok(!out.results[0].evidence.some(e => e.kind === 'keyword' && e.label === 'telegram'));
+    });
+
+    it('classifies direct evidence separately from intro/router-style queries', () => {
+        const contacts = [{
+            id: 'c_compliance', name: 'Compliance Tool Builder',
+            sources: { email: { address: 'omitted@example.com' } }, activeChannels: ['email'],
+            relationshipScore: 80, daysSinceContact: 5, interactionCount: 7,
+        }];
+        const interactions = [{
+            id: 'i_compliance', source: 'email', type: 'direct', contactId: 'c_compliance',
+            body: 'Discussed building compliance tools for fintech onboarding.',
+        }];
+
+        const out = queryNetwork('who can intro me to someone building compliance tools', { contacts, interactions });
+        assert.equal(out.diagnostics.queryPlan.relationshipMode, 'intro_path');
+        assert.deepEqual(out.diagnostics.queryPlan.domainTerms, ['compliance', 'tools']);
+        assert.equal(out.results[0].matchType, 'direct_evidence');
+        assert.equal(out.results[0].confidence, 'high');
     });
 
     it('matchedSources prefer evidence sources over every channel on a multi-channel contact', () => {

@@ -87,6 +87,7 @@ function safeResult(r) {
         warmth: r.warmth,
         relationshipScore: r.relationshipScore,
         confidence: r.confidence,
+        matchType: r.matchType,
         evidence: r.evidence,
         matchedSources: r.matchedSources,
         suggestedAction: r.suggestedAction,

@@ -78,7 +78,12 @@ const STOP = new Set([
     'who', 'what', 'how', 'can', 'do', 'does', 'did', 'know', 'knows', 'known',
     'work', 'works', 'worked', 'working',
     'someone', 'anybody', 'anyone', 'people', 'person', 'contacts', 'contact',
+    'them', 'they', 'their', 'themselves', 'himself', 'herself',
     'my', 'me', 'your', 'our', 'right', 'now', 'space',
+    'intro', 'introduction', 'introduce', 'connect', 'recent', 'recently', 'lately',
+    // Source names are structured filters/provenance, not semantic topic terms.
+    'telegram', 'whatsapp', 'linkedin', 'email', 'gmail', 'sms', 'googlecontacts',
+    'googlecontact',
 ]);
 
 const ALLOWED_SHORT_TERMS = new Set(['ai', 'ml']);

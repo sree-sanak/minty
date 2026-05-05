@@ -102,6 +102,23 @@ function normalizeSourceFilter(value) {
         .sort();
 }
 
+function inferSourceFilterFromQuery(query) {
+    const lower = String(query || '').toLowerCase();
+    const found = [];
+    const sourcePatterns = [
+        ['telegram', /\btelegram\b/],
+        ['whatsapp', /\bwhats\s*app\b|\bwhatsapp\b/],
+        ['linkedin', /\blinked\s*in\b|\blinkedin\b/],
+        ['email', /\bemail\b|\bgmail\b/],
+        ['sms', /\bsms\b|\btext messages?\b/],
+        ['googlecontacts', /\bgoogle contacts?\b/],
+    ];
+    for (const [source, pattern] of sourcePatterns) {
+        if (pattern.test(lower)) found.push(source);
+    }
+    return normalizeSourceFilter(found);
+}
+
 function hasMeaningfulPayload(payload) {
     return !!(payload && typeof payload === 'object' && Object.values(payload).some(v =>
         v != null && v !== '' && !(Array.isArray(v) && v.length === 0)
@@ -366,6 +383,52 @@ function hybridReasonFor(contactId, matchesByContactId) {
 }
 
 // ---------------------------------------------------------------------------
+// Query planning and result classification
+// ---------------------------------------------------------------------------
+
+const QUERY_PLAN_GENERIC_TERMS = new Set([
+    'build', 'building', 'built', 'founding', 'founder', 'co-founder', 'started',
+    'creating', 'working on', 'startup', 'startups', 'company', 'venture', 'product',
+    'platform', 'platforms',
+]);
+
+function buildQueryPlan(parsed, sourceFilter) {
+    const lower = String(parsed && parsed.raw || '').toLowerCase();
+    const queryTerms = expandQuery(parsed || { raw: '', roles: [], locations: [] });
+    const freeTerms = [...new Set(queryTerms.freeTerms || [])]
+        .map(t => String(t || '').toLowerCase().trim())
+        .filter(Boolean);
+    const genericTerms = freeTerms.filter(t => QUERY_PLAN_GENERIC_TERMS.has(t));
+    const domainTerms = freeTerms.filter(t => !QUERY_PLAN_GENERIC_TERMS.has(t));
+    let relationshipMode = 'direct';
+    if (/\b(intro|introduce|connect me|warm intro|put me in touch|who knows|knows someone|knows people)\b/.test(lower)) {
+        relationshipMode = 'intro_path';
+    } else if (/\b(building|builder|founder|working on|works on)\b/.test(lower)) {
+        relationshipMode = 'direct_or_intro';
+    }
+    const recency = /\b(recent|recently|lately|last\s+(week|month|quarter)|spoken\s+to\s+recently|talked\s+to\s+recently)\b/.test(lower)
+        ? 'recent'
+        : 'any';
+    return {
+        relationshipMode,
+        domainTerms,
+        genericTerms,
+        sourceFilter: sourceFilter.slice(),
+        recency,
+        confidencePolicy: 'abstain_without_evidence',
+    };
+}
+
+function resultMatchType(result) {
+    const kinds = new Set((result.reasons || []).map(r => r.kind));
+    if (kinds.has('contact_evidence') || kinds.has('hybrid_evidence') || kinds.has('interaction') || kinds.has('topic') || kinds.has('keyword') || kinds.has('role') || kinds.has('location')) {
+        return 'direct_evidence';
+    }
+    if (kinds.has('warmth') || kinds.has('recent')) return 'router_candidate';
+    return 'weak_match';
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -385,7 +448,8 @@ function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
-    const sourceFilter = normalizeSourceFilter(safeOpts.sources !== undefined ? safeOpts.sources : safeOpts.source);
+    const explicitSourceFilter = normalizeSourceFilter(safeOpts.sources !== undefined ? safeOpts.sources : safeOpts.source);
+    const sourceFilter = explicitSourceFilter.length ? explicitSourceFilter : inferSourceFilterFromQuery(q);
     const contacts = (Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [])
         .filter(c => contactMatchesSourceFilter(c, sourceFilter));
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
@@ -414,6 +478,7 @@ function queryNetwork(query, opts = {}) {
     //    the fast prefilter.
     const parsed = parseQuery(q);
     const queryTerms = expandQuery(parsed);
+    const queryPlan = buildQueryPlan(parsed, sourceFilter);
     const interactionEvidenceByContactId = buildInteractionEvidence(contacts, interactions, parsed);
     const interactionEvidenceIds = new Set(Object.keys(interactionEvidenceByContactId));
     const contactEvidenceMatches = Object.create(null);
@@ -511,6 +576,7 @@ function queryNetwork(query, opts = {}) {
         relationshipScore: r.relationshipScore || 0,
         warmth:            warmthLabel(r.relationshipScore || 0),
         confidence:        confidenceLevel(r.matchScore, r.relationshipScore),
+        matchType:         resultMatchType(r),
         evidence:          (r.reasons || []).map(reason => ({
             kind:   reason.kind,
             label:  reason.label,
@@ -538,6 +604,7 @@ function queryNetwork(query, opts = {}) {
             resultsReturned: results.length,
             usedFallback,
             sourceFilter,
+            queryPlan,
             interactionEvidenceContacts: Object.keys(interactionEvidenceByContactId).length,
             contactEvidenceContacts: Object.keys(contactEvidenceMatches).length,
             hybridEvidenceContacts: Object.keys(hybridMatches).length,
