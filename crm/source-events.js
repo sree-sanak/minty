@@ -157,7 +157,7 @@ function countBy(items, fn) {
 
 function summarizeSourceCoverage({ contacts = [], sourceEvents = [], matchingContactIds = [] } = {}) {
     const safeContacts = Array.isArray(contacts) ? contacts.filter(c => c && !c.isGroup) : [];
-    const events = Array.isArray(sourceEvents) ? sourceEvents : [];
+    const events = Array.isArray(sourceEvents) ? sourceEvents.filter(e => e && typeof e === 'object' && !Array.isArray(e)) : [];
     const matchIds = new Set(Array.isArray(matchingContactIds) ? matchingContactIds : []);
     const matchRefs = new Set([...matchIds].map(safeContactRef));
     const profileContactsBySource = Object.create(null);
