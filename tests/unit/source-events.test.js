@@ -59,6 +59,22 @@ test('source coverage diagnostics are aggregate-only and source-aware', () => {
     assert.equal(summary.matchingContacts, 1);
 });
 
+test('source coverage ignores malformed source event rows without crashing', () => {
+    const contacts = [{ id: 'c1', sources: { linkedin: { id: 'li1' } } }];
+    const summary = summarizeSourceCoverage({
+        contacts,
+        sourceEvents: [null, undefined, 'bad row', 42, { contactId: 'c1', source: 'linkedin', attributed: true }],
+        matchingContactIds: ['c1'],
+    });
+
+    assert.deepEqual(summary.availableSources, ['linkedin']);
+    assert.deepEqual(summary.matchingSources, ['linkedin']);
+    assert.equal(summary.eventCountsBySource.linkedin, 1);
+    assert.equal(summary.totalEvents, 1);
+    assert.equal(summary.attributedEvents, 1);
+    assert.equal(summary.unattributedEvents, 0);
+});
+
 test('canonicalSafeSource never echoes arbitrary channel names', () => {
     assert.equal(canonicalSafeSource('Alice private thread'), 'interaction');
     assert.equal(canonicalSafeSource('google contacts'), 'googlecontacts');
