@@ -97,16 +97,34 @@ describe('contact-evidence: buildContactEvidence()', () => {
         assert.equal(serialized.includes('underwriting'), false);
     });
 
-    it('does not use Slack channel-shaped message authors as person evidence', () => {
+    it('attributes Slack community channel messages to their author id without storing channel names or raw text', () => {
         const evidence = buildContactEvidence({
             contacts: [{ id: 'c_slack', name: 'Slack Person', sources: { slack: { userId: 'U123' } } }],
             interactions: [
-                { source: 'slack', type: 'message', from: 'U123', channelId: 'C123', channelName: 'private-channel-name', body: 'AI startup insurance' },
-                { source: 'slack', type: 'direct', from: 'U123', channelId: 'C123', body: 'Startup insurance mislabeled' },
-                { source: 'slack', type: 'message', from: 'U123', chatName: 'private-channel-name', body: 'Crypto payments' },
+                { source: 'slack', type: 'channel', from: 'U123', channelId: 'C123', channelName: 'private-channel-name', body: 'AI startup insurance' },
+                { source: 'slack', type: 'message', user: 'U123', chatId: 'C456', chatName: 'another-private-channel', body: 'Crypto payments' },
             ],
         });
-        assert.equal(evidence[safeContactRef('c_slack')], undefined);
+        const row = evidence[safeContactRef('c_slack')];
+        assert.ok(row);
+        assert.equal(row.sourceCounts.slack, 2);
+        assert.equal(row.topics.includes('ai'), true);
+        assert.equal(row.topics.includes('startup'), true);
+        assert.equal(row.topics.includes('crypto'), true);
+        const serialized = JSON.stringify(row);
+        assert.equal(serialized.includes('private-channel-name'), false);
+        assert.equal(serialized.includes('another-private-channel'), false);
+        assert.equal(serialized.includes('startup insurance'), false);
+    });
+
+    it('does not use Slack channel names as fallback person evidence when author id is unknown', () => {
+        const evidence = buildContactEvidence({
+            contacts: [{ id: 'c_alice', name: 'Alice Channel', sources: {} }],
+            interactions: [
+                { source: 'slack', type: 'direct', channelId: 'C123', chatName: 'Alice Channel', from: 'U_UNKNOWN', body: 'AI startup insurance' },
+            ],
+        });
+        assert.equal(evidence[safeContactRef('c_alice')], undefined);
     });
 
     it('does not build evidence for channel or broadcast contact rows even with direct ids', () => {
@@ -133,12 +151,12 @@ describe('contact-evidence: buildContactEvidence()', () => {
         assert.ok(evidence[safeContactRef('c_person')]);
     });
 
-    it('does not build evidence from group/channel/broadcast interactions even when they name a person', () => {
+    it('does not build evidence from non-Slack group/channel/broadcast interactions even when they name a person', () => {
         const evidence = buildContactEvidence({
             contacts: [{ id: 'c_person', name: 'Actual Person', sources: { slack: { userId: 'U123' } } }],
             interactions: [
-                { source: 'slack', type: 'channel', contactId: 'c_person', body: 'AI startup payments' },
-                { source: 'slack', isChannel: true, from: 'U123', body: 'Crypto insurance' },
+                { source: 'telegram', type: 'channel', contactId: 'c_person', body: 'AI startup payments' },
+                { source: 'slack', isGroup: true, from: 'U123', body: 'Crypto insurance' },
                 { source: 'slack', threadType: 'group', from: 'U123', body: 'Payments risk' },
                 { source: 'slack', type: 'broadcast', contactId: 'c_person', body: 'Startup insurance' },
                 { source: 'email', type: 'mailing_list', contactId: 'c_person', body: 'Payments insurance list' },

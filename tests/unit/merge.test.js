@@ -3,9 +3,12 @@ const assert = require('node:assert/strict');
 const {
     waStableId,
     liStableId,
+    slackStableId,
     buildPhoneBridge,
     buildInteractionIndex,
+    loadSlack,
 } = require('../../crm/merge');
+const { ContactIndex } = require('../../crm/utils');
 
 // --- waStableId ---
 
@@ -51,6 +54,34 @@ describe('liStableId', () => {
 
     it('handles bare slug after /in/', () => {
         assert.equal(liStableId('/in/jane-doe'), 'li_jane-doe');
+    });
+});
+
+// --- slackStableId / loadSlack ---
+
+describe('Slack source merge', () => {
+    it('derives a stable Slack contact id from the member id', () => {
+        assert.equal(slackStableId('U123'), 'slack_U123');
+        assert.equal(slackStableId(null), null);
+    });
+
+    it('loads Slack members as person contacts with source metadata', () => {
+        const index = new ContactIndex();
+        loadSlack(index, [
+            { id: 'U123', displayName: 'Dana Builder', title: 'Founder building AI infrastructure', email: 'dana@example.com' },
+            { id: 'B999', displayName: 'Helper Bot', isBot: true },
+            { id: 'USLACKBOT', displayName: 'Slackbot', isBot: false },
+            { id: 'U456', displayName: 'Deleted Member', isDeleted: true },
+        ]);
+
+        assert.equal(index.contacts.length, 1);
+        const contact = index.contacts[0];
+        assert.equal(contact.id, 'slack_U123');
+        assert.equal(contact.name, 'Dana Builder');
+        assert.equal(contact.sources.slack.id, 'U123');
+        assert.equal(contact.sources.slack.userId, 'U123');
+        assert.equal(contact.sources.slack.title, 'Founder building AI infrastructure');
+        assert.deepEqual(contact.emails, ['dana@example.com']);
     });
 });
 
@@ -152,6 +183,14 @@ describe('buildInteractionIndex', () => {
         assert.equal(idx.byEmail['a@x.com'].length, 1);
         assert.equal(idx.byEmail['b@x.com'].length, 1);
         assert.equal(idx.byEmail['c@x.com'].length, 1);
+    });
+
+    it('indexes Slack interactions by author/member id', () => {
+        const interactions = [
+            { source: 'slack', from: 'U123', chatId: 'C123', id: 'm1' },
+        ];
+        const idx = buildInteractionIndex(interactions);
+        assert.equal(idx.byFrom.U123.length, 1);
     });
 
     it('handles empty interactions array', () => {

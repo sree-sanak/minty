@@ -194,6 +194,23 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(!out.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
     });
 
+    it('does not fall back to Slack channel names when author id is not a known person', () => {
+        const contacts = [{
+            id: 'c_alice', name: 'Alice Channel',
+            sources: {}, relationshipScore: 40, daysSinceContact: 7, interactionCount: 4,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'slack_channel', source: 'slack', type: 'direct', channelId: 'C123', chatName: 'Alice Channel', from: 'U_UNKNOWN',
+            body: 'We discussed DeFi lending protocols and crypto risk.',
+            timestamp: '2026-05-01T00:00:00Z',
+        }];
+
+        const out = queryNetwork('Who knows DeFi lending protocols?', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0);
+        assert.ok(!out.results.some(r => (r.evidence || []).some(e => e.kind === 'interaction')));
+    });
+
     it('does not create interaction evidence from embedded word fragments', () => {
         const contacts = [{
             id: 'c_ai', name: 'Aisha Yield',

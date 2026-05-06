@@ -404,6 +404,9 @@ function scoreContactForGoal(contact, goalText) {
         (contact.apollo && contact.apollo.industry) || '',
         (contact.sources && contact.sources.linkedin && contact.sources.linkedin.company) || '',
         (contact.sources && contact.sources.linkedin && contact.sources.linkedin.position) || '',
+        (contact.sources && contact.sources.slack && contact.sources.slack.title) || '',
+        (contact.sources && contact.sources.slack && contact.sources.slack.displayName) || '',
+        (contact.sources && contact.sources.slack && contact.sources.slack.name) || '',
     ].join(' ').toLowerCase();
 
     let score = 0;

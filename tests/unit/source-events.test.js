@@ -37,7 +37,7 @@ test('builds privacy-safe canonical source events from interactions and profile 
 
 test('source coverage diagnostics are aggregate-only and source-aware', () => {
     const contacts = [
-        { id: 'c1', sources: { telegram: { userId: 'u1' }, email: {} } },
+        { id: 'c1', sources: { telegram: { userId: 'u1' }, email: {}, slack: { userId: 'U1' } } },
         { id: 'c2', sources: { whatsapp: { id: 'w2' } } },
     ];
     const events = buildSourceEvents({
@@ -49,12 +49,14 @@ test('source coverage diagnostics are aggregate-only and source-aware', () => {
     });
     const summary = summarizeSourceCoverage({ contacts, sourceEvents: events, matchingContactIds: ['c1'] });
 
-    assert.deepEqual(summary.availableSources, ['telegram', 'whatsapp']);
-    assert.deepEqual(summary.matchingSources, ['telegram']);
+    assert.deepEqual(summary.availableSources, ['slack', 'telegram', 'whatsapp']);
+    assert.deepEqual(summary.matchingSources, ['slack', 'telegram']);
+    assert.equal(summary.profileContactsBySource.slack, 1);
     assert.equal(summary.profileContactsBySource.telegram, 1);
     assert.equal(summary.profileContactsBySource.whatsapp, 1);
     assert.equal(summary.eventCountsBySource.telegram, 3);
-    assert.equal(summary.attributedEvents, 3);
+    assert.equal(summary.eventCountsBySource.slack, 1);
+    assert.equal(summary.attributedEvents, 4);
     assert.equal(summary.unattributedEvents, 1);
     assert.equal(summary.matchingContacts, 1);
 });

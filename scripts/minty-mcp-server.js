@@ -31,8 +31,8 @@ const TOOLS = [
             properties: {
                 query: { type: 'string', description: 'Natural-language query, e.g. "investors in London" or "who knows about crypto insurance"' },
                 limit: { type: 'number', description: 'Max results (1-50, default 10)' },
-                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, email, sms, googlecontacts)' },
-                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, email, sms, googlecontacts)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
             },
             required: ['query'],
         },

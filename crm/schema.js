@@ -24,6 +24,7 @@ function createContact(id) {
             email: null,           // { email, name, firstSeen }
             googleContacts: null,  // { name, phones, emails, org, title, note, birthday }
             sms: null,             // { phone, contactName, messageCount, lastMessageAt }
+            slack: null,           // { id, userId, name, displayName, title, workspace }
         },
         lastContactedAt: null,   // ISO timestamp of most recent interaction
         createdAt: new Date().toISOString(),

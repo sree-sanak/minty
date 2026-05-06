@@ -18,6 +18,7 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     gmail: 'email',
     sms: 'sms',
     linkedin: 'linkedin',
+    slack: 'slack',
     googlecontacts: 'googlecontacts',
     googlecontact: 'googlecontacts',
     google: 'googlecontacts',
