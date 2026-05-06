@@ -17,6 +17,7 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     sms: 'sms',
     linkedin: 'linkedin',
     googlecontacts: 'googleContacts',
+    slack: 'slack',
 });
 
 const STOPWORDS = new Set([
@@ -48,12 +49,22 @@ function canonicalSource(source) {
     return SAFE_SOURCE_LABELS[key] || 'interaction';
 }
 
+function isDirectSlackInteraction(i) {
+    if (canonicalSource(i && (i.source || i.channel)) !== 'slack') return false;
+    const type = String(i.type || i.chatType || i.conversationType || i.threadType || '').toLowerCase();
+    const channelId = String(i.channelId || i.channel_id || i.chatId || '').trim();
+    if (channelId) return /^D[A-Z0-9]+$/.test(channelId);
+    return ['dm', 'direct', 'direct_message', 'im'].includes(type);
+}
+
 function isNonPersonInteraction(i) {
     if (!i || typeof i !== 'object') return true;
-    if (i.isGroup || i.isChannel || i.isBroadcast || i.groupId || i.threadType === 'group') return true;
+    if (i.isGroup || i.isChannel || i.isBroadcast || i.isList || i.isMailingList || i.groupId || i.threadType === 'group') return true;
     if (Array.isArray(i.participants) && i.participants.length > 2) return true;
-    const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
-    return ['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(type);
+    const type = String(i.type || i.chatType || i.conversationType || i.threadType || '').toLowerCase();
+    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type)) return true;
+    if (canonicalSource(i.source || i.channel) === 'slack' && !isDirectSlackInteraction(i)) return true;
+    return false;
 }
 
 function textForEvidence(i) {
@@ -107,10 +118,16 @@ function validTimestamp(value) {
     return date.toISOString();
 }
 
+function isPersonContact(c) {
+    if (!c || !c.id || c.isGroup || c.isChannel || c.isBroadcast || c.isList || c.isMailingList) return false;
+    const type = String(c.type || c.kind || c.contactType || c.threadType || '').toLowerCase();
+    return !['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type);
+}
+
 function buildNameIndex(contacts) {
     const map = new Map();
     for (const c of Array.isArray(contacts) ? contacts : []) {
-        if (!c || !c.id || c.isGroup) continue;
+        if (!isPersonContact(c)) continue;
         const names = [c.name, c.displayName, c.fullName];
         for (const src of Object.values(c.sources || {})) {
             if (src && typeof src === 'object') names.push(src.name, src.displayName, src.fullName);
@@ -123,11 +140,37 @@ function buildNameIndex(contacts) {
     return map;
 }
 
-function fallbackContactIdForInteraction(i, nameIndex) {
-    if (!i) return null;
+function buildSourceActorIndex(contacts) {
+    const map = new Map();
+    for (const c of Array.isArray(contacts) ? contacts : []) {
+        if (!isPersonContact(c)) continue;
+        for (const [sourceName, src] of Object.entries(c.sources || {})) {
+            if (!src || typeof src !== 'object') continue;
+            const source = canonicalSource(sourceName);
+            const ids = (source === 'slack'
+                ? [src.userId, src.user_id, src.slackId, src.memberId]
+                : [src.id, src.userId, src.user_id, src.slackId, src.memberId])
+                .filter(v => v != null && String(v).trim());
+            for (const id of ids) {
+                const key = `${source}:${String(id).trim()}`;
+                if (!map.has(key)) map.set(key, c.id);
+            }
+        }
+    }
+    return map;
+}
+
+function fallbackContactIdForInteraction(i, nameIndex, sourceActorIndex) {
+    if (!i || isNonPersonInteraction(i)) return null;
     const direct = i && (i.contactId || i.contact_id || i.personId || i.participantContactId);
     if (direct) return direct;
-    if (isNonPersonInteraction(i)) return null;
+    const source = canonicalSource(i.source || i.channel);
+    const actorIds = [i.from, i.fromId, i.senderId, i.userId, i.user, i.authorId]
+        .filter(v => v != null && String(v).trim());
+    for (const actorId of actorIds) {
+        const id = sourceActorIndex.get(`${source}:${String(actorId).trim()}`);
+        if (id) return id;
+    }
     const names = [i.chatName, i.fromName, i.senderName, i.recipientName, i.contactName];
     for (const name of names) {
         const id = nameIndex.get(normalizeTopic(name));
@@ -136,9 +179,17 @@ function fallbackContactIdForInteraction(i, nameIndex) {
     return null;
 }
 
+function sourceList(value) {
+    if (Array.isArray(value)) return value;
+    if (value instanceof Set) return [...value];
+    if (typeof value === 'string') return [value];
+    return [];
+}
+
 function buildContactEvidence({ contacts = [], interactions = [], insights = {} } = {}) {
-    const ids = new Set((Array.isArray(contacts) ? contacts : []).filter(c => c && c.id && !c.isGroup).map(c => c.id));
+    const ids = new Set((Array.isArray(contacts) ? contacts : []).filter(isPersonContact).map(c => c.id));
     const nameIndex = buildNameIndex(contacts);
+    const sourceActorIndex = buildSourceActorIndex(contacts);
     const byContact = Object.create(null);
 
     function ensure(contactId) {
@@ -159,7 +210,7 @@ function buildContactEvidence({ contacts = [], interactions = [], insights = {} 
 
     for (const i of Array.isArray(interactions) ? interactions : []) {
         if (!i || typeof i !== 'object' || isNonPersonInteraction(i)) continue;
-        const contactId = fallbackContactIdForInteraction(i, nameIndex);
+        const contactId = fallbackContactIdForInteraction(i, nameIndex, sourceActorIndex);
         const acc = ensure(contactId);
         if (!acc) continue;
         const text = textForEvidence(i);
@@ -220,7 +271,7 @@ function matchContactEvidence(evidence, terms = []) {
     if (!queryTerms.length) return { matched: false, score: 0, topics: [], sources: [] };
     const rawTopicRows = Array.isArray(evidence.topicEvidence)
         ? evidence.topicEvidence
-        : (Array.isArray(evidence.topics) ? evidence.topics.map(topic => ({ topic, sources: evidence.sources || [], count: 1 })) : []);
+        : (Array.isArray(evidence.topics) ? evidence.topics.map(topic => ({ topic, sources: sourceList(evidence.sources), count: 1 })) : []);
     const topicRows = [];
     for (const row of rawTopicRows) {
         for (const topic of extractTopics(row.topic)) {
@@ -236,7 +287,8 @@ function matchContactEvidence(evidence, terms = []) {
     let count = 0;
     for (const row of matchedRows) {
         count += row.count || 1;
-        for (const source of row.sources || evidence.sources || []) sources.add(canonicalSource(source));
+        const rowSources = sourceList(row.sources);
+        for (const source of (rowSources.length ? rowSources : sourceList(evidence.sources))) sources.add(canonicalSource(source));
     }
     const score = 25 + Math.min(30, matchedRows.length * 8 + count * 3) + Math.round((evidence.confidence || 0) * 10);
     return {
