@@ -6,8 +6,8 @@
 
 Minty is the missing relationship-memory layer for personal AI agents. It turns your existing contacts and conversations into a private, local MCP server that OpenClaw, Hermes, Claude Code, Cursor, or any MCP-compatible agent can query when it needs to answer “who in my network can help with this?” The self-hosted CRM UI is included, but the core product is agent-native retrieval without raw contact dumps or third-party hosting.
 
-[![CI](https://github.com/zalatar242/minty/actions/workflows/ci.yml/badge.svg)](https://github.com/zalatar242/minty/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/zalatar242/minty?display_name=tag&sort=semver)](https://github.com/zalatar242/minty/releases)
+[![CI](https://github.com/sree-sanak/minty/actions/workflows/ci.yml/badge.svg)](https://github.com/sree-sanak/minty/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/sree-sanak/minty?display_name=tag&sort=semver)](https://github.com/sree-sanak/minty/releases)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-green.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-stdio-purple.svg)](./docs/OPENCLAW_HERMES.md)
@@ -49,7 +49,7 @@ Minty pulls them into a single local database, deduplicates contacts across sour
 ## Quick start
 
 ```bash
-git clone https://github.com/zalatar242/minty.git
+git clone https://github.com/sree-sanak/minty.git
 cd minty
 npm install
 ```

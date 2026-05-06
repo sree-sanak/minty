@@ -95,7 +95,7 @@ volumes:
 
 ## Code review (external)
 
-Install **CodeRabbit** on `zalatar242/minty`:
+Install **CodeRabbit** on `sree-sanak/minty`:
 
 1. Visit https://github.com/apps/coderabbitai
 2. Click Install, choose "Only select repositories", pick `minty`.

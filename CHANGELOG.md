@@ -166,6 +166,6 @@ Initial public release.
 - CLI query tools (`npm run stats`, `npm run search`)
 - Match review server (`npm run review`)
 
-[Unreleased]: https://github.com/zalatar242/minty/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/zalatar242/minty/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/zalatar242/minty/releases/tag/v0.1.0
+[Unreleased]: https://github.com/sree-sanak/minty/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sree-sanak/minty/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/sree-sanak/minty/releases/tag/v0.1.0

@@ -15,7 +15,7 @@ Security fixes are applied to the latest released `0.x` minor only. Pre-1.0, we 
 
 Instead, report privately via GitHub's private vulnerability reporting:
 
-1. Go to the [Security tab](https://github.com/zalatar242/minty/security) of this repository
+1. Go to the [Security tab](https://github.com/sree-sanak/minty/security) of this repository
 2. Click **Report a vulnerability**
 3. Fill out the form
 

@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Before filing: please skim [VISION.md](https://github.com/zalatar242/minty/blob/main/VISION.md) and the "out of scope" section in [CONTRIBUTING.md](https://github.com/zalatar242/minty/blob/main/CONTRIBUTING.md). Common non-goals: TypeScript migration, cloud sync, external LLM API integration in core, multi-tenant features.
+        Before filing: please skim [VISION.md](https://github.com/sree-sanak/minty/blob/main/VISION.md) and the "out of scope" section in [CONTRIBUTING.md](https://github.com/sree-sanak/minty/blob/main/CONTRIBUTING.md). Common non-goals: TypeScript migration, cloud sync, external LLM API integration in core, multi-tenant features.
 
   - type: textarea
     id: problem
