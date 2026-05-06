@@ -182,6 +182,7 @@ function fallbackContactIdForInteraction(i, nameIndex, sourceActorIndex) {
         const id = sourceActorIndex.get(`${source}:${String(actorId).trim()}`);
         if (id) return id;
     }
+    if (source === 'slack' && !isDirectSlackInteraction(i)) return null;
     const names = [i.chatName, i.fromName, i.senderName, i.recipientName, i.contactName];
     for (const name of names) {
         const id = nameIndex.get(normalizeTopic(name));

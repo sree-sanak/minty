@@ -117,6 +117,16 @@ describe('contact-evidence: buildContactEvidence()', () => {
         assert.equal(serialized.includes('startup insurance'), false);
     });
 
+    it('does not use Slack channel names as fallback person evidence when author id is unknown', () => {
+        const evidence = buildContactEvidence({
+            contacts: [{ id: 'c_alice', name: 'Alice Channel', sources: {} }],
+            interactions: [
+                { source: 'slack', type: 'direct', channelId: 'C123', chatName: 'Alice Channel', from: 'U_UNKNOWN', body: 'AI startup insurance' },
+            ],
+        });
+        assert.equal(evidence[safeContactRef('c_alice')], undefined);
+    });
+
     it('does not build evidence for channel or broadcast contact rows even with direct ids', () => {
         const evidence = buildContactEvidence({
             contacts: [

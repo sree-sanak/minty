@@ -219,6 +219,20 @@ test('[Slack Interactions]: slack channel messages retain author id but expose o
     assert.equal(interactions[0].body, 'Building AI startup infrastructure.');
 });
 
+test('[Slack Interactions]: malformed Slack ts does not crash merge', () => {
+    const { dataDir } = setupFixture();
+    fs.mkdirSync(path.join(dataDir, 'slack/messages'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'slack/messages/messages.json'), JSON.stringify([
+        { id: 'bad-ts', ts: 'not-a-timestamp', user: 'U123', text: 'Bad ts but useful text', channelId: 'C123' },
+    ]));
+
+    const interactions = buildInteractionsWithEnv(dataDir);
+
+    assert.equal(interactions.length, 1);
+    assert.equal(interactions[0].timestamp, null);
+    assert.equal(interactions[0].source, 'slack');
+});
+
 // ---------------------------------------------------------------------------
 // Cross-source chronological sorting
 

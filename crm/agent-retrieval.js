@@ -246,6 +246,7 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
                 .filter(v => v != null && String(v).trim());
             contactId = actorIds.map(id => bySourceActor.get(`slack:${String(id).trim()}`)).find(Boolean);
         }
+        if (source === 'slack' && !isDirectSlackInteraction(i) && !byId.has(contactId)) continue;
         if (!byId.has(contactId) && isPersonalInteractionNameFallback(i)) {
             const candidates = [i.chatName, i.from, i.to, i.senderName, i.recipientName]
                 .map(normalizeNameKey)

@@ -78,6 +78,16 @@ function slackMemberName(c) {
     return c && (c.displayName || c.realName || c.real_name || c.name || c.profile?.display_name || c.profile?.real_name) || null;
 }
 
+function slackTimestamp(m) {
+    if (!m || typeof m !== 'object') return null;
+    if (m.timestamp) return m.timestamp;
+    if (!m.ts) return null;
+    const seconds = Number(String(m.ts).split('.')[0]);
+    if (!Number.isFinite(seconds)) return null;
+    const date = new Date(seconds * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 // --- Source loaders ---
 
 function loadWhatsApp(index) {
@@ -308,11 +318,11 @@ function loadSlack(index, providedContacts = null) {
         const stableId = slackStableId(id);
         const contact = index.upsert([], email ? [email] : [], name, stableId);
         contact.sources.slack = {
-            ...c,
             id: String(id),
             userId: String(id),
             displayName: c.displayName || c.profile?.display_name || name,
             name,
+            email,
             title: c.title || c.profile?.title || null,
             workspace: c.workspace || c.team || null,
         };
@@ -416,7 +426,7 @@ function buildInteractions() {
             interactions.push(createInteraction('slack', {
                 ...m,
                 id: m.id || (m.ts && channelId ? `${channelId}:${m.ts}` : m.ts),
-                timestamp: m.timestamp || (m.ts ? new Date(Number(String(m.ts).split('.')[0]) * 1000).toISOString() : null),
+                timestamp: slackTimestamp(m),
                 from,
                 chatId: channelId || null,
                 chatName: m.channelName || m.chatName || null,
