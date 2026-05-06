@@ -287,6 +287,103 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.equal(serialized.includes('+15551234567'), false, 'must not leak raw source/channel values');
     });
 
+    it('invalid explicit source filters fail closed instead of returning unfiltered results', () => {
+        const contacts = [{
+            id: 'c_any', name: 'Any Founder',
+            sources: { telegram: { userId: 'tg_any' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_any', source: 'telegram', contactId: 'c_any', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegrm' });
+        assert.deepEqual(out.results, []);
+        assert.deepEqual(out.diagnostics.sourceFilter, []);
+        assert.deepEqual(out.diagnostics.invalidSourceFilters, ['invalid']);
+    });
+
+    it('invalid source diagnostics are sanitized and fail closed even with mixed valid filters', () => {
+        const contacts = [{
+            id: 'c_any', name: 'Any Founder',
+            sources: { telegram: { userId: 'tg_any' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_any', source: 'telegram', contactId: 'c_any', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            sources: ['telegram', 'bad source: alice@example.com +15551234567'],
+        });
+        assert.deepEqual(out.results, []);
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+        assert.deepEqual(out.diagnostics.invalidSourceFilters, ['invalid']);
+        assert.equal(JSON.stringify(out).includes('alice@example.com'), false);
+        assert.equal(JSON.stringify(out).includes('alice'), false);
+        assert.equal(JSON.stringify(out).includes('example'), false);
+        assert.equal(JSON.stringify(out).includes('15551234'), false);
+        assert.equal(JSON.stringify(out).includes('+155****4567'), false);
+    });
+
+    it('ignores malformed and non-person contact rows before source-filtered retrieval', () => {
+        const contacts = [
+            null,
+            ['not a contact'],
+            { id: 'c_channel', name: 'Telegram Channel', isChannel: true, sources: { telegram: { id: 'chan' } }, activeChannels: ['telegram'] },
+            { id: 'c_broadcast', name: 'Broadcast List', isBroadcast: true, sources: { telegram: { id: 'bc' } }, activeChannels: ['telegram'] },
+            { id: 'c_list', name: 'Mailing List', isList: true, sources: { telegram: { id: 'list' } }, activeChannels: ['telegram'] },
+            { id: 'c_distribution', name: 'Distribution List', type: 'distribution_list', sources: { telegram: { id: 'dist' } }, activeChannels: ['telegram'] },
+            { id: 'c_person', name: 'Person Payments', sources: {}, activeChannels: [], relationshipScore: 30, daysSinceContact: 5, interactionCount: 1 },
+        ];
+        const interactions = [{ id: 'i_person', source: 'telegram', type: 'direct', contactId: 'c_person', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
+        assert.deepEqual(out.results.map(r => r.id), ['c_person']);
+        assert.equal(out.diagnostics.contactsConsidered, 1);
+    });
+
+    it('source filters do not claim source availability when matching evidence came from another source', () => {
+        const contacts = [{
+            id: 'c_mixed', name: 'Mixed Source Founder', title: 'Payments founder',
+            sources: { telegram: { userId: 'tg_mixed' }, linkedin: { headline: 'Payments founder' } },
+            activeChannels: ['telegram', 'linkedin'], relationshipScore: 80, daysSinceContact: 1, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_linkedin_only', source: 'linkedin', type: 'direct', contactId: 'c_mixed', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
+        assert.deepEqual(out.results, []);
+        assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
+    });
+
+    it('source filters ignore malformed interaction rows without crashing', () => {
+        const contacts = [{
+            id: 'c_valid', name: 'Valid Telegram',
+            sources: { telegram: { userId: 'tg_valid' } }, activeChannels: ['telegram'],
+            relationshipScore: 30, daysSinceContact: 4, interactionCount: 2,
+        }];
+        const interactions = [
+            null,
+            { id: 'i_valid', source: 'telegram', type: 'direct', contactId: 'c_valid', body: 'Discussed payments infrastructure.' },
+        ];
+
+        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
+        assert.deepEqual(out.results.map(r => r.id), ['c_valid']);
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
+    });
+
+    it('source matching accepts string source fields in precomputed evidence', () => {
+        const contacts = [{
+            id: 'c_evidence_string', name: 'Evidence String',
+            sources: {}, activeChannels: [], relationshipScore: 20, daysSinceContact: 20, interactionCount: 0,
+        }];
+        const contactEvidence = {
+            c_evidence_string: { topics: ['payments'], sources: 'telegram' },
+        };
+
+        const out = queryNetwork('telegram payments', { contacts, contactEvidence, source: 'telegram' });
+        assert.deepEqual(out.results.map(r => r.id), ['c_evidence_string']);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+    });
+
     it('respects limit option', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 2 });
         assert.ok(out.results.length <= 2, 'respects limit');
@@ -688,15 +785,18 @@ describe('agent-retrieval: queryNetwork()', () => {
                 activeChannels: ['linkedin'], emails: [], phones: [],
             },
         ];
+        const interactions = [
+            { id: 'i_li', source: 'linkedin', contactId: 'c_li', body: 'Discussed DeFi protocol risk and lending strategies.' },
+        ];
 
-        const out = queryNetwork('engineer', { contacts, source: 'linkedin' });
+        const out = queryNetwork('DeFi lending', { contacts, interactions, source: 'linkedin' });
         assert.equal(out.results.length, 1);
         assert.equal(out.results[0].id, 'c_li');
         assert.deepEqual(out.results[0].matchedSources, ['linkedin']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['linkedin']);
     });
 
-    it('unknown/blank source filter values are ignored — behavior unchanged', () => {
+    it('unknown/blank source filter values fail closed', () => {
         const contacts = [
             {
                 id: 'c_any', name: 'Any Contact',
@@ -706,12 +806,12 @@ describe('agent-retrieval: queryNetwork()', () => {
             },
         ];
 
-        // Unknown source
+        // Unknown source — fail closed
         const out1 = queryNetwork('CEO', { contacts, sources: ['fakesource', ''] });
-        assert.equal(out1.diagnostics.sourceFilter, undefined);
-        assert.equal(out1.results.length, 1);
+        assert.deepEqual(out1.results, []);
+        assert.deepEqual(out1.diagnostics.invalidSourceFilters, ['invalid']);
 
-        // Blank string
+        // Blank string — no source filter applied (empty string is skipped)
         const out2 = queryNetwork('CEO', { contacts, source: '' });
         assert.equal(out2.diagnostics.sourceFilter, undefined);
         assert.equal(out2.results.length, 1);
@@ -796,8 +896,12 @@ describe('agent-retrieval: queryNetwork()', () => {
                 activeChannels: ['telegram', 'whatsapp'], emails: [], phones: [],
             },
         ];
+        const interactions = [
+            { id: 'i_tg', source: 'telegram', contactId: 'c_multi', body: 'Discussed DeFi protocol risk and lending.' },
+            { id: 'i_wa', source: 'whatsapp', contactId: 'c_multi', body: 'Follow up on DeFi lending strategies.' },
+        ];
 
-        const out = queryNetwork('contacts', { contacts, sources: ['telegram', 'whatsapp'] });
+        const out = queryNetwork('defi lending', { contacts, interactions, sources: ['telegram', 'whatsapp'] });
         assert.equal(out.results.length, 1);
         assert.deepEqual(out.results[0].matchedSources, ['telegram', 'whatsapp']);
         const serialized = JSON.stringify(out.results[0].matchedSources);
@@ -1023,6 +1127,40 @@ describe('agent-retrieval: interaction evidence edge cases', () => {
         const out = queryNetwork('defi lending', { contacts, interactions });
         assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
             'threadType "mailing_list" must be excluded from interaction evidence');
+    });
+
+    it('excludes Slack direct-looking interactions when channel id is not a DM', () => {
+        const contacts = [{
+            id: 'c_slack_channel', name: 'Slack Channel Person',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_slack_channel', source: 'slack', contactId: 'c_slack_channel',
+            type: 'direct', channelId: 'C123',
+            body: 'DeFi protocol risk and lending market strategies discussed.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 0,
+            'Slack channel-shaped ids must not become person evidence even with direct-like type');
+    });
+
+    it('allows Slack direct interactions only when channel id is DM-shaped', () => {
+        const contacts = [{
+            id: 'c_slack_dm', name: 'Slack DM Person',
+            sources: {}, relationshipScore: 50, daysSinceContact: 5, interactionCount: 5,
+            activeChannels: [], emails: [], phones: [],
+        }];
+        const interactions = [{
+            id: 'i_slack_dm', source: 'slack', contactId: 'c_slack_dm',
+            type: 'direct', channelId: 'D123',
+            body: 'DeFi protocol risk and lending market strategies discussed.',
+        }];
+
+        const out = queryNetwork('defi lending', { contacts, interactions });
+        assert.equal(out.diagnostics.interactionEvidenceContacts, 1,
+            'Slack DM-shaped ids may become person evidence');
     });
 
     it('excludes interactions with groupId set from evidence', () => {
