@@ -70,6 +70,14 @@ function liStableId(profileUrl) {
     return slug ? `li_${slug}` : null;
 }
 
+function slackStableId(id) {
+    return id ? `slack_${String(id).trim()}` : null;
+}
+
+function slackMemberName(c) {
+    return c && (c.displayName || c.realName || c.real_name || c.name || c.profile?.display_name || c.profile?.real_name) || null;
+}
+
 // --- Source loaders ---
 
 function loadWhatsApp(index) {
@@ -283,6 +291,37 @@ function loadSms(index) {
     console.log(`Merged ${contacts.length} SMS contacts`);
 }
 
+function loadSlack(index, providedContacts = null) {
+    const contacts = providedContacts || load(path.join(DATA, 'slack/contacts.json'));
+    if (!contacts) { console.log('slack/contacts.json not found, skipping'); return; }
+    let merged = 0;
+    for (const c of contacts) {
+        if (!c || typeof c !== 'object') continue;
+        if (c.isBot || c.isDeleted) continue;
+        const id = c.id || c.userId || c.user_id || c.slackId || c.memberId;
+        if (!id) continue;
+        const name = slackMemberName(c);
+        if (!name) continue;
+        const normalizedName = String(name).trim().toLowerCase();
+        if (String(id).toUpperCase() === 'USLACKBOT' || normalizedName === 'slackbot') continue;
+        const email = c.email || c.profile?.email || null;
+        const stableId = slackStableId(id);
+        const contact = index.upsert([], email ? [email] : [], name, stableId);
+        contact.sources.slack = {
+            ...c,
+            id: String(id),
+            userId: String(id),
+            displayName: c.displayName || c.profile?.display_name || name,
+            name,
+            title: c.title || c.profile?.title || null,
+            workspace: c.workspace || c.team || null,
+        };
+        if (!contact.name && name) contact.name = name;
+        merged++;
+    }
+    console.log(`Merged ${merged} Slack members`);
+}
+
 // --- Interaction timeline ---
 
 function buildInteractions() {
@@ -363,6 +402,27 @@ function buildInteractions() {
                     to: m.direction === 'sent' ? thread.phone : 'me',
                 }));
             }
+        }
+    }
+
+    // Slack community/channel messages. Keep channel identity only in raw/local
+    // artifacts; downstream agent envelopes expose safe source labels, not names.
+    const slackMessages = load(path.join(DATA, 'slack/messages/messages.json'));
+    if (slackMessages) {
+        for (const m of slackMessages) {
+            const channelId = m.channelId || m.channel_id || m.chatId || m.channel;
+            const from = m.user || m.from || m.userId || m.authorId || null;
+            const isDirect = String(channelId || '').startsWith('D') || m.isDirect || m.type === 'direct';
+            interactions.push(createInteraction('slack', {
+                ...m,
+                id: m.id || (m.ts && channelId ? `${channelId}:${m.ts}` : m.ts),
+                timestamp: m.timestamp || (m.ts ? new Date(Number(String(m.ts).split('.')[0]) * 1000).toISOString() : null),
+                from,
+                chatId: channelId || null,
+                chatName: m.channelName || m.chatName || null,
+                type: isDirect ? 'direct' : 'channel',
+                body: m.body || m.text || null,
+            }));
         }
     }
 
@@ -498,6 +558,10 @@ function getContactInteractionStats(contact, idx) {
     if (contact.sources.telegram && contact.sources.telegram.userId) {
         add(idx.byChatId[String(contact.sources.telegram.userId)]);
     }
+    if (contact.sources.slack) {
+        const slackId = contact.sources.slack.userId || contact.sources.slack.id || contact.sources.slack.user_id || contact.sources.slack.slackId || contact.sources.slack.memberId;
+        if (slackId) add(idx.byFrom[String(slackId)]);
+    }
 
     // Find most recent interaction timestamp
     let lastTs = null;
@@ -574,6 +638,7 @@ function run() {
     loadEmail(index);
     loadGoogleContacts(index);
     loadSms(index);
+    loadSlack(index);
     applyOverrides(index);
     applyApolloEnrichment(index);
 
@@ -597,11 +662,13 @@ if (require.main === module) {
 module.exports = {
     waStableId,
     liStableId,
+    slackStableId,
     buildPhoneBridge,
     buildInteractions,
     buildInteractionIndex,
     getContactInteractionStats,
     loadWhatsAppRosters,
+    loadSlack,
     computeRelationshipScores,
     applyOverrides,
 };

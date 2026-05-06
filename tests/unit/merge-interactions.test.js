@@ -14,7 +14,7 @@ function setupFixture() {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-interactions-'));
     const dataDir = path.join(tmp, 'data');
     // source subdirs
-    for (const d of ['whatsapp', 'telegram', 'linkedin', 'email', 'sms']) {
+    for (const d of ['whatsapp', 'telegram', 'linkedin', 'email', 'sms', 'slack']) {
         fs.mkdirSync(path.join(dataDir, d), { recursive: true });
     }
     return { tmp, dataDir };
@@ -192,6 +192,34 @@ test('[SMS Interactions]: sms messages get correct direction and fields', () => 
 });
 
 // ---------------------------------------------------------------------------
+// Slack
+
+test('[Slack Interactions]: slack channel messages retain author id but expose only safe source fields', () => {
+    const { dataDir } = setupFixture();
+    fs.mkdirSync(path.join(dataDir, 'slack/messages'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'slack/messages/messages.json'), JSON.stringify([
+        {
+            id: 'slack1',
+            ts: '1714564800.000000',
+            timestamp: '2024-05-01T12:00:00Z',
+            user: 'U123',
+            text: 'Building AI startup infrastructure.',
+            channelId: 'C123',
+            channelName: 'private-channel-name',
+        },
+    ]));
+
+    const interactions = buildInteractionsWithEnv(dataDir);
+
+    assert.equal(interactions.length, 1);
+    assert.equal(interactions[0].source, 'slack');
+    assert.equal(interactions[0].from, 'U123');
+    assert.equal(interactions[0].chatId, 'C123');
+    assert.equal(interactions[0].type, 'channel');
+    assert.equal(interactions[0].body, 'Building AI startup infrastructure.');
+});
+
+// ---------------------------------------------------------------------------
 // Cross-source chronological sorting
 
 test('[Sorting]: interactions sorted chronologically across all sources', () => {
@@ -261,7 +289,7 @@ test('[Schema]: every interaction has required fields', () => {
     assert.equal(interactions.length, 1);
     const i = interactions[0];
     assert.equal(typeof i.source, 'string');
-    assert.ok(['whatsapp', 'telegram', 'linkedin', 'email', 'sms'].includes(i.source));
+    assert.ok(['whatsapp', 'telegram', 'linkedin', 'email', 'sms', 'slack'].includes(i.source));
     assert.ok(i.timestamp !== undefined);
     assert.ok(i.raw !== undefined);
 });

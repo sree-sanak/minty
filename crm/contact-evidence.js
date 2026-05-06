@@ -57,13 +57,24 @@ function isDirectSlackInteraction(i) {
     return ['dm', 'direct', 'direct_message', 'im'].includes(type);
 }
 
+function isSlackInteraction(i) {
+    return canonicalSource(i && (i.source || i.channel)) === 'slack';
+}
+
+function hasSlackActor(i) {
+    return !!(i && [i.from, i.fromId, i.senderId, i.userId, i.user, i.authorId]
+        .some(v => v != null && String(v).trim()));
+}
+
 function isNonPersonInteraction(i) {
     if (!i || typeof i !== 'object') return true;
-    if (i.isGroup || i.isChannel || i.isBroadcast || i.isList || i.isMailingList || i.groupId || i.threadType === 'group') return true;
+    if (i.isGroup || i.isBroadcast || i.isList || i.isMailingList || i.groupId || i.threadType === 'group') return true;
+    if (i.isChannel && !(isSlackInteraction(i) && hasSlackActor(i))) return true;
     if (Array.isArray(i.participants) && i.participants.length > 2) return true;
     const type = String(i.type || i.chatType || i.conversationType || i.threadType || '').toLowerCase();
-    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type)) return true;
-    if (canonicalSource(i.source || i.channel) === 'slack' && !isDirectSlackInteraction(i)) return true;
+    const blocked = ['group', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'];
+    if (blocked.includes(type)) return true;
+    if (type === 'channel' && !(isSlackInteraction(i) && hasSlackActor(i))) return true;
     return false;
 }
 
@@ -162,9 +173,9 @@ function buildSourceActorIndex(contacts) {
 
 function fallbackContactIdForInteraction(i, nameIndex, sourceActorIndex) {
     if (!i || isNonPersonInteraction(i)) return null;
-    const direct = i && (i.contactId || i.contact_id || i.personId || i.participantContactId);
-    if (direct) return direct;
     const source = canonicalSource(i.source || i.channel);
+    const direct = i && (i.contactId || i.contact_id || i.personId || i.participantContactId);
+    if (direct && !(source === 'slack' && !isDirectSlackInteraction(i))) return direct;
     const actorIds = [i.from, i.fromId, i.senderId, i.userId, i.user, i.authorId]
         .filter(v => v != null && String(v).trim());
     for (const actorId of actorIds) {

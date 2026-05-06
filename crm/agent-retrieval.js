@@ -173,15 +173,26 @@ function isDirectSlackInteraction(i) {
     return ['dm', 'direct', 'direct_message', 'im'].includes(type);
 }
 
+function isSlackInteraction(i) {
+    return canonicalSource(i && (i.source || i.channel)) === 'slack';
+}
+
+function hasSlackActor(i) {
+    return !!(i && [i.from, i.fromId, i.senderId, i.userId, i.user, i.authorId]
+        .some(v => v != null && String(v).trim()));
+}
+
 function isNonPersonInteraction(i) {
     if (!i || typeof i !== 'object') return true;
-    if (i.isGroup || i.isChannel || i.isBroadcast || i.isList || i.isMailingList || i.groupId) return true;
+    if (i.isGroup || i.isBroadcast || i.isList || i.isMailingList || i.groupId) return true;
+    if (i.isChannel && !(isSlackInteraction(i) && hasSlackActor(i))) return true;
     const threadType = String(i.threadType || '').toLowerCase();
-    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(threadType)) return true;
+    if (['group', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(threadType)) return true;
+    if (threadType === 'channel' && !(isSlackInteraction(i) && hasSlackActor(i))) return true;
     if (Array.isArray(i.participants) && i.participants.length > 2) return true;
     const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
-    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type)) return true;
-    if (canonicalSource(i.source || i.channel) === 'slack' && !isDirectSlackInteraction(i)) return true;
+    if (['group', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type)) return true;
+    if (type === 'channel' && !(isSlackInteraction(i) && hasSlackActor(i))) return true;
     return false;
 }
 
@@ -199,9 +210,16 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
 
     const byId = new Set(contacts.map(c => c.id));
     const byName = new Map();
+    const bySourceActor = new Map();
     for (const c of contacts) {
         const key = normalizeNameKey(c.name);
         if (key) byName.set(key, c.id);
+        const slack = c.sources && c.sources.slack;
+        if (slack && typeof slack === 'object') {
+            for (const id of [slack.userId, slack.id, slack.user_id, slack.slackId, slack.memberId]) {
+                if (id != null && String(id).trim()) bySourceActor.set(`slack:${String(id).trim()}`, c.id);
+            }
+        }
     }
 
     const terms = buildInteractionTerms(parsed);
@@ -221,7 +239,13 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
         if (!matched.length) continue;
         if (!directMatched.length && matched.length < 2) continue;
 
+        const source = canonicalSource(i.source || i.channel || 'interaction');
         let contactId = i.contactId || i.contact_id || i.personId || i.participantContactId;
+        if (source === 'slack' && !isDirectSlackInteraction(i)) {
+            const actorIds = [i.from, i.fromId, i.senderId, i.userId, i.user, i.authorId]
+                .filter(v => v != null && String(v).trim());
+            contactId = actorIds.map(id => bySourceActor.get(`slack:${String(id).trim()}`)).find(Boolean);
+        }
         if (!byId.has(contactId) && isPersonalInteractionNameFallback(i)) {
             const candidates = [i.chatName, i.from, i.to, i.senderName, i.recipientName]
                 .map(normalizeNameKey)
@@ -230,7 +254,6 @@ function buildInteractionEvidence(contacts, interactions, parsed) {
         }
         if (!byId.has(contactId)) continue;
 
-        const source = canonicalSource(i.source || i.channel || 'interaction');
         if (!evidenceByContactId[contactId]) {
             evidenceByContactId[contactId] = { sources: new Set(), count: 0 };
         }
