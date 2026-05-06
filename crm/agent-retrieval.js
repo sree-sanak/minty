@@ -85,6 +85,7 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     sms: 'SMS evidence',
     linkedin: 'LinkedIn evidence',
     googlecontacts: 'Google Contacts evidence',
+    slack: 'Slack evidence',
 });
 
 function canonicalSource(source) {
@@ -96,10 +97,18 @@ function canonicalSource(source) {
 
 function normalizeSourceFilter(value) {
     const raw = Array.isArray(value) ? value : (value == null ? [] : [value]);
-    return [...new Set(raw
-        .map(canonicalSource)
-        .filter(s => s && s !== 'interaction'))]
-        .sort();
+    const sources = new Set();
+    const invalid = new Set();
+    for (const item of raw) {
+        if (item == null || item === '') continue;
+        const canonical = canonicalSource(item);
+        if (canonical && canonical !== 'interaction') {
+            sources.add(canonical);
+        } else {
+            invalid.add('invalid');
+        }
+    }
+    return { sources: [...sources].sort(), invalid: [...invalid].sort() };
 }
 
 function inferSourceFilterFromQuery(query) {
@@ -116,7 +125,14 @@ function inferSourceFilterFromQuery(query) {
     for (const [source, pattern] of sourcePatterns) {
         if (pattern.test(lower)) found.push(source);
     }
-    return normalizeSourceFilter(found);
+    return normalizeSourceFilter(found).sources;
+}
+
+function sourceList(value) {
+    if (Array.isArray(value)) return value;
+    if (value instanceof Set) return [...value];
+    if (typeof value === 'string') return [value];
+    return [];
 }
 
 function hasMeaningfulPayload(payload) {
@@ -149,17 +165,18 @@ function contactMatchesSourceFilter(contact, sourceFilter) {
 
 function interactionMatchesSourceFilter(interaction, sourceFilter) {
     if (!sourceFilter.length) return true;
-    return sourceFilter.includes(canonicalSource(interaction && (interaction.source || interaction.channel)));
+    if (!interaction || typeof interaction !== 'object') return false;
+    return sourceFilter.includes(canonicalSource(interaction.source || interaction.channel));
 }
 
 function evidenceSources(evidence) {
     const sources = new Set();
-    for (const s of evidence && Array.isArray(evidence.sources) ? evidence.sources : []) {
+    for (const s of sourceList(evidence && evidence.sources)) {
         const canonical = canonicalSource(s);
         if (canonical !== 'interaction') sources.add(canonical);
     }
     for (const row of evidence && Array.isArray(evidence.topicEvidence) ? evidence.topicEvidence : []) {
-        for (const s of Array.isArray(row.sources) ? row.sources : []) {
+        for (const s of sourceList(row && row.sources)) {
             const canonical = canonicalSource(s);
             if (canonical !== 'interaction') sources.add(canonical);
         }
@@ -178,14 +195,18 @@ function filterSourceEvents(sourceEvents, sourceFilter) {
     return sourceEvents.filter(e => sourceFilter.includes(canonicalSource(e && e.source)));
 }
 
-function matchedSourcesForContact(contact, sourceFilter, interactionEvidence, contactEvidenceMatch, hybridMatch) {
-    const evidenceSources = new Set();
-    for (const s of interactionEvidence && interactionEvidence.sources ? interactionEvidence.sources : []) evidenceSources.add(canonicalSource(s));
-    for (const s of contactEvidenceMatch && contactEvidenceMatch.sources ? contactEvidenceMatch.sources : []) evidenceSources.add(canonicalSource(s));
-    for (const s of hybridMatch && hybridMatch.sources ? hybridMatch.sources : []) evidenceSources.add(canonicalSource(s));
-    const sources = evidenceSources.size ? evidenceSources : new Set(contactSources(contact));
-    const safe = [...sources].filter(s => s && s !== 'interaction');
-    const filtered = sourceFilter.length ? safe.filter(s => sourceFilter.includes(s)) : safe;
+function sourceEvidenceForContact(interactionEvidence, contactEvidenceMatch, hybridMatch) {
+    const sources = new Set();
+    for (const s of sourceList(interactionEvidence && interactionEvidence.sources)) sources.add(canonicalSource(s));
+    for (const s of sourceList(contactEvidenceMatch && contactEvidenceMatch.sources)) sources.add(canonicalSource(s));
+    for (const s of sourceList(hybridMatch && hybridMatch.sources)) sources.add(canonicalSource(s));
+    return [...sources].filter(s => s && s !== 'interaction').sort();
+}
+
+function matchedSourcesForContact(contact, sourceFilter, interactionEvidence, contactEvidenceMatch, hybridMatch, requireEvidence = false) {
+    const evidenceSources = sourceEvidenceForContact(interactionEvidence, contactEvidenceMatch, hybridMatch);
+    const sources = evidenceSources.length ? evidenceSources : (requireEvidence ? [] : contactSources(contact));
+    const filtered = sourceFilter.length ? sources.filter(s => sourceFilter.includes(s)) : sources;
     return [...new Set(filtered)].sort();
 }
 
@@ -270,14 +291,25 @@ function interactionTermMatches(text, term) {
     return new RegExp(`(^| )${words.join(' ')}( |$)`).test(normalizedText);
 }
 
+function isDirectSlackInteraction(i) {
+    if (canonicalSource(i && (i.source || i.channel)) !== 'slack') return false;
+    const raw = i.raw && typeof i.raw === 'object' ? i.raw : {};
+    const type = String(i.type || i.chatType || i.conversationType || i.threadType || raw.type || raw.chatType || raw.conversationType || raw.threadType || '').toLowerCase();
+    const channelId = String(i.channelId || i.channel_id || i.chatId || raw.channelId || raw.channel_id || raw.chatId || '').trim();
+    if (channelId) return /^D[A-Z0-9]+$/.test(channelId);
+    return ['dm', 'direct', 'direct_message', 'im'].includes(type);
+}
+
 function isNonPersonInteraction(i) {
     if (!i || typeof i !== 'object') return true;
-    if (i.isGroup || i.isChannel || i.isBroadcast || i.groupId) return true;
+    if (i.isGroup || i.isChannel || i.isBroadcast || i.isList || i.isMailingList || i.groupId) return true;
     const threadType = String(i.threadType || '').toLowerCase();
-    if (['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(threadType)) return true;
+    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(threadType)) return true;
     if (Array.isArray(i.participants) && i.participants.length > 2) return true;
     const type = String(i.type || i.chatType || i.conversationType || '').toLowerCase();
-    return ['group', 'channel', 'broadcast', 'mailing_list', 'mailing-list'].includes(type);
+    if (['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type)) return true;
+    if (canonicalSource(i.source || i.channel) === 'slack' && !isDirectSlackInteraction(i)) return true;
+    return false;
 }
 
 function isPersonalInteractionNameFallback(i) {
@@ -366,7 +398,7 @@ function interactionReasonFor(contactId, evidenceByContactId) {
 function contactEvidenceReasonFor(contactId, matchesByContactId) {
     const match = matchesByContactId[contactId];
     if (!match || !match.matched) return null;
-    const sources = (match.sources || []).map(canonicalSource).sort();
+    const sources = sourceList(match.sources).map(canonicalSource).sort();
     const label = sources.length === 1 ? sourceLabel(sources[0]) : 'Cross-source topic evidence';
     const topicCount = (match.topics || []).length;
     const sourceCount = sources.filter(s => s !== 'interaction').length || sources.length || 1;
@@ -382,7 +414,7 @@ function hybridReasonFor(contactId, matchesByContactId) {
     if (!match) return null;
     const topics = Array.isArray(match.matchedTopics) ? match.matchedTopics : [];
     if (!topics.length) return null;
-    const sources = (match.sources || []).map(canonicalSource).sort();
+    const sources = sourceList(match.sources).map(canonicalSource).sort();
     const label = sources.length === 1 ? sourceLabel(sources[0]) : 'Hybrid relationship evidence';
     return {
         kind: 'hybrid_evidence',
@@ -453,13 +485,23 @@ function resultMatchType(result) {
  */
 const MAX_QUERY_LENGTH = 1000;
 
+function isPersonContactRow(c) {
+    if (!c || typeof c !== 'object' || Array.isArray(c) || c.isGroup || c.isChannel || c.isBroadcast || c.isList || c.isMailingList) return false;
+    const type = String(c.type || c.kind || c.contactType || c.threadType || '').toLowerCase();
+    return !['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type);
+}
+
 function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
     const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
     const explicitSourceFilter = normalizeSourceFilter(safeOpts.sources !== undefined ? safeOpts.sources : safeOpts.source);
-    const sourceFilter = explicitSourceFilter.length ? explicitSourceFilter : inferSourceFilterFromQuery(q);
-    const contacts = Array.isArray(rawContacts) ? rawContacts.filter(c => !c.isGroup) : [];
+    const hasExplicitSourceFilter = safeOpts.sources !== undefined || safeOpts.source !== undefined;
+    const sourceFilter = explicitSourceFilter.sources.length ? explicitSourceFilter.sources : (hasExplicitSourceFilter ? [] : inferSourceFilterFromQuery(q));
+    const invalidSourceFilters = explicitSourceFilter.invalid;
+    const contacts = Array.isArray(rawContacts)
+        ? rawContacts.filter(isPersonContactRow)
+        : [];
     const insightSource = rawInsights && typeof rawInsights === 'object' ? rawInsights : {};
     const insights = Object.create(null);
     for (const id of Object.keys(insightSource)) insights[id] = insightSource[id];
@@ -567,15 +609,18 @@ function queryNetwork(query, opts = {}) {
         r.matchScore = (r.matchScore || 0) + goalScore;
     }
 
-    const sourceMatched = sourceFilter.length
-        ? evidenced.filter(r => matchedSourcesForContact(
-            contactsById[r.id],
-            sourceFilter,
-            interactionEvidenceByContactId[r.id],
-            contactEvidenceMatches[r.id],
-            hybridMatches[r.id]
-        ).length > 0)
-        : evidenced;
+    const sourceMatched = invalidSourceFilters.length
+        ? []
+        : (sourceFilter.length
+            ? evidenced.filter(r => matchedSourcesForContact(
+                contactsById[r.id],
+                sourceFilter,
+                interactionEvidenceByContactId[r.id],
+                contactEvidenceMatches[r.id],
+                hybridMatches[r.id],
+                true
+            ).length > 0)
+            : evidenced);
 
     // 6. Sort by blended score descending
     sourceMatched.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
@@ -601,7 +646,7 @@ function queryNetwork(query, opts = {}) {
             detail: reason.detail || null,
         })),
         evidenceBacked:    (r.reasons || []).length > 0,
-        matchedSources:    matchedSourcesForContact(contact, sourceFilter, interactionEvidenceByContactId[r.id], contactEvidenceMatches[r.id], hybridMatches[r.id]),
+        matchedSources:    matchedSourcesForContact(contact, sourceFilter, interactionEvidenceByContactId[r.id], contactEvidenceMatches[r.id], hybridMatches[r.id], sourceFilter.length > 0),
         suggestedAction:   suggestAction(r, parsed.intent),
         daysSinceContact:  r.daysSinceContact ?? null,
         interactionCount:  r.interactionCount || 0,
@@ -622,6 +667,7 @@ function queryNetwork(query, opts = {}) {
             resultsReturned: results.length,
             usedFallback,
             sourceFilter,
+            invalidSourceFilters,
             queryPlan,
             interactionEvidenceContacts: Object.keys(interactionEvidenceByContactId).length,
             contactEvidenceContacts: Object.keys(contactEvidenceMatches).length,

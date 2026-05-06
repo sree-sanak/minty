@@ -55,14 +55,20 @@ function main() {
     console.log(`  C-suite/founder:  ${cSuite}`);
     console.log(`\nWritten to: ${QUERY_INDEX_PATH}`);
 
-    // Spot-check: sample a few entries for sanity
-    console.log('\nSample entries:');
-    index
-        .filter(e => e.city)
-        .slice(0, 5)
-        .forEach(e => {
-            console.log(`  ${e.name} — ${e.title || '(no title)'} · ${e.city} · score ${e.relationshipScore} · meet ${e.meetScore}`);
-        });
+    const withMeetScore = index.filter(e => e.meetScore > 0).length;
+    console.log(`  With meet score:  ${withMeetScore} (${Math.round(withMeetScore / index.length * 100)}%)`);
+
+    // Do not print real contact names/titles by default: this command often runs
+    // inside daemons/agent tasks where stdout can enter chat transcripts.
+    if (process.env.MINTY_INDEX_VERBOSE === '1') {
+        console.log('\nSample entries:');
+        index
+            .filter(e => e.city)
+            .slice(0, 5)
+            .forEach(e => {
+                console.log(`  ${e.name} — ${e.title || '(no title)'} · ${e.city} · score ${e.relationshipScore} · meet ${e.meetScore}`);
+            });
+    }
 }
 
 main();

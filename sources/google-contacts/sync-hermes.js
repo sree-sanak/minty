@@ -16,10 +16,13 @@ const os = require('os');
 const path = require('path');
 const https = require('https');
 const { URLSearchParams } = require('url');
+const { buildSafetyConfig, envInt } = require('../_shared/safety');
 
 const OUT_DIR = process.env.GOOGLE_CONTACTS_OUT_DIR || path.join(__dirname, '../../data/google-contacts');
-const LIMIT = Number.parseInt(process.env.GOOGLE_CONTACTS_LIMIT || '2000', 10);
-const PAGE_SIZE = Math.min(1000, Math.max(1, Number.parseInt(process.env.GOOGLE_CONTACTS_PAGE_SIZE || '1000', 10)));
+const sourceSafety = buildSafetyConfig('google_contacts', process.env, { defaultMaxApiCalls: 200, unsafeMaxApiCalls: 1000, defaultDelayMs: 0, unsafeDelayMs: 0 });
+const LIMIT = envInt('GOOGLE_CONTACTS_LIMIT', process.env, sourceSafety.safeMode ? 500 : 2000, 1);
+const PAGE_SIZE = Math.min(sourceSafety.safeMode ? 100 : 1000, Math.max(1, envInt('GOOGLE_CONTACTS_PAGE_SIZE', process.env, sourceSafety.safeMode ? 100 : 1000, 1)));
+const INCREMENTAL = sourceSafety.incremental;
 const PERSON_FIELDS = [
   'names',
   'emailAddresses',
@@ -175,23 +178,40 @@ function normalizePeoplePerson(person, sourceProfile) {
   };
 }
 
-async function fetchContactsForProfile(profile) {
+function latestSyncedAtForProfile(existing, label) {
+  const values = (existing || [])
+    .filter(c => String(c.sourceProfile || '').split(',').includes(label))
+    .map(c => c.lastSyncedAt)
+    .filter(Boolean)
+    .sort();
+  return values.pop() || null;
+}
+
+async function fetchContactsForProfile(profile, existing = []) {
   if (!fs.existsSync(profile.tokenPath)) {
     throw new Error(`Google token not found for ${profile.label}: ${profile.tokenPath}`);
   }
   const token = JSON.parse(fs.readFileSync(profile.tokenPath, 'utf8'));
   const accessToken = await refreshAccessToken(token);
   const contacts = [];
+  const previousLatest = INCREMENTAL ? latestSyncedAtForProfile(existing, profile.label) : null;
+  let reachedKnownOlderPage = false;
   let pageToken = '';
   do {
     const response = await peopleGet(accessToken, pageToken);
     for (const person of response.connections || []) {
       const contact = normalizePeoplePerson(person, profile.label);
-      if (contact) contacts.push(contact);
+      if (contact) {
+        if (previousLatest && contact.lastSyncedAt && contact.lastSyncedAt <= previousLatest) {
+          reachedKnownOlderPage = true;
+          break;
+        }
+        contacts.push(contact);
+      }
       if (contacts.length >= LIMIT) break;
     }
     pageToken = response.nextPageToken || '';
-  } while (pageToken && contacts.length < LIMIT);
+  } while (pageToken && contacts.length < LIMIT && !reachedKnownOlderPage);
   return contacts;
 }
 
@@ -227,17 +247,19 @@ function mergeByIdentity(contacts) {
 
 async function run() {
   const profiles = resolveTokenProfiles();
+  const existingPath = path.join(OUT_DIR, 'contacts.json');
+  const existing = fs.existsSync(existingPath) ? JSON.parse(fs.readFileSync(existingPath, 'utf8')) : [];
   const all = [];
   for (const profile of profiles) {
     console.log(`Syncing Google Contacts from ${profile.label}…`);
-    const contacts = await fetchContactsForProfile(profile);
+    const contacts = await fetchContactsForProfile(profile, existing);
     console.log(`  ${profile.label}: ${contacts.length} contacts`);
     all.push(...contacts);
   }
-  const contacts = mergeByIdentity(all);
+  const contacts = mergeByIdentity((INCREMENTAL ? existing : []).concat(all));
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(path.join(OUT_DIR, 'contacts.json'), `${JSON.stringify(contacts, null, 2)}\n`);
-  console.log(`Saved ${contacts.length} contacts → ${path.join(OUT_DIR, 'contacts.json')}`);
+  console.log(`Saved ${contacts.length} contacts → ${path.join(OUT_DIR, 'contacts.json')} (incremental=${INCREMENTAL})`);
   return contacts;
 }
 
@@ -250,6 +272,7 @@ if (require.main === module) {
 
 module.exports = {
   buildPeopleUrl,
+  latestSyncedAtForProfile,
   mergeByIdentity,
   normalizePeoplePerson,
   resolveTokenProfiles,

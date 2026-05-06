@@ -70,6 +70,11 @@ function liStableId(profileUrl) {
     return slug ? `li_${slug}` : null;
 }
 
+function slackStableId(memberId) {
+    if (!memberId) return null;
+    return `slack_${String(memberId).replace(/[^a-z0-9_-]/gi, '_')}`;
+}
+
 // --- Source loaders ---
 
 function loadWhatsApp(index) {
@@ -283,6 +288,33 @@ function loadSms(index) {
     console.log(`Merged ${contacts.length} SMS contacts`);
 }
 
+function loadSlack(index) {
+    const contacts = load(path.join(DATA, 'slack/contacts.json'));
+    if (!contacts) { console.log('slack/contacts.json not found, skipping'); return; }
+    let merged = 0;
+    for (const c of contacts) {
+        if (!c || c.isDeleted || c.isBot) continue;
+        const emails = c.email ? [c.email] : [];
+        const memberId = c.id || c.userId || c.user_id;
+        const stableId = slackStableId(memberId);
+        const displayName = c.displayName || c.name || null;
+        const contact = index.upsert([], emails, displayName, stableId);
+        contact.sources.slack = {
+            id: memberId || null,
+            userId: memberId || null,
+            name: c.name || null,
+            displayName: c.displayName || null,
+            email: c.email || null,
+            title: c.title || null,
+            workspace: c.workspace || null,
+            channelCount: c.channelCount || 0,
+        };
+        if (!contact.name && displayName) contact.name = displayName;
+        merged++;
+    }
+    console.log(`Merged ${merged} Slack contacts`);
+}
+
 // --- Interaction timeline ---
 
 function buildInteractions() {
@@ -363,6 +395,20 @@ function buildInteractions() {
                     to: m.direction === 'sent' ? thread.phone : 'me',
                 }));
             }
+        }
+    }
+
+    // Slack
+    const slackMessages = load(path.join(DATA, 'slack/messages/messages.json'));
+    if (slackMessages) {
+        for (const m of slackMessages) {
+            interactions.push(createInteraction('slack', {
+                ...m,
+                from: m.user || m.from || null,
+                chatId: m.channelId || null,
+                chatName: m.channelName || null,
+                type: m.type || 'message',
+            }));
         }
     }
 
@@ -498,6 +544,10 @@ function getContactInteractionStats(contact, idx) {
     if (contact.sources.telegram && contact.sources.telegram.userId) {
         add(idx.byChatId[String(contact.sources.telegram.userId)]);
     }
+    if (contact.sources.slack) {
+        const slackId = contact.sources.slack.userId || contact.sources.slack.id || contact.sources.slack.slackId || contact.sources.slack.memberId;
+        if (slackId) add(idx.byFrom[String(slackId)]);
+    }
 
     // Find most recent interaction timestamp
     let lastTs = null;
@@ -574,6 +624,7 @@ function run() {
     loadEmail(index);
     loadGoogleContacts(index);
     loadSms(index);
+    loadSlack(index);
     applyOverrides(index);
     applyApolloEnrichment(index);
 
@@ -597,6 +648,7 @@ if (require.main === module) {
 module.exports = {
     waStableId,
     liStableId,
+    slackStableId,
     buildPhoneBridge,
     buildInteractions,
     buildInteractionIndex,

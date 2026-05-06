@@ -5,6 +5,7 @@ const {
   resolveTokenProfiles,
   normalizePeoplePerson,
   buildPeopleUrl,
+  latestSyncedAtForProfile,
   mergeByIdentity,
 } = require('../../sources/google-contacts/sync-hermes');
 
@@ -118,4 +119,14 @@ test('buildPeopleUrl: includes page size and source-backed field mask', () => {
   assert.match(url, /pageSize=250/);
   assert.match(url, /personFields=/);
   assert.match(decodeURIComponent(url), /names,emailAddresses,phoneNumbers,organizations/);
+});
+
+test('latestSyncedAtForProfile returns newest timestamp for one profile only', () => {
+  const latest = latestSyncedAtForProfile([
+    { sourceProfile: 'work', lastSyncedAt: '2026-04-01T00:00:00Z' },
+    { sourceProfile: 'personal', lastSyncedAt: '2026-05-01T00:00:00Z' },
+    { sourceProfile: 'work,personal', lastSyncedAt: '2026-04-15T00:00:00Z' },
+    { sourceProfile: 'work', lastSyncedAt: null },
+  ], 'work');
+  assert.equal(latest, '2026-04-15T00:00:00Z');
 });
