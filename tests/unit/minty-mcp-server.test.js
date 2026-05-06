@@ -59,6 +59,13 @@ const INTERACTIONS = [
     },
 ];
 
+const SOURCE_EVENTS = [
+    { id: 'event_secret_1', type: 'message', source: 'telegram', contactRef: 'contact:wa_001', timestamp: '2026-05-01T12:00:00Z' },
+    { id: 'event_secret_2', type: 'message', source: 'email', contactRef: 'contact:wa_002', timestamp: '2026-04-15T08:30:00Z' },
+    { id: 'event_bad_source', type: 'message', source: 'email:alice@example.com', contactRef: 'contact:secret', timestamp: '2026-05-02T00:00:00Z' },
+    { id: 'event_unknown_source', type: 'message', source: 'tracker', contactRef: 'contact:secret', timestamp: '2026-05-03T00:00:00Z' },
+];
+
 function flattenStrings(value, out = []) {
     if (typeof value === 'string') out.push(value);
     else if (Array.isArray(value)) value.forEach(v => flattenStrings(v, out));
@@ -463,6 +470,28 @@ describe('workflow_brief tool', () => {
         assert.ok(parsed.dataFreshness);
         assert.ok(parsed.dataFreshness.contactCount != null);
         assert.ok(parsed.dataFreshness.generatedAt);
+    });
+
+    it('reports privacy-safe per-source freshness in workflow_brief', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 35, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'Find EU crypto insurance partners' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS, interactions: INTERACTIONS, sourceEvents: SOURCE_EVENTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.dataFreshness.sourceFreshness.telegram.latestEventAt, '2026-05-01T12:00:00.000Z');
+        assert.equal(parsed.dataFreshness.sourceFreshness.email.latestEventAt, '2026-04-15T08:30:00.000Z');
+        assert.equal(parsed.dataFreshness.sourceFreshness.interaction.latestEventAt, '2026-05-03T00:00:00.000Z');
+        assert.equal(parsed.dataFreshness.sourceFreshness.telegram.eventCount, 1);
+        assert.equal(parsed.dataFreshness.sourceFreshness.whatsapp.profileContactCount, 2);
+        assert.equal(parsed.dataFreshness.sourceFreshness.linkedin.profileContactCount, 1);
+        assert.equal(parsed.dataFreshness.sourceFreshness.tracker, undefined);
+        assert.equal(parsed.dataFreshness.sourceFreshness.telegram.daysSinceLatestEvent >= 0, true);
+        assert.deepEqual(parsed.dataFreshness.missingCoreSources, ['calendar']);
+        const serialized = JSON.stringify(parsed.dataFreshness);
+        assert.equal(serialized.includes('event_secret'), false, 'source freshness must not leak event ids');
+        assert.equal(serialized.includes('contact:wa_001'), false, 'source freshness must not leak contact refs');
+        assert.equal(serialized.includes('alice@example.com'), false, 'source names must be sanitized');
     });
 
     it('handles contacts with invalid lastContactedAt without crashing', async () => {
