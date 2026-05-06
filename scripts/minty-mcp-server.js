@@ -13,6 +13,7 @@
 'use strict';
 
 const { queryNetwork } = require('../crm/agent-retrieval');
+const { canonicalSafeSource } = require('../crm/source-events');
 const { resolveDataDir, loadData } = require('./agent-query');
 
 // ---------------------------------------------------------------------------
@@ -96,6 +97,67 @@ function safeResult(r) {
     return safe;
 }
 
+function safeSourceName(value) {
+    return canonicalSafeSource(value);
+}
+
+function buildDataFreshness(contacts, sourceEvents, sourceCoverage) {
+    const oldestContact = contacts.reduce((oldest, c) => {
+        if (!c.lastContactedAt) return oldest;
+        const t = Date.parse(c.lastContactedAt);
+        if (Number.isNaN(t)) return oldest;
+        const d = new Date(t);
+        return (!oldest || d < oldest) ? d : oldest;
+    }, null);
+
+    const generatedAt = new Date();
+    const bySource = {};
+    const coverage = (sourceCoverage && typeof sourceCoverage === 'object') ? sourceCoverage : {};
+    const profileCounts = (coverage.profileContactsBySource && typeof coverage.profileContactsBySource === 'object')
+        ? coverage.profileContactsBySource
+        : {};
+    const hasCoverageEventCounts = coverage.eventCountsBySource && typeof coverage.eventCountsBySource === 'object';
+    const eventCounts = hasCoverageEventCounts ? coverage.eventCountsBySource : {};
+
+    for (const [rawSource, count] of Object.entries(profileCounts)) {
+        const source = safeSourceName(rawSource);
+        if (!source) continue;
+        bySource[source] = { profileContactCount: Number.isFinite(count) ? count : 0, eventCount: 0, latestEventAt: null, daysSinceLatestEvent: null };
+    }
+    for (const [rawSource, count] of Object.entries(eventCounts)) {
+        const source = safeSourceName(rawSource);
+        if (!source) continue;
+        if (!bySource[source]) bySource[source] = { profileContactCount: 0, eventCount: 0, latestEventAt: null, daysSinceLatestEvent: null };
+        bySource[source].eventCount = Number.isFinite(count) ? count : 0;
+    }
+
+    if (Array.isArray(sourceEvents)) {
+        for (const event of sourceEvents) {
+            const source = safeSourceName(event && event.source);
+            if (!source) continue;
+            if (!bySource[source]) bySource[source] = { profileContactCount: 0, eventCount: 0, latestEventAt: null, daysSinceLatestEvent: null };
+            if (!hasCoverageEventCounts) bySource[source].eventCount += 1;
+            const t = Date.parse(event.timestamp);
+            if (Number.isNaN(t)) continue;
+            const iso = new Date(t).toISOString();
+            if (!bySource[source].latestEventAt || iso > bySource[source].latestEventAt) bySource[source].latestEventAt = iso;
+        }
+    }
+
+    for (const value of Object.values(bySource)) {
+        if (!value.latestEventAt) continue;
+        value.daysSinceLatestEvent = Math.max(0, Math.floor((generatedAt.getTime() - Date.parse(value.latestEventAt)) / 86400000));
+    }
+
+    return {
+        contactCount: contacts.length,
+        generatedAt: generatedAt.toISOString(),
+        oldestContactDate: oldestContact ? oldestContact.toISOString() : null,
+        sourceFreshness: bySource,
+        missingCoreSources: Array.isArray(coverage.missingCoreSources) ? coverage.missingCoreSources.map(safeSourceName).filter(Boolean) : [],
+    };
+}
+
 function executeTool(name, args, data) {
     const contacts = Array.isArray(data.contacts) ? data.contacts : [];
     const interactions = Array.isArray(data.interactions) ? data.interactions : [];
@@ -165,22 +227,11 @@ function executeTool(name, args, data) {
             why: (r.evidence || []).map(e => e.label).join('; ') || 'General network match',
             suggestedAction: r.suggestedAction,
         }));
-        const oldestContact = contacts.reduce((oldest, c) => {
-            if (!c.lastContactedAt) return oldest;
-            const t = Date.parse(c.lastContactedAt);
-            if (Number.isNaN(t)) return oldest;
-            const d = new Date(t);
-            return (!oldest || d < oldest) ? d : oldest;
-        }, null);
         const envelope = {
             goal,
             intent: result.intent,
             topPeople,
-            dataFreshness: {
-                contactCount: contacts.length,
-                generatedAt: new Date().toISOString(),
-                oldestContactDate: oldestContact ? oldestContact.toISOString() : null,
-            },
+            dataFreshness: buildDataFreshness(contacts, sourceEvents, result.diagnostics && result.diagnostics.sourceCoverage),
             diagnostics: result.diagnostics,
             safety: {
                 contactDetailsOmitted: true,
