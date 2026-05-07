@@ -8,6 +8,23 @@ function evidenceKinds(result) {
     return new Set((result && Array.isArray(result.evidence) ? result.evidence : []).map(e => e && e.kind).filter(Boolean));
 }
 
+function hasPath(value, path) {
+    if (typeof path !== 'string' || path.trim() === '') return false;
+    let current = value;
+    for (const part of path.split('.')) {
+        if (current == null || (typeof current !== 'object' && typeof current !== 'function')) return false;
+        if (!Object.hasOwn(current, part)) return false;
+        current = current[part];
+    }
+    return current !== undefined;
+}
+
+function containsSubstring(value, needle) {
+    if (typeof needle !== 'string' || needle === '') return false;
+    const serialized = JSON.stringify(value);
+    return typeof serialized === 'string' && serialized.includes(needle);
+}
+
 function evaluateOne(testCase, queryFn) {
     const output = queryFn(testCase.query);
     const results = Array.isArray(output && output.results) ? output.results : [];
@@ -26,6 +43,12 @@ function evaluateOne(testCase, queryFn) {
         });
         if (!anyRequired) failures.push('missing_required_evidence');
     }
+    const requiredPaths = Array.isArray(testCase.requirePaths) ? testCase.requirePaths : [];
+    if (requiredPaths.some(path => !hasPath(output, path))) failures.push('missing_required_path');
+    const forbiddenPaths = Array.isArray(testCase.forbidPaths) ? testCase.forbidPaths : [];
+    if (forbiddenPaths.some(path => hasPath(output, path))) failures.push('forbidden_path_present');
+    const forbiddenSubstrings = Array.isArray(testCase.forbidSubstrings) ? testCase.forbidSubstrings : [];
+    if (forbiddenSubstrings.some(needle => containsSubstring(output, needle))) failures.push('forbidden_substring_present');
     const evidenceBackedResults = results.filter(r => (r.evidence || []).length > 0 || r.evidenceBacked).length;
     return {
         query: testCase.query,

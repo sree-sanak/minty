@@ -8,8 +8,8 @@ const { queryNetwork } = require('../crm/agent-retrieval');
 const { evaluateRelationshipQueries } = require('../crm/evaluation');
 
 const DEFAULT_CASES = Object.freeze([
-    { query: 'Who do I know working in DeFi?', minResults: 1, requireEvidenceKinds: ['contact_evidence'], disallowFallback: true },
-    { query: 'Who do I know for crypto insurance?', minResults: 0, disallowFallback: true },
+    { query: 'Who do I know for crypto insurance?', minResults: 1, requireEvidenceKinds: ['keyword', 'topic'], disallowFallback: true },
+    { query: 'Who do I know for EU crypto insurance?', minResults: 1, requireEvidenceKinds: ['keyword', 'topic'], disallowFallback: true },
     { query: 'Who do I know for impossible private codename zzqv?', maxResults: 0, disallowFallback: true },
 ]);
 
