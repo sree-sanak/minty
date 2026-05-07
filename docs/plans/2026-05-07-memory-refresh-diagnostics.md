@@ -211,9 +211,13 @@ function redactDiagnosticValue(value) {
 
 function safeIso(value) {
     if (typeof value !== 'string') return null;
+    const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/.exec(value);
+    if (!match) return null;
     const t = Date.parse(value);
     if (Number.isNaN(t)) return null;
-    return new Date(t).toISOString();
+    const iso = new Date(t).toISOString();
+    const expected = `${match[1]}T${match[2]}.${(match[3] || '').padEnd(3, '0')}Z`;
+    return iso === expected ? iso : null;
 }
 
 function sanitizeStep(step) {
@@ -693,18 +697,24 @@ run_optional_step() {
 }
 
 write_refresh_status() {
+  # Capture immediately; the EXIT trap must preserve the refresh command's original status.
   local original_status=$?
   local diagnostics_status=0
   node scripts/memory-refresh-diagnostics.js --data-dir "$DATA_DIR" --steps-file "$STEPS_FILE"
   diagnostics_status=$?
   if [ "$diagnostics_status" -ne 0 ]; then
-    echo "Minty memory refresh diagnostics generation failed (DATA_DIR=$DATA_DIR STEPS_FILE=$STEPS_FILE)" >&2
+    echo "Minty memory refresh diagnostics generation failed; rerun npm run memory:diagnostics for the redacted report" >&2
+    if [ "$original_status" -ne 0 ]; then
+      return "$original_status"
+    fi
     return "$diagnostics_status"
   fi
   return "$original_status"
 }
 trap write_refresh_status EXIT
 ```
+
+If diagnostics generation fails, this intentionally makes an otherwise-successful refresh exit non-zero while preserving the original refresh status when the refresh itself already failed. Keep the diagnostics runner quiet by default except for the sanitized one-line summary above; do not print raw data directories, token paths, source handles, contact details, or unredacted artifact payloads to stdout/stderr.
 
 Then wrap the existing commands:
 
@@ -792,7 +802,7 @@ test('[AgentQuery]: loadData redacts and validates memory refresh status', () =>
     assert.equal(data.memoryRefreshStatus.failedStep, null);
     assert.equal(data.memoryRefreshStatus.generatedAt, null);
     assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('/root/.hermes'), false);
-    assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('alice@example.com'), false);
+    assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('@'), false);
 });
 ```
 
@@ -881,10 +891,14 @@ const SAFE_REFRESH_STEP_IDS = new Set([
 
 function safeRefreshIso(value) {
     if (typeof value !== 'string') return null;
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
+    // Consumer and producer both use strict UTC ISO strings: YYYY-MM-DDTHH:mm:ss(.SSS)Z.
+    const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{3}))?Z$/.exec(value);
+    if (!match) return null;
     const t = Date.parse(value);
     if (Number.isNaN(t)) return null;
-    return new Date(t).toISOString();
+    const iso = new Date(t).toISOString();
+    const expected = `${match[1]}T${match[2]}.${match[3] || '000'}Z`;
+    return iso === expected ? iso : null;
 }
 
 function sanitizeMemoryRefreshStatus(parsed) {
