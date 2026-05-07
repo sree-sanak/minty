@@ -50,12 +50,66 @@ test('agent safety envelope cannot override hard privacy invariants', () => {
     contactIdsOmitted: false,
     noLlmCalls: false,
     readOnly: false,
-    omittedFields: ['customField'],
+    omittedFields: ['customField', 'phones', 'customField'],
   });
   assert.equal(envelope.contactDetailsOmitted, true);
   assert.equal(envelope.contactIdsOmitted, true);
   assert.equal(envelope.noLlmCalls, true);
   assert.equal(envelope.readOnly, true);
-  assert.ok(envelope.omittedFields.includes('sourceDerivedContactIds'));
-  assert.ok(envelope.omittedFields.includes('customField'));
+  assert.deepEqual(envelope.omittedFields, ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds', 'customField']);
+});
+
+test('agent safety envelope ignores caller extras except omitted field declarations', () => {
+  const envelope = agentSafetyEnvelope({
+    reason: 'source freshness preflight',
+    emails: ['person@example.com'],
+    phones: ['+12065550100'],
+    rawContact: { id: 'raw-1' },
+    contactIds: ['contact-1'],
+    sourceDerivedContactIds: ['telegram:123'],
+    sourceHandles: ['@private'],
+    messages: ['private body'],
+    metadata: { emails: ['nested@example.com'] },
+  });
+  assert.equal(Object.hasOwn(envelope, 'reason'), false);
+  assert.equal(Object.hasOwn(envelope, 'emails'), false);
+  assert.equal(Object.hasOwn(envelope, 'phones'), false);
+  assert.equal(Object.hasOwn(envelope, 'rawContact'), false);
+  assert.equal(Object.hasOwn(envelope, 'contactIds'), false);
+  assert.equal(Object.hasOwn(envelope, 'sourceDerivedContactIds'), false);
+  assert.equal(Object.hasOwn(envelope, 'sourceHandles'), false);
+  assert.equal(Object.hasOwn(envelope, 'messages'), false);
+  assert.equal(Object.hasOwn(envelope, 'metadata'), false);
+});
+
+test('agent safety envelope filters malformed omitted field declarations', () => {
+  const envelope = agentSafetyEnvelope({
+    omittedFields: [
+      'safeField',
+      'nested.safeField',
+      'unsafe@example.com',
+      '+12065550100',
+      { field: 'rawContact' },
+      null,
+      ['phones'],
+      'x'.repeat(82),
+      '__proto__',
+      'constructor.prototype',
+      'safe.__proto__.field',
+    ],
+  });
+  assert.deepEqual(envelope.omittedFields, [
+    'emails',
+    'phones',
+    'rawContact',
+    'sourceDerivedContactIds',
+    'safeField',
+    'nested.safeField',
+  ]);
+});
+
+test('agent safety envelope tolerates null and primitive extras', () => {
+  for (const extra of [null, 'unsafe@example.com', 42, true, ['phones']]) {
+    assert.deepEqual(agentSafetyEnvelope(extra), agentSafetyEnvelope());
+  }
 });
