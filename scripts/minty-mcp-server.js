@@ -79,6 +79,18 @@ function clampLimit(value, fallback) {
     return Math.max(1, Math.min(50, Math.floor(value)));
 }
 
+function safeEvidence(evidence) {
+    if (!Array.isArray(evidence)) return [];
+    return evidence.map(e => {
+        if (!e || typeof e !== 'object') return e;
+        const safe = { ...e };
+        // Insight topic details can contain raw conversation-derived text.
+        // Preserve the evidence signal, but not the sensitive topic string.
+        if (safe.kind === 'topic') delete safe.detail;
+        return safe;
+    });
+}
+
 function safeResult(r) {
     const safe = {
         name: r.name,
@@ -88,7 +100,7 @@ function safeResult(r) {
         warmth: r.warmth,
         relationshipScore: r.relationshipScore,
         confidence: r.confidence,
-        evidence: r.evidence,
+        evidence: safeEvidence(r.evidence),
         suggestedAction: r.suggestedAction,
         daysSinceContact: r.daysSinceContact,
         interactionCount: r.interactionCount,

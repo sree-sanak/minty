@@ -226,6 +226,24 @@ describe('search_network tool', () => {
         }
     });
 
+    it('redacts raw insight topic details from MCP evidence', async () => {
+        const sensitiveInsights = {
+            li_002: {
+                topics: ['confidential acquisition targets and private cap table dispute'],
+                keywords: ['acquisition'],
+            },
+        };
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 16, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'acquisition targets', limit: 1 } },
+        }, { contacts: CONTACTS, insights: sensitiveInsights });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.results.length >= 1, 'need results to verify evidence redaction');
+        assert.equal(JSON.stringify(parsed).includes('confidential acquisition targets'), false, 'must not leak raw insight topics');
+        assert.equal(parsed.results[0].evidence.some(e => e.kind === 'topic' && e.label === 'Recent conversation'), true);
+    });
+
     it('respects limit parameter', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 12, method: 'tools/call',
@@ -314,6 +332,24 @@ describe('person_context tool', () => {
         assert.equal(parsed.safety.readOnly, true);
         assert.equal(parsed.safety.contactDetailsOmitted, true);
         assert.equal(parsed.safety.noLlmCalls, true);
+    });
+
+    it('redacts raw insight topic details from person_context evidence', async () => {
+        const sensitiveInsights = {
+            li_002: {
+                topics: ['confidential acquisition targets and private cap table dispute'],
+                keywords: ['acquisition'],
+            },
+        };
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 27, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'acquisition', limit: 1 } },
+        }, { contacts: CONTACTS, insights: sensitiveInsights });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.ok(parsed.matches.length >= 1, 'need matches to verify evidence redaction');
+        assert.equal(JSON.stringify(parsed).includes('confidential acquisition targets'), false, 'must not leak raw insight topics');
+        assert.equal(parsed.matches[0].evidence.some(e => e.kind === 'topic' && e.label === 'Recent conversation'), true);
     });
 
     it('strips internal fields (id, sources, activeChannels, relevance, evidenceBacked) from matches', async () => {
