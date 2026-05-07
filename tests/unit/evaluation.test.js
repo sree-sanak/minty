@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { evaluateRelationshipQueries } = require('../../crm/evaluation');
+const { DEFAULT_CASES } = require('../../scripts/evaluate-network-memory');
 
 test('evaluates relationship query quality using evidence-backed criteria', () => {
     const cases = [
@@ -76,4 +77,22 @@ test('enforces required paths, forbidden paths, and forbidden substrings in agen
     assert.equal(report.failed, 2);
     assert.deepEqual(report.cases[0].failures, ['forbidden_path_present', 'forbidden_substring_present']);
     assert.deepEqual(report.cases[1].failures, ['missing_required_path']);
+});
+
+test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
+    for (const query of ['Who do I know for crypto insurance?', 'Who do I know for EU crypto insurance?']) {
+        const positiveCase = DEFAULT_CASES.find(c => c.query === query);
+        assert.ok(positiveCase, `${query} eval case should exist`);
+        assert.equal(positiveCase.minResults, 1);
+        assert.equal(positiveCase.disallowFallback, true);
+        assert.deepEqual(positiveCase.requireEvidenceKinds, ['keyword', 'topic']);
+        assert.deepEqual(positiveCase.requirePaths, ['safety.readOnly', 'results.0.evidenceBacked']);
+        assert.deepEqual(positiveCase.forbidPaths, ['results.0.email', 'results.0.phone']);
+        assert.deepEqual(positiveCase.forbidSubstrings, ['raw-phone-555-0101']);
+    }
+
+    const impossibleCase = DEFAULT_CASES.find(c => c.query === 'Who do I know for impossible private codename zzqv?');
+    assert.ok(impossibleCase, 'impossible-query eval case should exist');
+    assert.equal(impossibleCase.maxResults, 0);
+    assert.equal(impossibleCase.disallowFallback, true);
 });
