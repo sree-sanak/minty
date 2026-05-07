@@ -61,6 +61,87 @@ function resolveSyncStatePath(dataDir, userDataDir) {
     return path.join(dataDir, 'sync-state.json');
 }
 
+// ---------------------------------------------------------------------------
+// Privacy-safe error redaction
+// ---------------------------------------------------------------------------
+
+const MAX_SAFE_MESSAGE_LEN = 150;
+const SUPPORTED_SOURCE_NAMES = Object.freeze([
+    'whatsapp', 'email', 'googleContacts', 'linkedin', 'telegram', 'sms', 'calendar',
+]);
+
+function redactErrorMessage(msg) {
+    if (!msg || typeof msg !== 'string' || msg.trim() === '') return null;
+    let s = msg;
+    // Strip stack trace lines
+    s = s.replace(/\n\s+at\s+.*/g, '');
+    // Redact emails
+    s = s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[REDACTED_EMAIL]');
+    // Redact phone numbers (international-ish)
+    s = s.replace(/\+?[\d][\d\s\-().]{7,}\d/g, '[REDACTED_PHONE]');
+    // Redact JWT-like tokens and common shortened JWT snippets in logs.
+    s = s.replace(/eyJ[A-Za-z0-9_.-]{8,}/g, '[REDACTED_TOKEN]');
+    // Redact long token/session values after common bearer fields.
+    s = s.replace(/(?<=(?:=|token\s+|Bearer\s+))[A-Za-z0-9._-]{20,}/gi, '[REDACTED_TOKEN]');
+    // Redact URLs before path redaction so private hostnames are not retained.
+    s = s.replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]');
+    // Redact file paths
+    s = s.replace(/(?:\/[\w.\-]+){2,}/g, '[REDACTED_PATH]');
+    // Truncate
+    if (s.length > MAX_SAFE_MESSAGE_LEN) s = s.slice(0, MAX_SAFE_MESSAGE_LEN) + '...';
+    return s.trim() || null;
+}
+
+// ---------------------------------------------------------------------------
+// Source health classification
+// ---------------------------------------------------------------------------
+
+const STALE_THRESHOLD_HOURS = 24;
+
+function classifySourceHealth(sourceEntry = null, now = new Date()) {
+    if (!sourceEntry || typeof sourceEntry !== 'object') {
+        return {
+            lastSyncAt: null,
+            ageHours: null,
+            status: 'missing',
+            errorKind: null,
+            safeMessage: 'No sync state recorded',
+        };
+    }
+
+    const entry = {
+        lastSyncAt: sourceEntry.lastSyncAt || null,
+        ageHours: null,
+        status: 'never-synced',
+        errorKind: null,
+        safeMessage: null,
+    };
+
+    if (sourceEntry.status === 'error' || sourceEntry.lastError) {
+        entry.status = 'failing';
+        entry.errorKind = 'sync_error';
+        entry.safeMessage = redactErrorMessage(sourceEntry.lastError || sourceEntry.error || 'unknown error');
+    }
+
+    if (entry.lastSyncAt) {
+        const syncDate = new Date(entry.lastSyncAt);
+        const ageMs = now.getTime() - syncDate.getTime();
+        if (!Number.isFinite(ageMs)) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'invalid_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Invalid sync timestamp';
+            return entry;
+        }
+        entry.ageHours = Math.max(0, Math.round((ageMs / (3600 * 1000)) * 100) / 100);
+
+        if (entry.status !== 'failing') {
+            entry.status = entry.ageHours > STALE_THRESHOLD_HOURS ? 'stale' : 'fresh';
+        }
+    }
+
+    return entry;
+}
+
 function isStoppedStatus(svcStatus) {
     if (!svcStatus?.stoppedAt) return false;
     if (!svcStatus.startedAt) return true;
@@ -100,12 +181,18 @@ function buildStatus(dataDir) {
     const syncState = loadJson(syncStatePath);
     if (syncState) {
         status.sources = {};
+        status.sourceHealth = {};
+        const now = new Date();
+        for (const name of SUPPORTED_SOURCE_NAMES) {
+            status.sourceHealth[name] = classifySourceHealth(syncState[name], now);
+        }
         for (const [key, val] of Object.entries(syncState)) {
             if (val && typeof val === 'object') {
                 status.sources[key] = {
                     status: val.status || 'unknown',
                     lastSyncAt: val.lastSyncAt || null,
                 };
+                status.sourceHealth[key] = classifySourceHealth(val, now);
             }
         }
     }
@@ -144,7 +231,7 @@ function formatTty(status) {
 }
 
 module.exports = {
-    isPidAlive, loadJson, buildStatus, formatTty,
+    isPidAlive, loadJson, buildStatus, formatTty, redactErrorMessage, classifySourceHealth,
     isSafeUuid, isPathInside, resolveUserDataDirForStatus, resolveSyncStatePath,
 };
 
