@@ -693,7 +693,15 @@ run_optional_step() {
 }
 
 write_refresh_status() {
-  node scripts/memory-refresh-diagnostics.js --data-dir "$DATA_DIR" --steps-file "$STEPS_FILE" >/dev/null 2>&1 || true
+  local original_status=$?
+  local diagnostics_status=0
+  node scripts/memory-refresh-diagnostics.js --data-dir "$DATA_DIR" --steps-file "$STEPS_FILE"
+  diagnostics_status=$?
+  if [ "$diagnostics_status" -ne 0 ]; then
+    echo "Minty memory refresh diagnostics generation failed (DATA_DIR=$DATA_DIR STEPS_FILE=$STEPS_FILE)" >&2
+    return "$diagnostics_status"
+  fi
+  return "$original_status"
 }
 trap write_refresh_status EXIT
 ```
@@ -768,6 +776,24 @@ test('[AgentQuery]: loadData loads redacted memory refresh status', () => {
     assert.equal(data.memoryRefreshStatus.failedStep, 'telegram');
     assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('/root/.hermes'), false);
 });
+test('[AgentQuery]: loadData redacts and validates memory refresh status', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-refresh-redact-'));
+    fs.mkdirSync(path.join(dir, 'unified'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'unified', 'contacts.json'), '[]\n');
+    fs.writeFileSync(path.join(dir, 'unified', 'memory-refresh-status.json'), JSON.stringify({
+        status: 'failed',
+        failedStep: '/root/.hermes/private/brain',
+        generatedAt: '2026-05-07 20:00:00',
+        nextActions: ['Fix token path /root/.hermes/google_token.json for alice@example.com and rerun.'],
+        safety: { redacted: true },
+    }));
+
+    const data = loadData(dir);
+    assert.equal(data.memoryRefreshStatus.failedStep, null);
+    assert.equal(data.memoryRefreshStatus.generatedAt, null);
+    assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('/root/.hermes'), false);
+    assert.equal(JSON.stringify(data.memoryRefreshStatus).includes('alice@example.com'), false);
+});
 ```
 
 Append to `tests/unit/agent-source-health.test.js`:
@@ -836,9 +862,10 @@ Expected: FAIL — `memoryRefreshStatus` / `refresh` fields are missing.
 
 **Step 3: Update `scripts/agent-query.js` loader**
 
-In `loadData(dataDir)`, add a sanitized loader for `unified/memory-refresh-status.json`:
+In `loadData(dataDir)`, import the shared redactor and add a sanitized loader for `unified/memory-refresh-status.json`:
 
 ```js
+const { redactDiagnosticValue } = require('../crm/memory-refresh-diagnostics');
 const SAFE_REFRESH_STEP_IDS = new Set([
     'google_contacts',
     'telegram',
@@ -852,16 +879,32 @@ const SAFE_REFRESH_STEP_IDS = new Set([
     'mcp_smoke',
 ]);
 
+function safeRefreshIso(value) {
+    if (typeof value !== 'string') return null;
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
+    const t = Date.parse(value);
+    if (Number.isNaN(t)) return null;
+    return new Date(t).toISOString();
+}
+
 function sanitizeMemoryRefreshStatus(parsed) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
     const failedStep = typeof parsed.failedStep === 'string' && SAFE_REFRESH_STEP_IDS.has(parsed.failedStep)
         ? parsed.failedStep
         : null;
+    const generatedAt = safeRefreshIso(parsed.generatedAt);
+    const nextActions = Array.isArray(parsed.nextActions)
+        ? parsed.nextActions
+            .filter(v => typeof v === 'string')
+            .map(v => redactDiagnosticValue(v))
+            .filter(Boolean)
+            .slice(0, 3)
+        : [];
     const out = {
         status: ['ok', 'warning', 'failed'].includes(parsed.status) ? parsed.status : 'warning',
         failedStep,
-        generatedAt: typeof parsed.generatedAt === 'string' ? parsed.generatedAt : null,
-        nextActions: Array.isArray(parsed.nextActions) ? parsed.nextActions.filter(v => typeof v === 'string').slice(0, 3) : [],
+        generatedAt,
+        nextActions,
     };
     return out;
 }
