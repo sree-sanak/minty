@@ -37,13 +37,15 @@ function isPhoneLike(value) {
 }
 
 function agentSafetyEnvelope(extra = {}) {
+    const defaults = ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds'];
+    const extraOmitted = Array.isArray(extra.omittedFields) ? extra.omittedFields : [];
     return {
+        ...extra,
         contactDetailsOmitted: true,
         contactIdsOmitted: true,
-        omittedFields: ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds'],
+        omittedFields: [...new Set([...defaults, ...extraOmitted])],
         noLlmCalls: true,
         readOnly: true,
-        ...extra,
     };
 }
 
