@@ -15,6 +15,8 @@ const {
     isPathInside,
     resolveUserDataDirForStatus,
     resolveSyncStatePath,
+    redactErrorMessage,
+    classifySourceHealth,
 } = require('../../scripts/minty-service-status');
 
 // ---------------------------------------------------------------------------
@@ -173,6 +175,229 @@ test('[service-status] resolveSyncStatePath: ignores userDataDir outside data di
 // ---------------------------------------------------------------------------
 // formatTty
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// redactErrorMessage
+// ---------------------------------------------------------------------------
+
+test('[service-status] redactErrorMessage: redacts email addresses', () => {
+    assert.equal(redactErrorMessage('Failed for user@example.com'), 'Failed for [REDACTED_EMAIL]');
+});
+
+test('[service-status] redactErrorMessage: redacts phone numbers', () => {
+    assert.equal(redactErrorMessage('Call +1-555-867-5309 failed'), 'Call [REDACTED_PHONE] failed');
+});
+
+test('[service-status] redactErrorMessage: redacts tokens and session strings', () => {
+    assert.equal(
+        redactErrorMessage('Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature expired'),
+        'Bearer [REDACTED_TOKEN] expired'
+    );
+    assert.equal(
+        redactErrorMessage('session=abc123def456ghi789jkl012mno345 invalid'),
+        'session=[REDACTED_TOKEN] invalid'
+    );
+});
+
+test('[service-status] redactErrorMessage: redacts file paths', () => {
+    assert.equal(
+        redactErrorMessage('ENOENT /home/user/.config/minty/secrets.json'),
+        'ENOENT [REDACTED_PATH]'
+    );
+    assert.equal(
+        redactErrorMessage('ENOENT C:\\Users\\person\\.config\\minty\\secrets.json'),
+        'ENOENT [REDACTED_PATH]'
+    );
+    assert.equal(
+        redactErrorMessage('ENOENT C:\\Users\\Person Name\\AppData\\Roaming\\minty\\secrets.json failed'),
+        'ENOENT [REDACTED_PATH]'
+    );
+});
+
+test('[service-status] redactErrorMessage: redacts standalone token-like secrets', () => {
+    const prefixedToken = `sk_${'live'}_${'abcdefghijklmnopqrstuvwxyz'}`;
+    const hexToken = 'a'.repeat(32);
+    const lowercaseToken = 'z'.repeat(40);
+    const result = redactErrorMessage(`Auth failed for API key ${prefixedToken}; request id ${hexToken}; opaque ${lowercaseToken}`);
+    assert.ok(result.includes('[REDACTED_TOKEN]'));
+    assert.ok(!result.includes('sk_live_'));
+    assert.ok(!result.includes(hexToken));
+    assert.ok(!result.includes(lowercaseToken));
+});
+
+test('[service-status] redactErrorMessage: extracts safe object-shaped errors', () => {
+    const token = 'abcDEF1234567890abcDEF1234567890';
+    const result = redactErrorMessage({
+        at: '2026-05-07T12:00:00Z',
+        reason: `Auth failed for token ${token} at C:\\Users\\person\\token.json`,
+    });
+    assert.ok(result.includes('[REDACTED_TOKEN]'));
+    assert.ok(result.includes('[REDACTED_PATH]'));
+    assert.ok(!result.includes('abcDEF'));
+    assert.ok(!result.includes('C:\\Users'));
+});
+
+test('[service-status] redactErrorMessage: redacts URLs including private hostnames', () => {
+    assert.equal(
+        redactErrorMessage('Request to https://api.internal.example/v2/contacts failed'),
+        'Request to [REDACTED_URL] failed'
+    );
+    assert.equal(
+        redactErrorMessage('Connection refused by sync.internal-host:443'),
+        'Connection refused by [REDACTED_HOST]'
+    );
+});
+
+test('[service-status] redactErrorMessage: truncates long messages', () => {
+    const long = 'x'.repeat(300);
+    const result = redactErrorMessage(long);
+    assert.ok(result.length <= 160);
+});
+
+test('[service-status] redactErrorMessage: redacts stack traces', () => {
+    const msg = 'Error: boom\n    at Object.<anonymous> (/app/index.js:10:5)\n    at Module._compile (node:internal/modules/cjs/loader:1234:14)';
+    const result = redactErrorMessage(msg);
+    assert.ok(!result.includes('/app/index.js'));
+    assert.ok(!result.includes('at Module'));
+});
+
+test('[service-status] redactErrorMessage: handles null/undefined', () => {
+    assert.equal(redactErrorMessage(null), null);
+    assert.equal(redactErrorMessage(undefined), null);
+    assert.equal(redactErrorMessage(''), null);
+});
+
+// ---------------------------------------------------------------------------
+// classifySourceHealth
+// ---------------------------------------------------------------------------
+
+test('[service-status] classifySourceHealth: computes deterministic fresh age from injected clock', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    const result = classifySourceHealth({ status: 'ok', lastSyncAt: '2026-05-07T09:30:00.000Z' }, now);
+    assert.deepEqual(result, {
+        lastSyncAt: '2026-05-07T09:30:00.000Z',
+        ageHours: 2.5,
+        status: 'fresh',
+        errorKind: null,
+        safeMessage: null,
+    });
+});
+
+test('[service-status] classifySourceHealth: returns explicit missing state for absent source entry', () => {
+    assert.deepEqual(classifySourceHealth(null, new Date('2026-05-07T12:00:00.000Z')), {
+        lastSyncAt: null,
+        ageHours: null,
+        status: 'missing',
+        errorKind: null,
+        safeMessage: 'No sync state recorded',
+    });
+});
+
+test('[service-status] classifySourceHealth: rejects invalid timestamps without NaN age', () => {
+    assert.deepEqual(classifySourceHealth({ status: 'ok', lastSyncAt: 'not-a-date' }, new Date('2026-05-07T12:00:00.000Z')), {
+        lastSyncAt: 'not-a-date',
+        ageHours: null,
+        status: 'missing',
+        errorKind: 'invalid_timestamp',
+        safeMessage: 'Invalid sync timestamp',
+    });
+});
+
+test('[service-status] classifySourceHealth: uses legacy freshness timestamp fields', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    const result = classifySourceHealth({ status: 'ok', lastSync: '2026-05-07T10:00:00.000Z' }, now);
+    assert.equal(result.lastSyncAt, '2026-05-07T10:00:00.000Z');
+    assert.equal(result.ageHours, 2);
+    assert.equal(result.status, 'fresh');
+});
+
+test('[service-status] classifySourceHealth: rejects future timestamps as clock skew', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    assert.deepEqual(classifySourceHealth({ status: 'ok', lastSyncAt: '2026-05-07T13:00:00.000Z' }, now), {
+        lastSyncAt: '2026-05-07T13:00:00.000Z',
+        ageHours: null,
+        status: 'missing',
+        errorKind: 'future_timestamp',
+        safeMessage: 'Sync timestamp is in the future',
+    });
+});
+
+// ---------------------------------------------------------------------------
+// buildStatus: sourceHealth
+// ---------------------------------------------------------------------------
+
+test('[service-status] buildStatus: sourceHealth with fresh source', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const now = new Date();
+    const oneHourAgo = new Date(now - 3600 * 1000).toISOString();
+    fs.writeFileSync(path.join(tmp, 'sync-state.json'), JSON.stringify({
+        email: { status: 'ok', lastSyncAt: oneHourAgo },
+    }));
+    const s = buildStatus(tmp);
+    assert.ok(s.sourceHealth);
+    assert.ok(s.sourceHealth.email);
+    assert.equal(s.sourceHealth.email.status, 'fresh');
+    assert.equal(s.sourceHealth.whatsapp.status, 'missing');
+    assert.equal(s.sourceHealth.whatsapp.safeMessage, 'No sync state recorded');
+    assert.equal(s.sourceHealth.email.lastSyncAt, oneHourAgo);
+    assert.equal(typeof s.sourceHealth.email.ageHours, 'number');
+    assert.ok(s.sourceHealth.email.ageHours >= 0 && s.sourceHealth.email.ageHours <= 2);
+    assert.equal(s.sourceHealth.email.errorKind, null);
+    assert.equal(s.sourceHealth.email.safeMessage, null);
+    // backward compat: sources still present
+    assert.equal(s.sources.email.status, 'ok');
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[service-status] buildStatus: sourceHealth with stale source (>24h)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const twoDaysAgo = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    fs.writeFileSync(path.join(tmp, 'sync-state.json'), JSON.stringify({
+        whatsapp: { status: 'ok', lastSyncAt: twoDaysAgo },
+    }));
+    const s = buildStatus(tmp);
+    assert.equal(s.sourceHealth.whatsapp.status, 'stale');
+    assert.ok(s.sourceHealth.whatsapp.ageHours >= 47);
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[service-status] buildStatus: sourceHealth with error source', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const recentSync = new Date(Date.now() - 3600 * 1000).toISOString();
+    fs.writeFileSync(path.join(tmp, 'sync-state.json'), JSON.stringify({
+        googleContacts: {
+            status: 'error',
+            lastSyncAt: recentSync,
+            lastError: 'Auth failed for user@corp.com at /home/deploy/.tokens/gc.json',
+        },
+    }));
+    const s = buildStatus(tmp);
+    assert.equal(s.sourceHealth.googleContacts.status, 'failing');
+    assert.equal(s.sourceHealth.googleContacts.errorKind, 'sync_error');
+    assert.ok(s.sourceHealth.googleContacts.safeMessage);
+    assert.ok(!s.sourceHealth.googleContacts.safeMessage.includes('user@corp.com'));
+    assert.ok(!s.sourceHealth.googleContacts.safeMessage.includes('/home/deploy'));
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[service-status] buildStatus: sourceHealth with never-synced source', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    fs.writeFileSync(path.join(tmp, 'sync-state.json'), JSON.stringify({
+        whatsapp: { status: 'idle', lastSyncAt: null },
+    }));
+    const s = buildStatus(tmp);
+    assert.equal(s.sourceHealth.whatsapp.status, 'never-synced');
+    assert.equal(s.sourceHealth.whatsapp.lastSyncAt, null);
+    assert.equal(s.sourceHealth.whatsapp.ageHours, null);
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test('[service-status] buildStatus: sourceHealth missing when no sync-state', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-test-'));
+    const s = buildStatus(tmp);
+    assert.equal(s.sourceHealth, undefined);
+    fs.rmSync(tmp, { recursive: true, force: true });
+});
 
 test('[service-status] formatTty: basic output', () => {
     const s = {

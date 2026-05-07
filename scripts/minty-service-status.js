@@ -61,6 +61,119 @@ function resolveSyncStatePath(dataDir, userDataDir) {
     return path.join(dataDir, 'sync-state.json');
 }
 
+// ---------------------------------------------------------------------------
+// Privacy-safe error redaction
+// ---------------------------------------------------------------------------
+
+const MAX_SAFE_MESSAGE_LEN = 150;
+const SUPPORTED_SOURCE_NAMES = Object.freeze([
+    'whatsapp', 'email', 'googleContacts', 'linkedin', 'telegram', 'sms', 'calendar',
+]);
+
+function extractErrorMessage(err) {
+    if (!err) return null;
+    if (typeof err === 'string') return err;
+    if (typeof err !== 'object') return String(err);
+    for (const key of ['message', 'reason', 'code']) {
+        if (typeof err[key] === 'string' && err[key].trim()) return err[key];
+    }
+    return null;
+}
+
+function redactErrorMessage(msg) {
+    const raw = extractErrorMessage(msg);
+    if (!raw || raw.trim() === '') return null;
+    let s = raw;
+    // Strip stack trace lines
+    s = s.replace(/\n\s+at\s+.*/g, '');
+    // Redact URLs before path redaction so private hostnames are not retained.
+    s = s.replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]');
+    // Redact Windows and POSIX file paths before token redaction.
+    s = s.replace(/\b[A-Za-z]:\\(?:[^\\\r\n]+\\)+[^\\\r\n]*/g, '[REDACTED_PATH]');
+    s = s.replace(/(?:\/[\w.\-]+){2,}/g, '[REDACTED_PATH]');
+    // Redact private hostnames even when they appear without an http(s) scheme.
+    s = s.replace(/\b(?:[a-z0-9-]+\.)*(?:localhost|[a-z0-9-]*(?:internal|private|corp|lan|local)[a-z0-9-]*)(?:\.[a-z0-9-]+)*(?::\d+)?\b/gi, '[REDACTED_HOST]');
+    // Redact secret-looking values before phone redaction so digit-heavy tokens are
+    // not partially redacted into leaked fragments.
+    s = s.replace(/eyJ[A-Za-z0-9_.-]{8,}/g, '[REDACTED_TOKEN]');
+    s = s.replace(/\b(?:sk_(?:live|test)_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|AIza[A-Za-z0-9_-]{12,})\b/g, '[REDACTED_TOKEN]');
+    s = s.replace(/\b(api[-_ ]?key|token|secret|session|password|credential|authorization|bearer)\b(\s*(?:[:=]\s*|\s+))[A-Za-z0-9._~+/=-]{6,}/gi, '$1$2[REDACTED_TOKEN]');
+    // Redact any long standalone URL-safe value. This is intentionally fail-closed:
+    // service status diagnostics are more useful without leaking a possible secret.
+    s = s.replace(/\b[A-Za-z0-9._-]{32,}\b/g, '[REDACTED_TOKEN]');
+    // Redact emails
+    s = s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[REDACTED_EMAIL]');
+    // Redact phone numbers (international-ish)
+    s = s.replace(/\+?[\d][\d\s\-().]{7,}\d/g, '[REDACTED_PHONE]');
+    // Truncate
+    if (s.length > MAX_SAFE_MESSAGE_LEN) s = s.slice(0, MAX_SAFE_MESSAGE_LEN) + '...';
+    return s.trim() || null;
+}
+
+function getLastSyncAt(sourceEntry) {
+    if (!sourceEntry || typeof sourceEntry !== 'object') return null;
+    for (const key of ['lastSyncAt', 'lastSyncedAt', 'updatedAt', 'lastSync']) {
+        if (sourceEntry[key]) return sourceEntry[key];
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// Source health classification
+// ---------------------------------------------------------------------------
+
+const STALE_THRESHOLD_HOURS = 24;
+
+function classifySourceHealth(sourceEntry = null, now = new Date()) {
+    if (!sourceEntry || typeof sourceEntry !== 'object') {
+        return {
+            lastSyncAt: null,
+            ageHours: null,
+            status: 'missing',
+            errorKind: null,
+            safeMessage: 'No sync state recorded',
+        };
+    }
+
+    const entry = {
+        lastSyncAt: getLastSyncAt(sourceEntry),
+        ageHours: null,
+        status: 'never-synced',
+        errorKind: null,
+        safeMessage: null,
+    };
+
+    if (sourceEntry.status === 'error' || sourceEntry.lastError || sourceEntry.error) {
+        entry.status = 'failing';
+        entry.errorKind = 'sync_error';
+        entry.safeMessage = redactErrorMessage(sourceEntry.lastError || sourceEntry.error || 'unknown error');
+    }
+
+    if (entry.lastSyncAt) {
+        const syncDate = new Date(entry.lastSyncAt);
+        const ageMs = now.getTime() - syncDate.getTime();
+        if (!Number.isFinite(ageMs)) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'invalid_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Invalid sync timestamp';
+            return entry;
+        }
+        if (ageMs < 0) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'future_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Sync timestamp is in the future';
+            return entry;
+        }
+        entry.ageHours = Math.round((ageMs / (3600 * 1000)) * 100) / 100;
+
+        if (entry.status !== 'failing') {
+            entry.status = entry.ageHours > STALE_THRESHOLD_HOURS ? 'stale' : 'fresh';
+        }
+    }
+
+    return entry;
+}
+
 function isStoppedStatus(svcStatus) {
     if (!svcStatus?.stoppedAt) return false;
     if (!svcStatus.startedAt) return true;
@@ -100,12 +213,18 @@ function buildStatus(dataDir) {
     const syncState = loadJson(syncStatePath);
     if (syncState) {
         status.sources = {};
+        status.sourceHealth = {};
+        const now = new Date();
+        for (const name of SUPPORTED_SOURCE_NAMES) {
+            status.sourceHealth[name] = classifySourceHealth(syncState[name], now);
+        }
         for (const [key, val] of Object.entries(syncState)) {
             if (val && typeof val === 'object') {
                 status.sources[key] = {
                     status: val.status || 'unknown',
                     lastSyncAt: val.lastSyncAt || null,
                 };
+                status.sourceHealth[key] = classifySourceHealth(val, now);
             }
         }
     }
@@ -144,7 +263,7 @@ function formatTty(status) {
 }
 
 module.exports = {
-    isPidAlive, loadJson, buildStatus, formatTty,
+    isPidAlive, loadJson, buildStatus, formatTty, redactErrorMessage, classifySourceHealth,
     isSafeUuid, isPathInside, resolveUserDataDirForStatus, resolveSyncStatePath,
 };
 
