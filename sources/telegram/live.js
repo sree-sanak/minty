@@ -52,12 +52,6 @@ loadLocalEnv();
 const DATA_DIR = process.env.CRM_DATA_DIR || path.join(ROOT, 'data');
 const OUT_DIR = process.env.TELEGRAM_OUT_DIR || path.join(DATA_DIR, 'telegram');
 
-function intEnv(name, fallback, min = 1, max = 10000) {
-    const n = Number.parseInt(process.env[name] || '', 10);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.max(min, Math.min(max, n));
-}
-
 function asId(value) {
     if (value == null) return null;
     if (typeof value === 'bigint') return value.toString();

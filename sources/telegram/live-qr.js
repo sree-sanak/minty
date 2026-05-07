@@ -31,7 +31,12 @@ function loadDotEnv(file = ENV_PATH) {
 }
 
 function upsertDotEnv(values, file = ENV_PATH) {
-    const existing = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    let existing = '';
+    try {
+        existing = fs.readFileSync(file, 'utf8');
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
     const lines = existing ? existing.split(/\r?\n/) : [];
     const seen = new Set();
     const next = lines.map(line => {
