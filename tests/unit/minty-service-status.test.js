@@ -204,12 +204,47 @@ test('[service-status] redactErrorMessage: redacts file paths', () => {
         redactErrorMessage('ENOENT /home/user/.config/minty/secrets.json'),
         'ENOENT [REDACTED_PATH]'
     );
+    assert.equal(
+        redactErrorMessage('ENOENT C:\\Users\\person\\.config\\minty\\secrets.json'),
+        'ENOENT [REDACTED_PATH]'
+    );
+    assert.equal(
+        redactErrorMessage('ENOENT C:\\Users\\Person Name\\AppData\\Roaming\\minty\\secrets.json failed'),
+        'ENOENT [REDACTED_PATH]'
+    );
+});
+
+test('[service-status] redactErrorMessage: redacts standalone token-like secrets', () => {
+    const prefixedToken = `sk_${'live'}_${'abcdefghijklmnopqrstuvwxyz'}`;
+    const hexToken = 'a'.repeat(32);
+    const lowercaseToken = 'z'.repeat(40);
+    const result = redactErrorMessage(`Auth failed for API key ${prefixedToken}; request id ${hexToken}; opaque ${lowercaseToken}`);
+    assert.ok(result.includes('[REDACTED_TOKEN]'));
+    assert.ok(!result.includes('sk_live_'));
+    assert.ok(!result.includes(hexToken));
+    assert.ok(!result.includes(lowercaseToken));
+});
+
+test('[service-status] redactErrorMessage: extracts safe object-shaped errors', () => {
+    const token = 'abcDEF1234567890abcDEF1234567890';
+    const result = redactErrorMessage({
+        at: '2026-05-07T12:00:00Z',
+        reason: `Auth failed for token ${token} at C:\\Users\\person\\token.json`,
+    });
+    assert.ok(result.includes('[REDACTED_TOKEN]'));
+    assert.ok(result.includes('[REDACTED_PATH]'));
+    assert.ok(!result.includes('abcDEF'));
+    assert.ok(!result.includes('C:\\Users'));
 });
 
 test('[service-status] redactErrorMessage: redacts URLs including private hostnames', () => {
     assert.equal(
         redactErrorMessage('Request to https://api.internal.example/v2/contacts failed'),
         'Request to [REDACTED_URL] failed'
+    );
+    assert.equal(
+        redactErrorMessage('Connection refused by sync.internal-host:443'),
+        'Connection refused by [REDACTED_HOST]'
     );
 });
 
@@ -265,6 +300,25 @@ test('[service-status] classifySourceHealth: rejects invalid timestamps without 
         status: 'missing',
         errorKind: 'invalid_timestamp',
         safeMessage: 'Invalid sync timestamp',
+    });
+});
+
+test('[service-status] classifySourceHealth: uses legacy freshness timestamp fields', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    const result = classifySourceHealth({ status: 'ok', lastSync: '2026-05-07T10:00:00.000Z' }, now);
+    assert.equal(result.lastSyncAt, '2026-05-07T10:00:00.000Z');
+    assert.equal(result.ageHours, 2);
+    assert.equal(result.status, 'fresh');
+});
+
+test('[service-status] classifySourceHealth: rejects future timestamps as clock skew', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    assert.deepEqual(classifySourceHealth({ status: 'ok', lastSyncAt: '2026-05-07T13:00:00.000Z' }, now), {
+        lastSyncAt: '2026-05-07T13:00:00.000Z',
+        ageHours: null,
+        status: 'missing',
+        errorKind: 'future_timestamp',
+        safeMessage: 'Sync timestamp is in the future',
     });
 });
 
