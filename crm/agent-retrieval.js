@@ -350,6 +350,21 @@ function isPersonContactRow(c) {
     return !['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type);
 }
 
+const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const MASKED_PHONE_RE = /\+?\d[\d\s().-]*\*{2,}[\d\s().-]*\d/g;
+const PHONE_RE = /\+?\d[\d\s().-]{7,}\d/g;
+
+function redactDirectContactDetails(value) {
+    if (value == null) return null;
+    return String(value)
+        .replace(EMAIL_RE, '[redacted email]')
+        .replace(MASKED_PHONE_RE, '[redacted phone]')
+        .replace(PHONE_RE, match => {
+            const digits = match.replace(/\D/g, '');
+            return digits.length >= 7 ? '[redacted phone]' : match;
+        });
+}
+
 function matchedSourcesForContact(contact, sourceFilter, evidence = {}, requireEvidence = false) {
     const evidenceSources = new Set();
     for (const source of sourceList(evidence.interactionSources || [])) evidenceSources.add(canonicalSource(source));
@@ -517,22 +532,24 @@ function queryNetwork(query, opts = {}) {
 
     // 8. Shape into stable agent envelope
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
-    const results = filtered.slice(0, safeLimit).map(r => {
+    const page = filtered.slice(0, safeLimit);
+    const matchingContactIds = page.map(r => r.id);
+    const results = page.map(r => {
         const matchedSources = matchedSourcesForResult(r);
         return {
-            id:                r.id,
-            name:              r.name,
-            title:             r.title || null,
-            company:           r.company || null,
-            city:              r.city || null,
+            id:                safeContactRef(r.id),
+            name:              redactDirectContactDetails(r.name),
+            title:             redactDirectContactDetails(r.title) || null,
+            company:           redactDirectContactDetails(r.company) || null,
+            city:              redactDirectContactDetails(r.city) || null,
             relevance:         r.matchScore || 0,
             relationshipScore: r.relationshipScore || 0,
             warmth:            warmthLabel(r.relationshipScore || 0),
             confidence:        confidenceLevel(r.matchScore, r.relationshipScore),
             evidence:          (r.reasons || []).map(reason => ({
                 kind:   reason.kind,
-                label:  reason.label,
-                detail: reason.detail || null,
+                label:  redactDirectContactDetails(reason.label),
+                detail: redactDirectContactDetails(reason.detail) || null,
             })),
             evidenceBacked:    (r.reasons || []).length > 0,
             suggestedAction:   suggestAction(r, parsed.intent),
@@ -542,7 +559,6 @@ function queryNetwork(query, opts = {}) {
         };
     });
 
-    const matchingContactIds = results.map(r => r.id);
     const sourceCoverageContacts = sourceFilter
         ? contacts.filter(c => {
             const id = c.id;

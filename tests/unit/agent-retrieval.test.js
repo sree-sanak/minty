@@ -69,7 +69,8 @@ describe('agent-retrieval: queryNetwork()', () => {
     it('each result has required agent-friendly fields', () => {
         const out = queryNetwork('founders', { contacts: CONTACTS, insights: INSIGHTS });
         for (const r of out.results) {
-            assert.ok(r.id, 'has id');
+            assert.ok(r.id, 'has privacy-safe id');
+            assert.ok(r.id.startsWith('contact:'), 'id is a privacy-safe contact ref');
             assert.ok(r.name, 'has name');
             assert.ok('relevance' in r, 'has relevance');
             assert.ok('relationshipScore' in r, 'has relationshipScore');
@@ -122,7 +123,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         };
 
         const out = queryNetwork('Who do I know working in DeFi lending protocols?', { contacts, contactEvidence });
-        assert.equal(out.results[0].id, 'c_ev');
+        assert.equal(out.results[0].id, safeContactRef('c_ev'));
         assert.ok(out.results[0].evidence.some(e => e.kind === 'contact_evidence'));
         assert.ok(out.diagnostics.searchedSources.includes('telegram'));
         assert.equal(out.diagnostics.contactEvidenceContacts, 1);
@@ -168,7 +169,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         ];
 
         const out = queryNetwork('Who do I know working in DeFi lending protocols?', { contacts, interactions });
-        assert.equal(out.results[0].id, 'c_tg');
+        assert.equal(out.results[0].id, safeContactRef('c_tg'));
         assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction' && e.label === 'Telegram evidence'));
         assert.ok(!JSON.stringify(out.results).includes('Aave'), 'must not leak raw interaction text');
         assert.ok(out.diagnostics.searchedSources.includes('telegram'));
@@ -282,7 +283,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         }];
 
         const out = queryNetwork('ethereum defi staking', { contacts, interactions });
-        assert.equal(out.results[0].id, 'c_named');
+        assert.equal(out.results[0].id, safeContactRef('c_named'));
         assert.ok(out.results[0].evidence.some(e => e.kind === 'interaction'));
     });
 
@@ -354,7 +355,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         const interactions = [{ id: 'i_person', source: 'telegram', type: 'direct', contactId: 'c_person', body: 'Discussed payments infrastructure.' }];
 
         const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
-        assert.deepEqual(out.results.map(r => r.id), ['c_person']);
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_person')]);
         assert.equal(out.diagnostics.contactsConsidered, 1);
     });
 
@@ -383,7 +384,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         ];
 
         const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
-        assert.deepEqual(out.results.map(r => r.id), ['c_valid']);
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_valid')]);
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
     });
 
@@ -397,7 +398,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         };
 
         const out = queryNetwork('telegram payments', { contacts, contactEvidence, source: 'telegram' });
-        assert.deepEqual(out.results.map(r => r.id), ['c_evidence_string']);
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_evidence_string')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
     });
 
@@ -517,7 +518,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.safety);
         assert.equal(out.diagnostics.contactsConsidered, 1, 'only valid object contacts are considered');
         assert.equal(out.results.length, 1);
-        assert.equal(out.results[0].id, 'c_valid');
+        assert.equal(out.results[0].id, safeContactRef('c_valid'));
     });
 
     it('survives null contacts without crashing', () => {
@@ -548,7 +549,7 @@ describe('agent-retrieval: queryNetwork()', () => {
             }];
             const out = queryNetwork('appsec', { contacts });
             assert.equal(out.results.length, 1);
-            assert.equal(out.results[0].id, id);
+            assert.equal(out.results[0].id, safeContactRef(id));
             assert.ok(out.results[0].evidence.some(e => e.kind === 'keyword'));
         }
     });
@@ -574,14 +575,14 @@ describe('agent-retrieval: queryNetwork()', () => {
 
     it('float limit falls back to safe default without truncating this four-result fixture', () => {
         const out = queryNetwork('contacts', { contacts: CONTACTS, insights: INSIGHTS, limit: 3.5 });
-        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003']);
+        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003'].map(safeContactRef));
     });
 
     it('result envelope carries exact confidence and metadata for known contact', () => {
         const out = queryNetwork('payments infrastructure', { contacts: CONTACTS, insights: INSIGHTS });
         assert.equal(out.results.length, 1);
         assert.deepEqual(out.results[0], {
-            id: 'c_004',
+            id: safeContactRef('c_004'),
             name: 'Dan Petrov',
             title: 'Software Engineer at Stripe',
             company: 'Stripe',
@@ -606,7 +607,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         const out = queryNetwork('', { contacts: CONTACTS, insights: INSIGHTS });
         assert.equal(out.query, '');
         assert.equal(out.intent, 'find');
-        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003']);
+        assert.deepEqual(out.results.map(r => r.id), ['c_004', 'c_001', 'c_002', 'c_003'].map(safeContactRef));
         assert.equal(out.safety.readOnly, true);
     });
 
@@ -780,7 +781,7 @@ describe('agent-retrieval: queryNetwork()', () => {
 
         const out = queryNetwork('DeFi lending protocols', { contacts, interactions, sources: ['telegram'] });
         assert.equal(out.results.length, 1);
-        assert.equal(out.results[0].id, 'c_tg');
+        assert.equal(out.results[0].id, safeContactRef('c_tg'));
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
         assert.ok(out.diagnostics.sourceCoverage.matchingSources.includes('telegram'));
@@ -808,7 +809,7 @@ describe('agent-retrieval: queryNetwork()', () => {
 
         const out = queryNetwork('DeFi lending', { contacts, interactions, source: 'linkedin' });
         assert.equal(out.results.length, 1);
-        assert.equal(out.results[0].id, 'c_li');
+        assert.equal(out.results[0].id, safeContactRef('c_li'));
         assert.deepEqual(out.results[0].matchedSources, ['linkedin']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['linkedin']);
     });
@@ -847,7 +848,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         }];
 
         const out = queryNetwork('DeFi lending protocols', { contacts, interactions, source: 'telegram' });
-        assert.deepEqual(out.results.map(r => r.id), ['c_ev']);
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_ev')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
     });
@@ -874,7 +875,7 @@ describe('agent-retrieval: queryNetwork()', () => {
         };
 
         const out = queryNetwork('DeFi lending protocol', { contacts, contactEvidence, source: 'telegram' });
-        assert.deepEqual(out.results.map(r => r.id), ['c_cev']);
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_cev')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
     });
@@ -1578,6 +1579,24 @@ describe('agent-retrieval: full envelope PII exclusion (characterization)', () =
         // Internal interaction ID must not appear
         assert.equal(serialized.includes('i_pii_secret'), false,
             'full envelope must not contain interaction id');
+    });
+
+    it('redacts phone-derived ids and contact details embedded in allowlisted strings', () => {
+        const contacts = [{
+            id: 'wa_493000000041', name: 'Ops lead +493000000041',
+            sources: { linkedin: { position: 'Founder, call +44 7911 123456', company: 'secret@example.com Labs', location: 'Berlin +49 30 000000' } },
+            relationshipScore: 80, daysSinceContact: 1, interactionCount: 4,
+            activeChannels: ['linkedin'], emails: ['secret@example.com'], phones: ['+493000000041'],
+        }];
+        const out = queryNetwork('founder secret', { contacts });
+        const serialized = JSON.stringify(out);
+
+        assert.equal(out.results[0].id, safeContactRef('wa_493000000041'));
+        assert.equal(serialized.includes('493000000041'), false, 'must not leak phone-derived contact id');
+        assert.equal(serialized.includes('+493****0041'), false, 'must redact embedded masked phone');
+        assert.equal(serialized.includes('+44 7911 123456'), false, 'must redact embedded title phone');
+        assert.equal(serialized.includes('secret@example.com'), false, 'must redact embedded company email');
+        assert.equal(serialized.includes('+49 30 000000'), false, 'must redact embedded city phone');
     });
 
     it('full envelope excludes PII even when query matches by name', () => {
