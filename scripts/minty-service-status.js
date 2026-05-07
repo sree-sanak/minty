@@ -124,6 +124,32 @@ function getLastSyncAt(sourceEntry) {
 
 const STALE_THRESHOLD_HOURS = 24;
 
+function parseStrictUtcTimestamp(value) {
+    if (typeof value !== 'string') return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/.exec(value);
+    if (!match) return null;
+
+    const [, year, month, day, hour, minute, second, fraction = '0'] = match;
+    const ms = Number(fraction.padEnd(3, '0'));
+    const date = new Date(Date.UTC(
+        Number(year), Number(month) - 1, Number(day),
+        Number(hour), Number(minute), Number(second), ms
+    ));
+
+    if (
+        date.getUTCFullYear() !== Number(year)
+        || date.getUTCMonth() !== Number(month) - 1
+        || date.getUTCDate() !== Number(day)
+        || date.getUTCHours() !== Number(hour)
+        || date.getUTCMinutes() !== Number(minute)
+        || date.getUTCSeconds() !== Number(second)
+        || date.getUTCMilliseconds() !== ms
+    ) {
+        return null;
+    }
+    return date;
+}
+
 function classifySourceHealth(sourceEntry = null, now = new Date()) {
     if (!sourceEntry || typeof sourceEntry !== 'object') {
         return {
@@ -150,7 +176,13 @@ function classifySourceHealth(sourceEntry = null, now = new Date()) {
     }
 
     if (entry.lastSyncAt) {
-        const syncDate = new Date(entry.lastSyncAt);
+        const syncDate = parseStrictUtcTimestamp(entry.lastSyncAt);
+        if (!syncDate) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'invalid_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Invalid sync timestamp';
+            return entry;
+        }
         const ageMs = now.getTime() - syncDate.getTime();
         if (!Number.isFinite(ageMs)) {
             entry.status = entry.status === 'failing' ? 'failing' : 'missing';
