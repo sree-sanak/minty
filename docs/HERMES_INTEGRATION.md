@@ -111,6 +111,10 @@ Returns matching contacts with context — no emails/phones.
 Goal-oriented brief. Input: `{ goal, limit? }`.
 Returns top people, why each matters, next steps, and data freshness metadata.
 
+### source_health
+Source readiness preflight. Input: `{ source?, sources?, query? }`.
+Returns redacted source rows with freshness, counts, evidence coverage, warnings, and safe next-step commands. Use it before source-specific questions like "who did I talk to on Telegram?" and when a query returns low evidence.
+
 ## Example queries
 
 | Query | What you get |
