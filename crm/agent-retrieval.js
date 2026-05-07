@@ -571,8 +571,10 @@ function queryNetwork(query, opts = {}) {
         : contacts;
     const sourceCoverage = summarizeSourceCoverage({ contacts: sourceCoverageContacts, sourceEvents, matchingContactIds });
 
+    const redactedQuery = redactDirectContactDetails(q);
+
     return {
-        query: q,
+        query: redactedQuery,
         intent: parsed.intent,
         results,
         diagnostics: {

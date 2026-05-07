@@ -66,6 +66,13 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.equal(out.safety.noLlmCalls, true);
     });
 
+    it('redacts direct contact details echoed in the query field', () => {
+        const out = queryNetwork('find ada@example.com or +1 415 555 0101', { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(out.query, 'find [redacted email] or [redacted phone]');
+        assert.equal(JSON.stringify(out).includes('ada@example.com'), false);
+        assert.equal(JSON.stringify(out).includes('415 555 0101'), false);
+    });
+
     it('each result has required agent-friendly fields', () => {
         const out = queryNetwork('founders', { contacts: CONTACTS, insights: INSIGHTS });
         for (const r of out.results) {
