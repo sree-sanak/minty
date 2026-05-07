@@ -257,3 +257,150 @@ test('identity review API maps same and always-separate decisions durably', asyn
         assert.equal(overrides[0].reviewDecision, 'always-separate');
     });
 });
+
+test('POST /api/network/query returns agent privacy envelope and redacts direct contact details', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-envelope-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'find sam@example.com or +1 206 555 0100 fintech investor' }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.equal(payload.query, 'find [redacted email] or [redacted phone] fintech investor');
+        assert.equal(payload.parsed.raw, payload.query);
+        assert.equal(payload.safety.contactDetailsOmitted, true);
+        assert.equal(payload.safety.noLlmCalls, true);
+        assert.equal(payload.safety.readOnly, true);
+        assert.equal(payload.safety.contactIdsOmitted, true);
+        assert.deepEqual(payload.safety.omittedFields, ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds']);
+        assert.equal(payload.diagnostics.noData, false);
+        assert.equal(payload.diagnostics.resultCount, payload.results.length);
+        assert.deepEqual(payload.expandedTerms.filter(term => /sam|example|206|555|0100/.test(term)), []);
+        assert.doesNotMatch(JSON.stringify(payload), /sam@example\.com|206 555 0100/);
+    });
+});
+
+test('POST /api/network/query does not turn contact-detail-only queries into generic results', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-detail-only-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'sam@example.com +1 206 555 0100' }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.equal(payload.query, '[redacted email] [redacted phone]');
+        assert.deepEqual(payload.results, []);
+        assert.equal(payload.diagnostics.resultCount, 0);
+        assert.equal(payload.diagnostics.evidenceBacked, false);
+        assert.doesNotMatch(JSON.stringify(payload), /Sam García|wa_12065550100|sam@example\.com|206 555 0100/);
+    });
+});
+
+test('POST /api/network/query diagnostics do not overclaim evidence for generic fallback results', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-generic-'));
+    const unified = path.join(dir, 'unified');
+    writeJson(path.join(unified, 'contacts.json'), [
+        {
+            id: 'c_generic',
+            name: 'Generic Sentinel',
+            notes: '',
+            tags: [],
+            sources: {},
+            lastContactedAt: '2025-01-01T00:00:00.000Z',
+            daysSinceContact: 400,
+            relationshipScore: 42,
+            interactionCount: 0,
+            activeChannels: [],
+            isGroup: false,
+        },
+    ]);
+    writeJson(path.join(unified, 'query-index.json'), [
+        {
+            id: 'c_generic',
+            name: 'Generic Sentinel',
+            title: '',
+            company: '',
+            city: null,
+            roles: [],
+            seniority: 'ic',
+            seniority_rank: 1,
+            relationshipScore: 42,
+            daysSinceContact: 400,
+            interactionCount: 0,
+            meetScore: 42,
+        },
+    ]);
+    writeJson(path.join(unified, 'interactions.json'), []);
+    writeJson(path.join(unified, 'insights.json'), {});
+    writeJson(path.join(unified, 'goals.json'), []);
+    writeJson(path.join(unified, 'meetings.json'), []);
+    writeJson(path.join(unified, 'calendar-state.json'), {});
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'contacts', includeContactIds: true }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.ok(payload.results.length > 0, 'fixture should return a generic fallback result');
+        assert.match(payload.results[0].id, /^contact:[a-p]+$/);
+        assert.equal(payload.results[0].contactRef, payload.results[0].id);
+        assert.doesNotMatch(JSON.stringify(payload), /c_generic/);
+        const contactRes = await fetch(`${base}/api/contacts/${encodeURIComponent(payload.results[0].id)}`);
+        assert.equal(contactRes.status, 200, 'trusted UI contact route should resolve safe contact refs');
+        const contact = await contactRes.json();
+        assert.equal(contact.id, 'c_generic');
+        assert.deepEqual(payload.results.map(r => r.reasons), [[]]);
+        assert.equal(payload.diagnostics.resultCount, 1);
+        assert.equal(payload.diagnostics.evidenceBacked, false);
+    });
+});
+
+test('POST /api/network/query no-data fallback still requires a query', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-empty-query-'));
+    fs.mkdirSync(path.join(dir, 'unified'), { recursive: true });
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: '   ' }),
+        });
+        assert.equal(res.status, 400);
+        const payload = await res.json();
+        assert.equal(payload.error, 'query required');
+    });
+});
+
+test('POST /api/network/query no-data fallback still returns privacy envelope', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-empty-'));
+    fs.mkdirSync(path.join(dir, 'unified'), { recursive: true });
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'who knows +44 7700 900123' }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.equal(payload.query, 'who knows [redacted phone]');
+        assert.deepEqual(payload.results, []);
+        assert.equal(payload.safety.contactDetailsOmitted, true);
+        assert.equal(payload.safety.noLlmCalls, true);
+        assert.equal(payload.safety.readOnly, true);
+        assert.equal(payload.diagnostics.noData, true);
+        assert.equal(payload.diagnostics.resultCount, 0);
+        assert.doesNotMatch(JSON.stringify(payload), /7700 900123/);
+    });
+});

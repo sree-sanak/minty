@@ -61,7 +61,8 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.ok(out.safety, 'has safety');
         assert.equal(typeof out.safety.contactDetailsOmitted, 'boolean');
         assert.equal(out.safety.contactDetailsOmitted, true);
-        assert.deepEqual(out.safety.omittedFields, ['emails', 'phones', 'rawContact']);
+        assert.equal(out.safety.contactIdsOmitted, true);
+        assert.deepEqual(out.safety.omittedFields, ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds']);
         assert.equal(typeof out.safety.noLlmCalls, 'boolean');
         assert.equal(out.safety.noLlmCalls, true);
     });

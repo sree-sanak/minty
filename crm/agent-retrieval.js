@@ -16,6 +16,7 @@ const { scoreContactForGoal } = require('./utils');
 const { matchContactEvidence } = require('./contact-evidence');
 const { buildSourceEvents, summarizeSourceCoverage, safeContactRef } = require('./source-events');
 const { buildHybridIndex, queryHybridIndex } = require('./hybrid-index');
+const { redactDirectContactDetails, agentSafetyEnvelope } = require('./privacy-envelope');
 
 // ---------------------------------------------------------------------------
 // Warmth label from relationship score
@@ -350,21 +351,6 @@ function isPersonContactRow(c) {
     return !['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type);
 }
 
-const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const MASKED_PHONE_RE = /\+?\d[\d\s().-]*\*{2,}[\d\s().-]*\d/g;
-const PHONE_RE = /\+?\d[\d\s().-]{7,}\d/g;
-
-function redactDirectContactDetails(value) {
-    if (value == null) return null;
-    return String(value)
-        .replace(EMAIL_RE, '[redacted email]')
-        .replace(MASKED_PHONE_RE, '[redacted phone]')
-        .replace(PHONE_RE, match => {
-            const digits = match.replace(/\D/g, '');
-            return digits.length >= 7 ? '[redacted phone]' : match;
-        });
-}
-
 function matchedSourcesForContact(contact, sourceFilter, evidence = {}, requireEvidence = false) {
     const evidenceSources = new Set();
     for (const source of sourceList(evidence.interactionSources || [])) evidenceSources.add(canonicalSource(source));
@@ -590,12 +576,7 @@ function queryNetwork(query, opts = {}) {
             ...(invalidSourceFilters.length ? { invalidSourceFilters } : {}),
             sourceCoverage,
         },
-        safety: {
-            contactDetailsOmitted: true,
-            omittedFields: ['emails', 'phones', 'rawContact'],
-            noLlmCalls:  true,
-            readOnly:    true,
-        },
+        safety: agentSafetyEnvelope(),
     };
 }
 

@@ -3,6 +3,7 @@
 const assert = require('assert/strict');
 const test = require('node:test');
 const { createPacer, envFlag, intEnv, safeInt, sourceSafeMode } = require('../../sources/_shared/safety');
+const { redactDirectContactDetails, stripDirectContactDetails } = require('../../crm/privacy-envelope');
 
 test('envFlag treats safe mode as on by default and supports explicit opt-out', () => {
   assert.equal(envFlag('MISSING', true, {}), true);
@@ -36,4 +37,9 @@ test('createPacer enforces max calls', async () => {
   await pacer.pace();
   await assert.rejects(() => pacer.pace(), /safety stop/);
   assert.equal(pacer.calls, 2);
+});
+
+test('privacy envelope redacts phone-like details without stripping dates', () => {
+  assert.equal(redactDirectContactDetails('call +44 7700 900123 after 2025-01-01'), 'call [redacted phone] after 2025-01-01');
+  assert.equal(stripDirectContactDetails('find 2025-01-01 fintech +1 206 555 0100'), 'find 2025-01-01 fintech');
 });
