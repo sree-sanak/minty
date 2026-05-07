@@ -3,31 +3,19 @@
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { loadData } = require('./agent-query');
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { evaluateRelationshipQueries } = require('../crm/evaluation');
 
-const DEFAULT_CASES = Object.freeze([
-    {
-        query: 'Who do I know for crypto insurance?',
-        minResults: 1,
-        requireEvidenceKinds: ['keyword', 'topic'],
-        disallowFallback: true,
-        requirePaths: ['safety.readOnly', 'results.0.evidenceBacked'],
-        forbidPaths: ['results.0.email', 'results.0.phone'],
-        forbidSubstrings: ['raw-phone-555-0101'],
-    },
-    {
-        query: 'Who do I know for EU crypto insurance?',
-        minResults: 1,
-        requireEvidenceKinds: ['keyword', 'topic'],
-        disallowFallback: true,
-        requirePaths: ['safety.readOnly', 'results.0.evidenceBacked'],
-        forbidPaths: ['results.0.email', 'results.0.phone'],
-        forbidSubstrings: ['raw-phone-555-0101'],
-    },
-    { query: 'Who do I know for impossible private codename zzqv?', maxResults: 0, disallowFallback: true },
-]);
+const FIXTURE_PATH = path.join(__dirname, '..', 'tests', 'fixtures', 'agent-workflows.json');
+
+function loadDefaultCases() {
+    const all = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
+    return Object.freeze(all.filter(c => c.target === 'query_network'));
+}
+
+const DEFAULT_CASES = loadDefaultCases();
 
 function parseArgs(argv) {
     const out = { dataDir: process.env.CRM_DATA_DIR || './data-demo', casesPath: null };

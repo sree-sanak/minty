@@ -1,0 +1,31 @@
+[
+    {
+        "name": "crypto-insurance-positive",
+        "target": "query_network",
+        "query": "Who do I know for crypto insurance?",
+        "minResults": 1,
+        "requireEvidenceKinds": ["keyword", "topic"],
+        "disallowFallback": true,
+        "requirePaths": ["safety.readOnly", "results.0.evidenceBacked"],
+        "forbidPaths": ["results.0.email", "results.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
+        "name": "eu-crypto-insurance-positive",
+        "target": "query_network",
+        "query": "Who do I know for EU crypto insurance?",
+        "minResults": 1,
+        "requireEvidenceKinds": ["keyword", "topic"],
+        "disallowFallback": true,
+        "requirePaths": ["safety.readOnly", "results.0.evidenceBacked"],
+        "forbidPaths": ["results.0.email", "results.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
+        "name": "impossible-codename-negative",
+        "target": "query_network",
+        "query": "Who do I know for impossible private codename zzqv?",
+        "maxResults": 0,
+        "disallowFallback": true
+    }
+]

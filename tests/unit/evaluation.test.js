@@ -79,6 +79,41 @@ test('enforces required paths, forbidden paths, and forbidden substrings in agen
     assert.deepEqual(report.cases[1].failures, ['missing_required_path']);
 });
 
+test('agent-workflows fixture exists, is synthetic, and DEFAULT_CASES loads from it', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const fixturePath = path.join(__dirname, '..', 'fixtures', 'agent-workflows.json');
+
+    // fixture file must exist
+    assert.ok(fs.existsSync(fixturePath), 'tests/fixtures/agent-workflows.json must exist');
+
+    const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+
+    // must be an array of at least 3 cases
+    assert.ok(Array.isArray(fixture), 'fixture must be an array');
+    assert.ok(fixture.length >= 3, 'fixture must have at least 3 cases');
+
+    // every case must have target and name fields (schema future-proofing)
+    for (const c of fixture) {
+        assert.ok('target' in c, `case "${c.query || '?'}" must have a target field`);
+        assert.ok('name' in c, `case "${c.query || '?'}" must have a name field`);
+    }
+
+    // no private-looking data: no real emails, phones, or API keys
+    const raw = fs.readFileSync(fixturePath, 'utf8');
+    assert.ok(!/@[a-z]+\.[a-z]{2,}/.test(raw.replace(/"[^"]*example\.(com|test|org)[^"]*"/g, '')),
+        'fixture must not contain real-looking email addresses');
+    assert.ok(!/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(raw.replace(/555-0\d{3}/g, '')),
+        'fixture must not contain real-looking phone numbers');
+
+    // DEFAULT_CASES must match the fixture's query_network cases (loaded from file, not inline)
+    const networkCases = fixture.filter(c => c.target === 'query_network');
+    const defaultCaseQueries = DEFAULT_CASES.map(c => c.query).sort();
+    const fixtureCaseQueries = networkCases.map(c => c.query).sort();
+    assert.deepEqual(defaultCaseQueries, fixtureCaseQueries,
+        'DEFAULT_CASES queries must match fixture query_network cases');
+});
+
 test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
     for (const query of ['Who do I know for crypto insurance?', 'Who do I know for EU crypto insurance?']) {
         const positiveCase = DEFAULT_CASES.find(c => c.query === query);
