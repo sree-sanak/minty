@@ -54,12 +54,12 @@ test('[Sync]: getDefaultSyncState returns new object each call (no shared refere
 // isStale
 // ---------------------------------------------------------------------------
 
-test('[Sync]: isStale returns true for null lastSyncAt', () => {
-    assert.equal(isStale(null, 60000), true);
+test('[Sync]: isStale returns false for null lastSyncAt (never synced ≠ stale)', () => {
+    assert.equal(isStale(null, 60000), false);
 });
 
-test('[Sync]: isStale returns true for undefined lastSyncAt', () => {
-    assert.equal(isStale(undefined, 60000), true);
+test('[Sync]: isStale returns false for undefined lastSyncAt (never synced ≠ stale)', () => {
+    assert.equal(isStale(undefined, 60000), false);
 });
 
 test('[Sync]: isStale returns false for a recent timestamp', () => {
