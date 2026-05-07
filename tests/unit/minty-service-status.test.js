@@ -303,6 +303,19 @@ test('[service-status] classifySourceHealth: rejects invalid timestamps without 
     });
 });
 
+test('[service-status] classifySourceHealth: rejects normalized calendar and timezone-naive timestamps', () => {
+    const now = new Date('2026-05-07T12:00:00.000Z');
+    for (const lastSyncAt of ['2026-02-30T10:00:00.000Z', '2026-05-07T10:00:00']) {
+        assert.deepEqual(classifySourceHealth({ status: 'ok', lastSyncAt }, now), {
+            lastSyncAt,
+            ageHours: null,
+            status: 'missing',
+            errorKind: 'invalid_timestamp',
+            safeMessage: 'Invalid sync timestamp',
+        });
+    }
+});
+
 test('[service-status] classifySourceHealth: uses legacy freshness timestamp fields', () => {
     const now = new Date('2026-05-07T12:00:00.000Z');
     const result = classifySourceHealth({ status: 'ok', lastSync: '2026-05-07T10:00:00.000Z' }, now);
