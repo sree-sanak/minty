@@ -70,26 +70,52 @@ const SUPPORTED_SOURCE_NAMES = Object.freeze([
     'whatsapp', 'email', 'googleContacts', 'linkedin', 'telegram', 'sms', 'calendar',
 ]);
 
+function extractErrorMessage(err) {
+    if (!err) return null;
+    if (typeof err === 'string') return err;
+    if (typeof err !== 'object') return String(err);
+    for (const key of ['message', 'reason', 'code']) {
+        if (typeof err[key] === 'string' && err[key].trim()) return err[key];
+    }
+    return null;
+}
+
 function redactErrorMessage(msg) {
-    if (!msg || typeof msg !== 'string' || msg.trim() === '') return null;
-    let s = msg;
+    const raw = extractErrorMessage(msg);
+    if (!raw || raw.trim() === '') return null;
+    let s = raw;
     // Strip stack trace lines
     s = s.replace(/\n\s+at\s+.*/g, '');
+    // Redact URLs before path redaction so private hostnames are not retained.
+    s = s.replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]');
+    // Redact Windows and POSIX file paths before token redaction.
+    s = s.replace(/\b[A-Za-z]:\\(?:[^\\\r\n]+\\)+[^\\\r\n]*/g, '[REDACTED_PATH]');
+    s = s.replace(/(?:\/[\w.\-]+){2,}/g, '[REDACTED_PATH]');
+    // Redact private hostnames even when they appear without an http(s) scheme.
+    s = s.replace(/\b(?:[a-z0-9-]+\.)*(?:localhost|[a-z0-9-]*(?:internal|private|corp|lan|local)[a-z0-9-]*)(?:\.[a-z0-9-]+)*(?::\d+)?\b/gi, '[REDACTED_HOST]');
+    // Redact secret-looking values before phone redaction so digit-heavy tokens are
+    // not partially redacted into leaked fragments.
+    s = s.replace(/eyJ[A-Za-z0-9_.-]{8,}/g, '[REDACTED_TOKEN]');
+    s = s.replace(/\b(?:sk_(?:live|test)_[A-Za-z0-9_]{8,}|xox[baprs]-[A-Za-z0-9-]{8,}|gh[pousr]_[A-Za-z0-9_]{8,}|AIza[A-Za-z0-9_-]{12,})\b/g, '[REDACTED_TOKEN]');
+    s = s.replace(/\b(api[-_ ]?key|token|secret|session|password|credential|authorization|bearer)\b(\s*(?:[:=]\s*|\s+))[A-Za-z0-9._~+/=-]{6,}/gi, '$1$2[REDACTED_TOKEN]');
+    // Redact any long standalone URL-safe value. This is intentionally fail-closed:
+    // service status diagnostics are more useful without leaking a possible secret.
+    s = s.replace(/\b[A-Za-z0-9._-]{32,}\b/g, '[REDACTED_TOKEN]');
     // Redact emails
     s = s.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[REDACTED_EMAIL]');
     // Redact phone numbers (international-ish)
     s = s.replace(/\+?[\d][\d\s\-().]{7,}\d/g, '[REDACTED_PHONE]');
-    // Redact JWT-like tokens and common shortened JWT snippets in logs.
-    s = s.replace(/eyJ[A-Za-z0-9_.-]{8,}/g, '[REDACTED_TOKEN]');
-    // Redact long token/session values after common bearer fields.
-    s = s.replace(/(?<=(?:=|token\s+|Bearer\s+))[A-Za-z0-9._-]{20,}/gi, '[REDACTED_TOKEN]');
-    // Redact URLs before path redaction so private hostnames are not retained.
-    s = s.replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]');
-    // Redact file paths
-    s = s.replace(/(?:\/[\w.\-]+){2,}/g, '[REDACTED_PATH]');
     // Truncate
     if (s.length > MAX_SAFE_MESSAGE_LEN) s = s.slice(0, MAX_SAFE_MESSAGE_LEN) + '...';
     return s.trim() || null;
+}
+
+function getLastSyncAt(sourceEntry) {
+    if (!sourceEntry || typeof sourceEntry !== 'object') return null;
+    for (const key of ['lastSyncAt', 'lastSyncedAt', 'updatedAt', 'lastSync']) {
+        if (sourceEntry[key]) return sourceEntry[key];
+    }
+    return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +123,32 @@ function redactErrorMessage(msg) {
 // ---------------------------------------------------------------------------
 
 const STALE_THRESHOLD_HOURS = 24;
+
+function parseStrictUtcTimestamp(value) {
+    if (typeof value !== 'string') return null;
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/.exec(value);
+    if (!match) return null;
+
+    const [, year, month, day, hour, minute, second, fraction = '0'] = match;
+    const ms = Number(fraction.padEnd(3, '0'));
+    const date = new Date(Date.UTC(
+        Number(year), Number(month) - 1, Number(day),
+        Number(hour), Number(minute), Number(second), ms
+    ));
+
+    if (
+        date.getUTCFullYear() !== Number(year)
+        || date.getUTCMonth() !== Number(month) - 1
+        || date.getUTCDate() !== Number(day)
+        || date.getUTCHours() !== Number(hour)
+        || date.getUTCMinutes() !== Number(minute)
+        || date.getUTCSeconds() !== Number(second)
+        || date.getUTCMilliseconds() !== ms
+    ) {
+        return null;
+    }
+    return date;
+}
 
 function classifySourceHealth(sourceEntry = null, now = new Date()) {
     if (!sourceEntry || typeof sourceEntry !== 'object') {
@@ -110,21 +162,27 @@ function classifySourceHealth(sourceEntry = null, now = new Date()) {
     }
 
     const entry = {
-        lastSyncAt: sourceEntry.lastSyncAt || null,
+        lastSyncAt: getLastSyncAt(sourceEntry),
         ageHours: null,
         status: 'never-synced',
         errorKind: null,
         safeMessage: null,
     };
 
-    if (sourceEntry.status === 'error' || sourceEntry.lastError) {
+    if (sourceEntry.status === 'error' || sourceEntry.lastError || sourceEntry.error) {
         entry.status = 'failing';
         entry.errorKind = 'sync_error';
         entry.safeMessage = redactErrorMessage(sourceEntry.lastError || sourceEntry.error || 'unknown error');
     }
 
     if (entry.lastSyncAt) {
-        const syncDate = new Date(entry.lastSyncAt);
+        const syncDate = parseStrictUtcTimestamp(entry.lastSyncAt);
+        if (!syncDate) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'invalid_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Invalid sync timestamp';
+            return entry;
+        }
         const ageMs = now.getTime() - syncDate.getTime();
         if (!Number.isFinite(ageMs)) {
             entry.status = entry.status === 'failing' ? 'failing' : 'missing';
@@ -132,7 +190,13 @@ function classifySourceHealth(sourceEntry = null, now = new Date()) {
             entry.safeMessage = entry.safeMessage || 'Invalid sync timestamp';
             return entry;
         }
-        entry.ageHours = Math.max(0, Math.round((ageMs / (3600 * 1000)) * 100) / 100);
+        if (ageMs < 0) {
+            entry.status = entry.status === 'failing' ? 'failing' : 'missing';
+            entry.errorKind = entry.errorKind || 'future_timestamp';
+            entry.safeMessage = entry.safeMessage || 'Sync timestamp is in the future';
+            return entry;
+        }
+        entry.ageHours = Math.round((ageMs / (3600 * 1000)) * 100) / 100;
 
         if (entry.status !== 'failing') {
             entry.status = entry.ageHours > STALE_THRESHOLD_HOURS ? 'stale' : 'fresh';
