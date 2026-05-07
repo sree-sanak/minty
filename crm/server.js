@@ -410,9 +410,13 @@ function getViewerContactId(paths) {
     } catch { return null; }
 }
 
+function findContactByIdOrRef(contacts, id) {
+    return contacts.find(c => c.id === id || safeContactRef(c.id) === id);
+}
+
 function handleGetContact(req, res, [id], paths, uuid) {
     const allContacts = loadContacts(paths);
-    const contact = allContacts.find(c => c.id === id);
+    const contact = findContactByIdOrRef(allContacts, id);
     if (!contact) return json(res, { error: 'not found' }, 404);
     // Enrich with shared-groups metadata for the "you're both in…" section.
     const memberships = loadGroupMemberships();
@@ -3427,6 +3431,8 @@ function handleGetCalendarUpcoming(req, res, params, paths, uuid) {
 // ---------------------------------------------------------------------------
 const { parseQuery: parseNetworkQuery, filterIndex, describeQuery } = require('./network-query');
 const { getDataHealthSummary } = require('./staleness');
+const { safeContactRef } = require('./source-events');
+const { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope } = require('./privacy-envelope');
 
 // Load query index (returns [] if not yet built)
 function loadQueryIndex(paths) {
@@ -3434,18 +3440,102 @@ function loadQueryIndex(paths) {
     catch { return []; }
 }
 
-// POST /api/network/query — instant Layer 2 results
-// POST /api/network/query?enhance=true — runs Claude re-ranking (Layer 3, ~10s)
+// POST /api/network/query — instant Layer 2 results. No runtime LLM calls.
 const { annotateResults: annotateQueryResults, expandQuery: expandQueryTerms } = require('./query-reasons');
+
+function loadNetworkQueryDiagnostics(paths, extra = {}) {
+    const syncStatePath = path.join(path.dirname(paths.contacts), '..', 'sync-state.json');
+    let sourceHealth = { level: 'unknown', warningsCount: 0, staleSources: [] };
+    try {
+        const syncState = JSON.parse(fs.readFileSync(syncStatePath, 'utf8'));
+        const summary = getDataHealthSummary(syncState);
+        sourceHealth = {
+            level: summary.level,
+            warningsCount: (summary.warnings || []).length,
+            staleSources: (summary.staleSources || []).map(s => s.source || s.name || s).filter(Boolean),
+        };
+    } catch { /* no sync-state yet */ }
+    return {
+        evidenceBacked: false,
+        noData: !fs.existsSync(paths.contacts),
+        sourceHealth,
+        ...extra,
+    };
+}
+
+function redactResponseStrings(value) {
+    if (Array.isArray(value)) return value.map(child => redactResponseStrings(child));
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, redactResponseStrings(child)]));
+    }
+    if (typeof value !== 'string') return value;
+    return redactDirectContactDetails(value);
+}
+
+function prepareNetworkResultsForResponse(results) {
+    return (results || []).map(result => {
+        if (!result || typeof result !== 'object' || !result.id) return result;
+        const ref = safeContactRef(result.id);
+        return {
+            id: ref,
+            contactRef: ref,
+            name: redactDirectContactDetails(result.name || ''),
+            company: redactDirectContactDetails(result.company || '') || null,
+            title: redactDirectContactDetails(result.title || '') || null,
+            city: redactDirectContactDetails(result.city || '') || null,
+            roles: Array.isArray(result.roles) ? result.roles.slice(0, 5).map(redactDirectContactDetails) : [],
+            seniority: redactDirectContactDetails(result.seniority || '') || null,
+            relationshipScore: Number.isFinite(result.relationshipScore) ? result.relationshipScore : 0,
+            daysSinceContact: Number.isFinite(result.daysSinceContact) ? result.daysSinceContact : null,
+            meetScore: Number.isFinite(result.meetScore) ? result.meetScore : 0,
+            groupSignal: Number.isFinite(result.groupSignal) ? result.groupSignal : 0,
+            reason: redactDirectContactDetails(result.reason || '') || null,
+            reasons: Array.isArray(result.reasons) ? result.reasons.slice(0, 5).map(reason => ({
+                kind: redactDirectContactDetails(reason && reason.kind || ''),
+                label: redactDirectContactDetails(reason && reason.label || ''),
+                detail: redactDirectContactDetails(reason && reason.detail || ''),
+            })) : [],
+        };
+    });
+}
+
+function hasEvidenceReason(result) {
+    return Array.isArray(result && result.reasons) && result.reasons.some(reason => {
+        if (!reason || typeof reason !== 'object') return false;
+        const kind = typeof reason.kind === 'string' ? reason.kind.trim() : '';
+        const label = typeof reason.label === 'string' ? reason.label.trim() : '';
+        const detail = typeof reason.detail === 'string' ? reason.detail.trim() : '';
+        return Boolean(kind && (label || detail));
+    });
+}
+
+async function handleEmptyNetworkQuery(req, res, paths) {
+    let reqBody;
+    try { reqBody = await body(req); } catch { reqBody = {}; }
+    const rawQuery = ((reqBody && reqBody.query) || '').trim();
+    if (!rawQuery) { json(res, { error: 'query required' }, 400); return; }
+    const query = redactDirectContactDetails(rawQuery);
+    json(res, redactResponseStrings({
+        query,
+        results: [],
+        enhanced: false,
+        processingMs: 0,
+        diagnostics: loadNetworkQueryDiagnostics(paths, { noData: true, resultCount: 0 }),
+        safety: agentSafetyEnvelope(),
+    }));
+}
 
 async function handleNetworkQuery(req, res, _params, paths) {
     let reqBody;
     try { reqBody = await body(req); } catch { reqBody = {}; }
     const query = ((reqBody && reqBody.query) || '').trim();
     if (!query) { json(res, { error: 'query required' }, 400); return; }
+    const safeQuery = redactDirectContactDetails(query);
+    const queryForMatching = stripDirectContactDetails(query);
 
     const index   = loadQueryIndex(paths);
-    const parsedQ = parseNetworkQuery(query);
+    const parsedQ = parseNetworkQuery(queryForMatching);
+    const parsedForResponse = { ...parsedQ, raw: safeQuery };
     let candidates = filterIndex(index, parsedQ);
     const description = describeQuery(parsedQ);
 
@@ -3533,15 +3623,23 @@ async function handleNetworkQuery(req, res, _params, paths) {
         contactsById, insightsByContactId,
     });
 
-    json(res, {
-        query,
-        parsed: parsedQ,
+    const responseResults = prepareNetworkResultsForResponse(annotated);
+
+    json(res, redactResponseStrings({
+        query: safeQuery,
+        parsed: parsedForResponse,
         description,
         expandedTerms,
-        results: annotated,
+        results: responseResults,
         enhanced: false,
         processingMs: 0,
-    });
+        diagnostics: loadNetworkQueryDiagnostics(paths, {
+            noData: fullContacts.length === 0,
+            resultCount: responseResults.length,
+            evidenceBacked: annotated.some(hasEvidenceReason),
+        }),
+        safety: agentSafetyEnvelope(),
+    }));
 }
 
 // ── LinkedIn auto-sync (opt-in, experimental) ──────────────────────────────
@@ -3843,7 +3941,7 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
             if (p === '/api/network/query') {
-                json(res, { query: '', results: [], enhanced: false, processingMs: 0 });
+                await handleEmptyNetworkQuery(req, res, paths);
                 return;
             }
             res.writeHead(404); res.end('data not found'); return;
