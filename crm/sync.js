@@ -49,10 +49,11 @@ function getDefaultSyncState() {
 
 /**
  * Returns true if the lastSyncAt timestamp is older than maxAgeMs.
- * A null/missing lastSyncAt is always considered stale.
+ * A null/missing lastSyncAt means "never synced" — not stale, just unset.
+ * This aligns with staleness.js:isSourceStale() semantics.
  */
 function isStale(lastSyncAt, maxAgeMs) {
-    if (!lastSyncAt) return true;
+    if (!lastSyncAt) return false;
     const age = Date.now() - new Date(lastSyncAt).getTime();
     return age > maxAgeMs;
 }
