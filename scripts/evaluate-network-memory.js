@@ -8,8 +8,24 @@ const { queryNetwork } = require('../crm/agent-retrieval');
 const { evaluateRelationshipQueries } = require('../crm/evaluation');
 
 const DEFAULT_CASES = Object.freeze([
-    { query: 'Who do I know for crypto insurance?', minResults: 1, requireEvidenceKinds: ['keyword', 'topic'], disallowFallback: true },
-    { query: 'Who do I know for EU crypto insurance?', minResults: 1, requireEvidenceKinds: ['keyword', 'topic'], disallowFallback: true },
+    {
+        query: 'Who do I know for crypto insurance?',
+        minResults: 1,
+        requireEvidenceKinds: ['keyword', 'topic'],
+        disallowFallback: true,
+        requirePaths: ['safety.readOnly', 'results.0.evidenceBacked'],
+        forbidPaths: ['results.0.email', 'results.0.phone'],
+        forbidSubstrings: ['raw-phone-555-0101'],
+    },
+    {
+        query: 'Who do I know for EU crypto insurance?',
+        minResults: 1,
+        requireEvidenceKinds: ['keyword', 'topic'],
+        disallowFallback: true,
+        requirePaths: ['safety.readOnly', 'results.0.evidenceBacked'],
+        forbidPaths: ['results.0.email', 'results.0.phone'],
+        forbidSubstrings: ['raw-phone-555-0101'],
+    },
     { query: 'Who do I know for impossible private codename zzqv?', maxResults: 0, disallowFallback: true },
 ]);
 
