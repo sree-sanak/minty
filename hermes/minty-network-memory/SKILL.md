@@ -51,6 +51,12 @@ suggested next steps, and data freshness metadata.
 { "goal": "Find EU crypto insurance distribution partners", "limit": 5 }
 ```
 
+## Source health preflight
+
+Before source-specific queries (`telegram`, `gmail/email`, `linkedin`, `whatsapp`, `sms`, `slack`) call `source_health` if freshness or coverage matters. If the source is stale/empty, say so instead of answering from vibes.
+
+Example: `{ "source": "telegram" }`
+
 ## Safety constraints
 
 1. **Read-only.** Minty never sends messages, mutates contacts, or triggers outreach.

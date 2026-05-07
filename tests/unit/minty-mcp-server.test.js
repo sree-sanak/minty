@@ -122,9 +122,9 @@ describe('MCP protocol', () => {
         assert.equal(resp.id, 2);
         const tools = resp.result.tools;
         assert.ok(Array.isArray(tools));
-        assert.equal(tools.length, 3);
+        assert.equal(tools.length, 4);
         const names = tools.map(t => t.name).sort();
-        assert.deepEqual(names, ['person_context', 'search_network', 'workflow_brief']);
+        assert.deepEqual(names, ['person_context', 'search_network', 'source_health', 'workflow_brief']);
     });
 
     it('returns error for unknown method', async () => {
@@ -976,5 +976,102 @@ describe('MCP evidence channel privacy', () => {
                 assert.ok(!detail.startsWith('telegram '), `MCP evidence detail "${e.detail}" must not leak channel name`);
             }
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// source_health tool
+// ---------------------------------------------------------------------------
+
+describe('source_health tool', () => {
+    it('source_health tool definition has correct schema', () => {
+        const tool = TOOLS.find(t => t.name === 'source_health');
+        assert.ok(tool);
+        assert.ok(tool.inputSchema.properties.source);
+        assert.ok(tool.inputSchema.properties.sources);
+        assert.ok(tool.inputSchema.properties.query);
+        assert.deepEqual(tool.inputSchema.required, undefined);
+    });
+
+    it('returns redacted source readiness for a single source', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 100, method: 'tools/call',
+            params: { name: 'source_health', arguments: { source: 'telegram' } },
+        }, {
+            contacts: [{ id: 'c_1', name: 'Alice', emails: ['alice@example.com'], sources: { telegram: { username: 'alice' } }, activeChannels: ['telegram'] }],
+            interactions: [{ contactId: 'c_1', source: 'telegram', body: 'private body' }],
+            contactEvidence: { c_1: { sources: ['telegram'] } },
+            syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z', tokenPath: '/secret/token' } },
+        });
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.sources.telegram.contactCount, 1);
+        assert.equal(parsed.sources.telegram.interactionCount, 1);
+        assert.equal(parsed.safety.readOnly, true);
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('private body'), false);
+        assert.equal(serialized.includes('c_1'), false);
+        assert.equal(serialized.includes('/secret/token'), false);
+    });
+
+    it('returns all sources when no filter', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 101, method: 'tools/call',
+            params: { name: 'source_health', arguments: {} },
+        }, { contacts: CONTACTS, insights: INSIGHTS, syncState: {} });
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.ok(Object.keys(parsed.sources).length >= 5);
+        assert.ok('telegram' in parsed.sources);
+        assert.ok('email' in parsed.sources);
+    });
+
+    it('fails closed for invalid source filter', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 102, method: 'tools/call',
+            params: { name: 'source_health', arguments: { source: 'DROP TABLE; --' } },
+        }, { contacts: [], syncState: {} });
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'error');
+        assert.deepEqual(parsed.sources, {});
+        assert.equal(JSON.stringify(parsed).includes('DROP TABLE'), false);
+    });
+
+    it('infers canonical source filters from query text without returning people', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 104, method: 'tools/call',
+            params: { name: 'source_health', arguments: { query: 'who did I talk to on Telegram about private launch?' } },
+        }, {
+            contacts: [
+                { id: 'c_telegram', name: 'Alice Private', emails: ['alice@example.com'], sources: { telegram: { username: 'alice_private' } }, activeChannels: ['telegram'] },
+                { id: 'c_email', name: 'Bob Private', emails: ['bob@example.com'], sources: { email: { address: 'bob@example.com' } }, activeChannels: ['email'] },
+            ],
+            interactions: [{ contactId: 'c_telegram', source: 'telegram', body: 'raw launch details' }],
+            contactEvidence: { c_telegram: { sources: ['telegram'] } },
+            syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z' }, email: { lastSyncAt: '2026-05-06T07:00:00Z' } },
+            nowForTests: '2026-05-06T08:00:00Z',
+        });
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const serialized = JSON.stringify(parsed);
+
+        assert.deepEqual(Object.keys(parsed.sources), ['telegram']);
+        assert.deepEqual(parsed.querySourceFilter, ['telegram']);
+        assert.equal(serialized.includes('Alice Private'), false);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('raw launch details'), false);
+        assert.equal(serialized.includes('c_telegram'), false);
+    });
+
+    it('does not crash with malformed data', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 103, method: 'tools/call',
+            params: { name: 'source_health', arguments: {} },
+        }, {});
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.ok(parsed.safety.readOnly);
+        assert.ok(typeof parsed.sources === 'object');
     });
 });

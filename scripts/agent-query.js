@@ -48,7 +48,7 @@ function hasContacts(dir) {
 /**
  * Load contacts and insights from a resolved data directory.
  * @param {string} dataDir - Path to data directory (contains unified/ subdir)
- * @returns {{ contacts: object[], insights: object, interactions: object[], contactEvidence: object, sourceEvents?: object[], hybridIndex?: object[] }}
+ * @returns {{ contacts: object[], insights: object, interactions: object[], contactEvidence: object, sourceEvents?: object[], hybridIndex?: object[], syncState: object }}
  */
 function loadData(dataDir) {
     function fallbackFor(file, missing = false) {
@@ -71,6 +71,28 @@ function loadData(dataDir) {
             return fallbackFor(file, false);
         }
     }
+    function sanitizeSyncState(parsed) {
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+        const out = {};
+        for (const [source, state] of Object.entries(parsed)) {
+            if (!state || typeof state !== 'object' || Array.isArray(state)) continue;
+            const row = {};
+            for (const key of ['lastSyncAt', 'lastSyncedAt', 'updatedAt', 'lastSync', 'status']) {
+                if (typeof state[key] === 'string' && state[key].length <= 128) row[key] = state[key];
+            }
+            if (Object.keys(row).length) out[source] = row;
+        }
+        return out;
+    }
+    function loadRootSyncState(file) {
+        const p = path.join(dataDir, file);
+        if (!fs.existsSync(p)) return {};
+        try {
+            return sanitizeSyncState(JSON.parse(fs.readFileSync(p, 'utf8')));
+        } catch {
+            return {};
+        }
+    }
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
@@ -78,6 +100,7 @@ function loadData(dataDir) {
         contactEvidence: loadJson('contact-evidence.json'),
         sourceEvents: loadJson('source-events.json'),
         hybridIndex: loadJson('hybrid-index.json'),
+        syncState: loadRootSyncState('sync-state.json'),
     };
 }
 

@@ -14,6 +14,7 @@
 
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { canonicalSafeSource } = require('../crm/source-events');
+const { buildAgentSourceHealth, canonicalSource } = require('../crm/agent-source-health');
 const { resolveDataDir, loadData } = require('./agent-query');
 
 // ---------------------------------------------------------------------------
@@ -68,15 +69,44 @@ const TOOLS = [
             required: ['goal'],
         },
     },
+    {
+        name: 'source_health',
+        description:
+            'Check which Minty sources are fresh, evidence-bearing, and safe for source-specific agent queries. ' +
+            'Read-only and redacted. No contact details, raw rows, or token paths exposed.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                source: { type: 'string', description: 'Optional source filter, e.g. telegram, email, linkedin, whatsapp, sms, googlecontacts, slack' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Optional list of source filters.' },
+                query: { type: 'string', description: 'Optional query to infer source filters from diagnostics without returning people.' },
+            },
+        },
+    },
 ];
 
 // ---------------------------------------------------------------------------
 // Tool execution
 // ---------------------------------------------------------------------------
+function clampLimit(value, fallback = 10) {
+    if (value == null) return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(50, Math.floor(n)));
+}
 
-function clampLimit(value, fallback) {
-    if (!Number.isFinite(value)) return fallback;
-    return Math.max(1, Math.min(50, Math.floor(value)));
+function inferSourcesFromQuery(query) {
+    if (typeof query !== 'string' || !query.trim()) return [];
+    const normalized = query.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+    const candidates = new Set();
+    for (const token of normalized.split(/\s+/).filter(Boolean)) {
+        const source = canonicalSource(token);
+        if (source) candidates.add(source);
+    }
+    for (const phrase of ['google contacts', 'google contact']) {
+        if (normalized.includes(phrase)) candidates.add('googleContacts');
+    }
+    return [...candidates].sort();
 }
 
 function safeEvidence(evidence) {
@@ -252,6 +282,26 @@ function executeTool(name, args, data) {
                 noOutreachTriggered: true,
             },
         };
+        return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
+    }
+
+    if (name === 'source_health') {
+        const syncState = (data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)) ? data.syncState : {};
+        let querySourceFilter;
+        let inferredSources;
+        if (args.query && typeof args.query === 'string' && args.query.trim()) {
+            inferredSources = inferSourcesFromQuery(args.query);
+            querySourceFilter = inferredSources;
+        }
+        const envelope = buildAgentSourceHealth(
+            { contacts, interactions, contactEvidence, sourceEvents, syncState },
+            {
+                source: args.source,
+                sources: args.sources || inferredSources,
+                querySourceFilter,
+                now: data.nowForTests,
+            },
+        );
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
     }
 
