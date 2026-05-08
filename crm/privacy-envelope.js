@@ -36,14 +36,23 @@ function isPhoneLike(value) {
     return digits.length >= 10 || (text.startsWith('+') && digits.length >= 8);
 }
 
+const ENVELOPE_DEFAULT_OMITTED_FIELDS = ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds'];
+
+// Privacy marker only: callers may extend omittedFields with safe field names,
+// but arbitrary metadata is intentionally not passed through to avoid leaks.
+function isSafeOmittedField(value) {
+    return typeof value === 'string'
+        && /^[A-Za-z_$][A-Za-z0-9_$.-]{0,80}$/.test(value)
+        && !value.split('.').some(part => part === '__proto__' || part === 'prototype' || part === 'constructor');
+}
+
 function agentSafetyEnvelope(extra = {}) {
-    const defaults = ['emails', 'phones', 'rawContact', 'sourceDerivedContactIds'];
-    const extraOmitted = Array.isArray(extra.omittedFields) ? extra.omittedFields : [];
+    const envelopeExtra = extra && typeof extra === 'object' && !Array.isArray(extra) ? extra : {};
+    const extraOmitted = Array.isArray(envelopeExtra.omittedFields) ? envelopeExtra.omittedFields.filter(isSafeOmittedField) : [];
     return {
-        ...extra,
         contactDetailsOmitted: true,
         contactIdsOmitted: true,
-        omittedFields: [...new Set([...defaults, ...extraOmitted])],
+        omittedFields: [...new Set([...ENVELOPE_DEFAULT_OMITTED_FIELDS, ...extraOmitted])],
         noLlmCalls: true,
         readOnly: true,
     };
