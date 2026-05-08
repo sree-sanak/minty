@@ -31,12 +31,11 @@ log_step() {
 write_diagnostics() {
   local refresh_rc=$?
   local diagnostics_rc=0
-  if node "$ROOT_DIR/scripts/memory-refresh-diagnostics.js" "$STEP_LOG" "$ROOT_DIR"; then
-    rm -f "$STEP_LOG"
+  node "$ROOT_DIR/scripts/memory-refresh-diagnostics.js" "$STEP_LOG" "$ROOT_DIR" || diagnostics_rc=$?
+  rm -f "$STEP_LOG"
+  if [ "$diagnostics_rc" -eq 0 ]; then
     return "$refresh_rc"
   fi
-  diagnostics_rc=$?
-  rm -f "$STEP_LOG"
   echo "Failed to write memory refresh diagnostics (exit code $diagnostics_rc)." >&2
   if [ "$refresh_rc" -ne 0 ]; then
     return "$refresh_rc"
