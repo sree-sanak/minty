@@ -34,6 +34,7 @@ function evaluateOne(testCase, queryFn) {
     const maxResults = Number.isInteger(testCase.maxResults) ? testCase.maxResults : null;
     if (results.length < minResults) failures.push('too_few_results');
     if (maxResults != null && results.length > maxResults) failures.push('too_many_results');
+    if (testCase.expectEmpty === true && results.length > 0) failures.push('expected_empty_results');
     if (testCase.disallowFallback !== false && diagnostics.usedFallback) failures.push('fallback_used');
     const requiredKinds = Array.isArray(testCase.requireEvidenceKinds) ? testCase.requireEvidenceKinds : [];
     if (requiredKinds.length) {
@@ -44,9 +45,13 @@ function evaluateOne(testCase, queryFn) {
         if (!anyRequired) failures.push('missing_required_evidence');
     }
     const requiredPaths = Array.isArray(testCase.requirePaths) ? testCase.requirePaths : [];
-    if (requiredPaths.some(path => !hasPath(output, path))) failures.push('missing_required_path');
+    for (const path of requiredPaths) {
+        if (!hasPath(output, path)) failures.push(`missing_required_path:${path}`);
+    }
     const forbiddenPaths = Array.isArray(testCase.forbidPaths) ? testCase.forbidPaths : [];
-    if (forbiddenPaths.some(path => hasPath(output, path))) failures.push('forbidden_path_present');
+    for (const path of forbiddenPaths) {
+        if (hasPath(output, path)) failures.push(`forbidden_path_present:${path}`);
+    }
     const forbiddenSubstrings = Array.isArray(testCase.forbidSubstrings) ? testCase.forbidSubstrings : [];
     if (forbiddenSubstrings.some(needle => containsSubstring(output, needle))) failures.push('forbidden_substring_present');
     const evidenceBackedResults = results.filter(r => (r.evidence || []).length > 0 || r.evidenceBacked).length;

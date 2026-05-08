@@ -52,11 +52,21 @@ test('enforces required paths, forbidden paths, and forbidden substrings in agen
             minResults: 1,
             requirePaths: ['safety.readOnly', 'results.0.evidenceBacked'],
         },
+        {
+            query: 'who should return no results?',
+            expectEmpty: true,
+        },
     ];
     const queryFn = (query) => {
         if (query.includes('missing safety')) {
             return {
                 results: [{ id: 'c2', evidenceBacked: true }],
+                diagnostics: { usedFallback: false },
+            };
+        }
+        if (query.includes('no results')) {
+            return {
+                results: [{ id: 'c3', evidenceBacked: true }],
                 diagnostics: { usedFallback: false },
             };
         }
@@ -74,9 +84,10 @@ test('enforces required paths, forbidden paths, and forbidden substrings in agen
 
     const report = evaluateRelationshipQueries(cases, queryFn);
 
-    assert.equal(report.failed, 2);
-    assert.deepEqual(report.cases[0].failures, ['forbidden_path_present', 'forbidden_substring_present']);
-    assert.deepEqual(report.cases[1].failures, ['missing_required_path']);
+    assert.equal(report.failed, 3);
+    assert.deepEqual(report.cases[0].failures, ['forbidden_path_present:results.0.email', 'forbidden_substring_present']);
+    assert.deepEqual(report.cases[1].failures, ['missing_required_path:safety.readOnly']);
+    assert.deepEqual(report.cases[2].failures, ['expected_empty_results']);
 });
 
 test('agent-workflows fixture exists, is synthetic, and DEFAULT_CASES loads from it', () => {
