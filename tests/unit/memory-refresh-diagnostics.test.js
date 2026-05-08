@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const {
     buildRefreshStatus,
     redactDiagnosticValue,
+    sanitizeArtifact,
+    sanitizeStep,
 } = require('../../crm/memory-refresh-diagnostics');
 
 const NOW = '2026-05-07T20:00:00.000Z';
@@ -101,6 +103,47 @@ test('[MemoryRefreshDiagnostics]: redacts secret-like names with values', () => 
     for (const sensitiveName of sensitiveNames) {
         assert.equal(value.includes(sensitiveName), false);
     }
+});
+
+test('[MemoryRefreshDiagnostics]: sanitizeStep preserves safe fields and redacts unsafe details', () => {
+    const sanitized = sanitizeStep({
+        id: 'telegram',
+        status: 'failed',
+        startedAt: NOW,
+        finishedAt: NOW,
+        durationMs: 12.8,
+        exitCode: 1,
+        error: 'TELEGRAM_API_HASH:hash-sentinel-value raw message from alice@example.com /root/.hermes/.env',
+        nested: { private: '/root/.hermes/google_token.json' },
+    });
+
+    assert.equal(sanitized.id, 'telegram');
+    assert.equal(sanitized.status, 'failed');
+    assert.equal(sanitized.durationMs, 12);
+    assert.equal(sanitized.exitCode, 1);
+    assert.equal(sanitized.nested, undefined);
+    assert.equal(sanitized.error.includes('hash-sentinel-value'), false);
+    assert.equal(sanitized.error.includes('TELEGRAM_API_HASH'), false);
+    assert.equal(sanitized.error.includes('/root/.hermes'), false);
+    assert.equal(sanitized.error.includes('alice@example.com'), false);
+});
+
+test('[MemoryRefreshDiagnostics]: sanitizeStep degrades unknown ids and malformed timestamps safely', () => {
+    const sanitized = sanitizeStep({ id: '../contacts', status: 'unexpected', startedAt: 'not-a-date', finishedAt: NOW });
+    assert.equal(sanitized.id, 'unknown');
+    assert.equal(sanitized.status, 'warning');
+    assert.equal(sanitized.startedAt, null);
+    assert.equal(sanitized.finishedAt, NOW);
+});
+
+test('[MemoryRefreshDiagnostics]: sanitizeArtifact preserves counts and omits paths', () => {
+    const sanitized = sanitizeArtifact({ exists: true, count: 3.9, mtime: NOW, path: '/root/.hermes/workspace/minty/data/unified/contacts.json' });
+    assert.deepEqual(sanitized, { exists: true, count: 3, mtime: NOW });
+});
+
+test('[MemoryRefreshDiagnostics]: sanitizeArtifact tolerates missing and malformed fields', () => {
+    assert.deepEqual(sanitizeArtifact({ exists: false, count: -2, mtime: 'bad-date' }), { exists: false, count: 0 });
+    assert.deepEqual(sanitizeArtifact(null), { exists: false });
 });
 
 test('[MemoryRefreshDiagnostics]: ignores unsafe artifact keys', () => {
