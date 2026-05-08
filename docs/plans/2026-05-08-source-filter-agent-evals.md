@@ -28,7 +28,7 @@ This complements, not duplicates:
 - Eval cases can pass tool arguments like `{ query, source }` or `{ source }`, not only a query string.
 - A Telegram-filtered synthetic query returns only results with `matchedSources: ["telegram"]` and evidence from Telegram/contact evidence.
 - A LinkedIn-filtered version of the same Telegram-only query returns zero results and does not fallback to all-source ranking.
-- An invalid source filter returns zero results and diagnostics/safety metadata that make the failure explicit without echoing unsafe input.
+- An invalid source filter returns zero results and diagnostics/safety metadata that make the failure explicit with sanitized sentinel fields, without echoing unsafe input.
 - `mcp:source_health` evals assert source readiness without returning people or contact details.
 - The fixtures remain synthetic-only: no real emails, phones, raw messages, private paths, token names, Sree data, or private strategy notes.
 
@@ -90,7 +90,7 @@ Expected: FAIL because `evaluateOne()` currently calls `queryFn(testCase.query)`
 
 **Step 3: Write minimal implementation**
 
-In `crm/evaluation.js`, change the runner call at the top of `evaluateOne()` from:
+In `crm/evaluation.js`, keep legacy string-query cases compatible while passing the full case only when structured `arguments` are present. Change the runner call at the top of `evaluateOne()` from:
 
 ```js
 const output = queryFn(testCase.query);
@@ -99,7 +99,8 @@ const output = queryFn(testCase.query);
 to:
 
 ```js
-const output = queryFn(testCase);
+const runnerInput = testCase && testCase.arguments ? testCase : testCase.query;
+const output = queryFn(runnerInput);
 ```
 
 Then preserve the legacy query value in the report:
@@ -129,6 +130,8 @@ node --test tests/unit/evaluation.test.js
 ```
 
 Expected: PASS.
+
+Also preserve the existing legacy callback contract with a regression test: a case that only has `query` must still call the runner with the raw query string, not the whole case object.
 
 **Step 5: Commit**
 
@@ -343,7 +346,7 @@ In `scripts/seed-dev-data.js`, add one synthetic contact to the demo contacts ar
 {
     id: 'demo_source_filter_tara',
     name: 'Tara Telegram',
-    sources: { telegram: { username: 'tara_source_filter_demo' } },
+    sources: { telegram: { present: true } },
     relationshipScore: 61,
     daysSinceContact: 3,
     interactionCount: 2,
@@ -382,7 +385,7 @@ Add one safe source event with no raw body:
 }
 ```
 
-Keep all strings synthetic and non-PII. Do not add message bodies, raw phone/email fields, group names, source chat ids, or Sree data.
+Keep all strings synthetic and non-PII. Do not add message bodies, raw phone/email fields, group names, source usernames/handles, source chat ids, or Sree data.
 
 **Step 4: Run test to verify pass**
 
@@ -433,7 +436,7 @@ test('agent workflow fixture covers source-filter contracts', () => {
     const invalid = byName.get('invalid-source-filter-fails-closed');
     assert.ok(invalid, 'invalid source case should exist');
     assert.equal(invalid.maxResults, 0);
-    assert.deepEqual(invalid.requirePaths, ['diagnostics.invalidSourceFilters.0']);
+    assert.deepEqual(invalid.requirePaths, ['diagnostics.invalidSourceFilters.0.reason']);
 
     const health = byName.get('mcp-source-health-telegram-preflight');
     assert.ok(health, 'MCP source_health case should exist');
@@ -464,8 +467,8 @@ Append these objects to `tests/fixtures/agent-workflows.json`:
   "minResults": 1,
   "requireEvidenceKinds": ["contact_evidence"],
   "requirePaths": ["results.0.matchedSources.0", "safety.readOnly"],
-  "forbidPaths": ["results.0.email", "results.0.phone", "results.0.sources"],
-  "forbidSubstrings": ["tara_source_filter_demo", "raw-phone-555-0101"]
+  "forbidPaths": ["results.0.email", "results.0.phone", "results.0.sources", "results.0.id", "results.0.contactId"],
+  "forbidSubstrings": ["username", "demo_source_filter_tara", "tara_source_filter_demo", "raw-phone-555-0101"]
 },
 {
   "name": "linkedin-source-filter-empty",
@@ -474,7 +477,7 @@ Append these objects to `tests/fixtures/agent-workflows.json`:
   "maxResults": 0,
   "disallowFallback": true,
   "requirePaths": ["diagnostics.sourceFilter.0", "safety.readOnly"],
-  "forbidSubstrings": ["tara_source_filter_demo"]
+  "forbidSubstrings": ["username", "demo_source_filter_tara", "tara_source_filter_demo"]
 },
 {
   "name": "invalid-source-filter-fails-closed",
@@ -482,8 +485,8 @@ Append these objects to `tests/fixtures/agent-workflows.json`:
   "arguments": { "query": "source-filter-fixture defi", "source": "telegram; DROP TABLE" },
   "maxResults": 0,
   "disallowFallback": true,
-  "requirePaths": ["diagnostics.invalidSourceFilters.0", "safety.readOnly"],
-  "forbidSubstrings": ["DROP TABLE", "tara_source_filter_demo"]
+  "requirePaths": ["diagnostics.invalidSourceFilters.0.reason", "safety.readOnly"],
+  "forbidSubstrings": ["DROP TABLE", "telegram; DROP TABLE", "username", "demo_source_filter_tara", "tara_source_filter_demo"]
 },
 {
   "name": "mcp-source-health-telegram-preflight",
@@ -491,12 +494,12 @@ Append these objects to `tests/fixtures/agent-workflows.json`:
   "arguments": { "source": "telegram" },
   "minSources": 1,
   "requirePaths": ["sources.0.source", "sources.0.status", "safety.contactDetailsOmitted", "safety.rawRowsOmitted"],
-  "forbidPaths": ["results", "people", "contacts.0.email", "sources.0.sampleContacts"],
-  "forbidSubstrings": ["tara_source_filter_demo", "raw-phone-555-0101"]
+  "forbidPaths": ["results", "people", "contacts.0.email", "sources.0.sampleContacts", "sources.0.sampleContactIds"],
+  "forbidSubstrings": ["username", "demo_source_filter_tara", "tara_source_filter_demo", "raw-phone-555-0101"]
 }
 ```
 
-Preserve valid JSON array syntax.
+Preserve valid JSON array syntax. For invalid source diagnostics, require a sanitized sentinel object such as `{ reason: 'unsupported_source' }`; never store or return the raw invalid filter string in diagnostics, eval reports, or MCP/API envelopes.
 
 **Step 4: Extend the eval checker for source rows**
 
