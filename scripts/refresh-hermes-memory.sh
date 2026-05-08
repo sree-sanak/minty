@@ -29,8 +29,14 @@ log_step() {
 }
 
 write_diagnostics() {
-  node "$ROOT_DIR/scripts/memory-refresh-diagnostics.js" "$STEP_LOG" "$ROOT_DIR" 2>/dev/null || true
-  rm -f "$STEP_LOG"
+  local refresh_rc=$?
+  if node "$ROOT_DIR/scripts/memory-refresh-diagnostics.js" "$STEP_LOG" "$ROOT_DIR"; then
+    rm -f "$STEP_LOG"
+    return "$refresh_rc"
+  fi
+  local diagnostics_rc=$?
+  echo "Failed to write memory refresh diagnostics from STEP_LOG=$STEP_LOG (exit code $diagnostics_rc)." >&2
+  return "$diagnostics_rc"
 }
 
 trap write_diagnostics EXIT
@@ -83,12 +89,17 @@ echo "Refreshing Minty Telegram source data…"
 # the static Telegram Desktop export only when live credentials are unavailable
 # or the live sync fails. Do not print credential values.
 if [ -f "$ROOT_DIR/.env" ] && grep -q '^TELEGRAM_API_ID=' "$ROOT_DIR/.env" && grep -q '^TELEGRAM_API_HASH=' "$ROOT_DIR/.env" && grep -q '^TELEGRAM_SESSION=' "$ROOT_DIR/.env"; then
-  if run_step telegram npm run telegram:live; then
+  telegram_started_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+  if npm run telegram:live; then
+    log_step telegram "ok" 0 "$telegram_started_at"
     echo "Telegram live sync complete."
   else
+    telegram_rc=$?
     echo "Telegram live sync failed; falling back to existing Telegram export if available."
     if [ -f "$ROOT_DIR/data/telegram/export/result.json" ]; then
       run_step telegram npm run telegram
+    else
+      log_step telegram "failed" "$telegram_rc" "$telegram_started_at" "live sync failed and no Desktop export was available"
     fi
   fi
 elif [ -f "$ROOT_DIR/data/telegram/export/result.json" ]; then
