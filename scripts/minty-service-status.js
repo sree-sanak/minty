@@ -90,7 +90,7 @@ function redactErrorMessage(msg) {
     s = s.replace(/https?:\/\/[^\s)]+/gi, '[REDACTED_URL]');
     // Redact Windows and POSIX file paths before token redaction.
     s = s.replace(/\b[A-Za-z]:\\(?:[^\\\r\n]+\\)+[^\\\r\n]*/g, '[REDACTED_PATH]');
-    s = s.replace(/(?:\/[\w.\-]+){2,}/g, '[REDACTED_PATH]');
+    s = s.replace(/(?:\/[^\/\r\n"'`]+){2,}/g, '[REDACTED_PATH]');
     // Redact private hostnames even when they appear without an http(s) scheme.
     s = s.replace(/\b(?:[a-z0-9-]+\.)*(?:localhost|[a-z0-9-]*(?:internal|private|corp|lan|local)[a-z0-9-]*)(?:\.[a-z0-9-]+)*(?::\d+)?\b/gi, '[REDACTED_HOST]');
     // Redact secret-looking values before phone redaction so digit-heavy tokens are
