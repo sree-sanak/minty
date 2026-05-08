@@ -212,6 +212,14 @@ test('[service-status] redactErrorMessage: redacts file paths', () => {
         redactErrorMessage('ENOENT C:\\Users\\Person Name\\AppData\\Roaming\\minty\\secrets.json failed'),
         'ENOENT [REDACTED_PATH]'
     );
+    assert.equal(
+        redactErrorMessage('ENOENT /Users/Person Name/.config/minty/secrets.json failed'),
+        'ENOENT [REDACTED_PATH]'
+    );
+    assert.equal(
+        redactErrorMessage('ENOENT /Users/John Doe/.config/minty/secrets.json'),
+        'ENOENT [REDACTED_PATH]'
+    );
 });
 
 test('[service-status] redactErrorMessage: redacts standalone token-like secrets', () => {
