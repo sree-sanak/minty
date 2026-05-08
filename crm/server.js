@@ -587,14 +587,38 @@ function handleGetLifeEvents(req, res, _params, paths) {
 }
 
 /**
- * GET /api/export[?passphrase=<p>]
+ * GET /api/export
+ * POST /api/export { passphrase?: string }
  * Download the full unified dataset as a portable bundle. Without a passphrase
  * the bundle is gzipped JSON. With a passphrase the gzipped payload is
- * AES-256-GCM encrypted (PBKDF2 200k sha256 key derivation).
+ * AES-256-GCM encrypted (PBKDF2 200k sha256 key derivation). Encrypted export
+ * passphrases are accepted only in the POST body so they never land in URLs,
+ * browser history, reverse-proxy logs, or referrers.
  */
-function handleExport(req, res, _params, _paths, uuid) {
+async function handleExport(req, res, _params, _paths, uuid) {
     const url = new URL(req.url, `http://localhost:${PORT}`);
-    const passphrase = url.searchParams.get('passphrase') || null;
+    if (url.searchParams.has('passphrase')) {
+        json(res, {
+            error: 'passphrase must be sent in the POST body, not the URL',
+        }, 400);
+        return;
+    }
+
+    let passphrase = null;
+    if (req.method === 'POST') {
+        try {
+            const payload = await body(req);
+            if (typeof payload.passphrase !== 'string' || payload.passphrase.length === 0) {
+                json(res, { error: 'missing or invalid passphrase' }, 400);
+                return;
+            }
+            passphrase = payload.passphrase;
+        } catch {
+            json(res, { error: 'invalid export request body' }, 400);
+            return;
+        }
+    }
+
     try {
         const { buffer, filename, encrypted, stats } = _exportModule.exportAll(
             getUserDataDir(uuid),
@@ -3805,6 +3829,7 @@ const ROUTES = [
     ['GET',  /^\/api\/sync\/progress$/,                   handleSyncProgress],
     ['GET',  /^\/api\/palette$/,                          handlePaletteSearch],
     ['GET',  /^\/api\/export$/,                           handleExport],
+    ['POST', /^\/api\/export$/,                           handleExport],
     ['GET',  /^\/api\/life-events$/,                      handleGetLifeEvents],
     ['POST', /^\/api\/goals\/([^/]+)\/assign$/,           handleGoalAssign],
     ['GET',  /^\/api\/goals\/([^/]+)\/pipeline$/,         handleGoalPipeline],
