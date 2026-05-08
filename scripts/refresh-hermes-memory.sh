@@ -30,12 +30,17 @@ log_step() {
 
 write_diagnostics() {
   local refresh_rc=$?
+  local diagnostics_rc=0
   if node "$ROOT_DIR/scripts/memory-refresh-diagnostics.js" "$STEP_LOG" "$ROOT_DIR"; then
     rm -f "$STEP_LOG"
     return "$refresh_rc"
   fi
-  local diagnostics_rc=$?
-  echo "Failed to write memory refresh diagnostics from STEP_LOG=$STEP_LOG (exit code $diagnostics_rc)." >&2
+  diagnostics_rc=$?
+  rm -f "$STEP_LOG"
+  echo "Failed to write memory refresh diagnostics (exit code $diagnostics_rc)." >&2
+  if [ "$refresh_rc" -ne 0 ]; then
+    return "$refresh_rc"
+  fi
   return "$diagnostics_rc"
 }
 
@@ -91,11 +96,12 @@ echo "Refreshing Minty Telegram source data…"
 if [ -f "$ROOT_DIR/.env" ] && grep -q '^TELEGRAM_API_ID=' "$ROOT_DIR/.env" && grep -q '^TELEGRAM_API_HASH=' "$ROOT_DIR/.env" && grep -q '^TELEGRAM_SESSION=' "$ROOT_DIR/.env"; then
   telegram_started_at="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   if npm run telegram:live; then
-    log_step telegram "ok" 0 "$telegram_started_at"
+    log_step telegram_live "ok" 0 "$telegram_started_at"
     echo "Telegram live sync complete."
   else
     telegram_rc=$?
     echo "Telegram live sync failed; falling back to existing Telegram export if available."
+    log_step telegram_live "failed" "$telegram_rc" "$telegram_started_at" "live sync failed; attempted Desktop export fallback"
     if [ -f "$ROOT_DIR/data/telegram/export/result.json" ]; then
       run_step telegram npm run telegram
     else

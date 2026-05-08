@@ -2,6 +2,7 @@
 
 const SAFE_STEP_IDS = new Set([
     'google_contacts',
+    'telegram_live',
     'telegram',
     'merge',
     'contact_evidence',
@@ -15,6 +16,7 @@ const SAFE_STEP_IDS = new Set([
 
 const STEP_NEXT_ACTIONS = {
     google_contacts: 'Fix Google Contacts sync credentials or token profile selection, then rerun npm run memory:refresh.',
+    telegram_live: 'Fix Telegram live refresh credentials/session or provide a Telegram Desktop export, then rerun npm run memory:refresh.',
     telegram: 'Fix Telegram refresh credentials/session or provide a Telegram Desktop export, then rerun npm run memory:refresh.',
     merge: 'Fix source import output and rerun npm run merge, then npm run memory:refresh.',
     contact_evidence: 'Run npm run contact-evidence after merge succeeds, then rerun npm run memory:refresh.',
