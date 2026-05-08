@@ -82,6 +82,28 @@ test('[MemoryRefreshDiagnostics]: failed required step marks downstream artifact
     assert.equal(serialized.includes('/root/.hermes'), false, 'private paths should be redacted');
 });
 
+test('[MemoryRefreshDiagnostics]: Telegram live failure remains visible when Desktop export fallback succeeds', () => {
+    const report = buildRefreshStatus({
+        generatedAt: NOW,
+        steps: [
+            step('telegram_live', 'failed', { exitCode: 1, error: 'TELEGRAM_SESSION expired at /root/.hermes/.env' }),
+            step('telegram', 'ok'),
+            step('merge', 'ok'),
+        ],
+        artifacts: {
+            contacts: { exists: true, count: 5, mtime: NOW },
+        },
+    });
+
+    assert.equal(report.status, 'failed');
+    assert.equal(report.failedStep, 'telegram_live');
+    assert.equal(report.nextActions[0], 'Fix Telegram live refresh credentials/session or provide a Telegram Desktop export, then rerun npm run memory:refresh.');
+
+    const serialized = JSON.stringify(report);
+    assert.equal(serialized.includes('TELEGRAM_SESSION'), false);
+    assert.equal(serialized.includes('/root/.hermes'), false);
+});
+
 test('[MemoryRefreshDiagnostics]: redacts direct contact details, private paths, and message-like strings', () => {
     const value = redactDiagnosticValue('alice@example.com +141****0100 raw message from private group /root/.hermes/google_token.json /home/alice/.ssh/id_rsa /Users/alice/Desktop/contacts.csv C:\\Users\\alice\\Documents\\contacts.csv');
     assert.equal(value.includes('alice@example.com'), false);
