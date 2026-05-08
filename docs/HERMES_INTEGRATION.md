@@ -123,6 +123,27 @@ Returns redacted source rows with freshness, counts, evidence coverage, warnings
 | `"Alice Müller"` | Context on Alice — warmth, topics, evidence, last contact |
 | `"Find EU crypto insurance partners"` | Brief with top people, evidence, and safe next steps |
 
+## Memory refresh diagnostics
+
+`npm run memory:refresh` writes a privacy-safe status report to
+`data/unified/memory-refresh-status.json` on every run — both success and
+failure. The report contains only safe metadata:
+
+- **Step results**: step id, status (`ok`/`failed`/`skipped`/`warning`),
+  timestamps, durations, exit codes.
+- **Artifact presence**: whether each unified output file exists, record
+  counts, last-modified times.
+- **Warnings and next actions**: which steps need attention and what to run.
+- **Safety envelope**: confirms that emails, phones, private paths, raw
+  contact ids, message bodies, and credential values are redacted.
+
+The status file is useful for Hermes agents to understand data freshness
+without accessing raw contact data. It never contains private information.
+
+Stable step ids: `google_contacts`, `telegram`, `merge`, `contact_evidence`,
+`source_events`, `hybrid_index`, `query_index`, `gbrain_export`,
+`gbrain_import`, `mcp_smoke`.
+
 ## Architecture
 
 ```
