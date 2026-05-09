@@ -2106,7 +2106,7 @@ async function init() {
       updateHealthStats();
       applyFilter();
     } catch (e) {
-      if (listEl) listEl.innerHTML = '<div class="loading" style="color:#ef4444">Render error: ' + e.message + '</div>';
+      if (listEl) listEl.innerHTML = '<div class="loading" style="color:#ef4444">Render error: ' + esc(e.message) + '</div>';
     }
     loadReviewCount();
     // First-time UX: zero contacts means a fresh install. Drop the user
@@ -2118,7 +2118,7 @@ async function init() {
       try { showView('sources'); } catch {}
     }
   }).catch(e => {
-    if (listEl) listEl.innerHTML = '<div class="loading" style="color:#ef4444">Failed to load contacts: ' + e.message + '</div>';
+    if (listEl) listEl.innerHTML = '<div class="loading" style="color:#ef4444">Failed to load contacts: ' + esc(e.message) + '</div>';
   });
 
   // Load staleness + sync status in background
