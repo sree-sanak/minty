@@ -78,12 +78,21 @@ function safeWrite(filePath, payload) {
 function redactErrorText(value) {
     if (value === undefined || value === null) return '';
     return String(value)
+        .replace(/^\s*at\s+[^\n]+/gm, '[redacted-stack]')
+        .replace(/(["'`])[^"'`\n]*[\\/][^"'`\n]*\1/g, '$1[redacted-path]$1')
+        .replace(/\[[^\]\n]*[\\/][^\]\n]*\]/g, '[[redacted-path]]')
         .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
         .replace(/\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+/gi, '[redacted-credential]')
+        .replace(/["']?(?:token|password|passwd|secret|api[-_ ]?key|authorization)["']?\s*:\s*["'][^"'\n]*["']/gi, '[redacted-credential]')
         .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted-credential]')
         .replace(/\b(?:token|password|passwd|secret|api[-_ ]?key|authorization)\s*[:=]\s*[^\s,;]+/gi, '[redacted-credential]')
         .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, '[redacted-phone]')
-        .replace(/(?:\b[A-Za-z]:|\\\\[\w.@%+\-]+\\[\w.@%+\-]+|~)?[\\/](?:[\w.@%+\-]+[\\/])*[\w.@%+\-]+(?:\.[A-Za-z0-9]{1,10})?\b/g, '[redacted-path]');
+        .replace(/\b[A-Za-z]:\\[^\n,;]+/g, '[redacted-path]')
+        .replace(/(?:\b[A-Za-z]:|\\\\[^\\\n,;]+\\[^\\\n,;]+|~)?[\\/][^\n,;]*?\.[A-Za-z0-9]{1,10}\b/g, '[redacted-path]')
+        .replace(/(?:~|\/)[^\n,;]+/g, '[redacted-path]')
+        .replace(/\b[\w.@%+-]+(?:\\[\w .@%+-]+)+\b/g, '[redacted-path]')
+        .replace(/(?:\b[A-Za-z]:|~)?[\\/][\w.@%+\-]+(?:[\\/][\w.@%+\-]+)*\b/g, '[redacted-path]')
+        .replace(/\b[\w.@%+-]+(?:\/[\w .@%+-]+)+\b/g, '[redacted-path]');
 }
 
 function safeErrorCode(error) {

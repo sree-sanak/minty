@@ -53,10 +53,8 @@ function runRefreshWithStubs({ npmExitCode, diagnosticsExitCode }) {
         fs.rmSync(generatedMemory, { force: true });
         try {
             fs.rmdirSync(path.dirname(generatedMemory));
-        } catch (err) {
-            if (!err || err.code !== 'ENOENT') {
-                if (!err || err.code !== 'ENOTEMPTY') throw err;
-            }
+        } catch (_err) {
+            // Best-effort cleanup only; do not mask the shell result under test.
         }
         fs.rmSync(dir, { recursive: true, force: true });
     }

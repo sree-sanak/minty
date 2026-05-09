@@ -122,6 +122,64 @@ test('[Progress] failProgress sanitizes string errors', () => {
     fs.rmSync(d, { recursive: true, force: true });
 });
 
+test('[Progress] failProgress sanitizes relative paths, spaced paths, and stack-like text', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'memory', [
+        'Error: failed at private-cache/source dump',
+        'at run (relative/private folder/source dump:12:3)',
+        '    at refresh (/Users/sree/Private Exports/source dump.csv:12:3)',
+        '    at run (/tmp/minty local/build-output.log:4:2)',
+    ].join('\n'));
+    const rec = P.readProgress(d, 'memory');
+    const serialized = JSON.stringify(rec);
+    assert.equal(serialized.includes('private-cache/source dump'), false);
+    assert.equal(serialized.includes('relative/private folder/source dump'), false);
+    assert.equal(serialized.includes('/Users/sree/Private Exports/source dump.csv'), false);
+    assert.equal(serialized.includes('/tmp/minty local/build-output.log'), false);
+    assert.equal(/(?:^|\n)\s*at\s+\w+\s*\(/.test(rec.error.message), false);
+    assert.match(rec.error.message, /\[redacted-path\]/);
+    assert.match(rec.error.message, /\[redacted-stack\]/);
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes Windows-style relative and quoted paths', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'memory', 'failed in "private\\cache\\source dump" and [C:\\Users\\sree\\Private Exports\\source dump]');
+    const rec = P.readProgress(d, 'memory');
+    const serialized = JSON.stringify(rec);
+    assert.equal(serialized.includes('private\\cache\\source dump'), false);
+    assert.equal(serialized.includes('C:\\Users\\sree\\Private Exports\\source dump'), false);
+    assert.equal(rec.error.message, 'failed in "[redacted-path]" and [[redacted-path]]');
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes unquoted Windows paths with spaces', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'memory', 'failed at C:\\Users\\sree\\Private Exports\\source dump and private\\cache\\source dump');
+    const rec = P.readProgress(d, 'memory');
+    assert.equal(rec.error.message, 'failed at [redacted-path]');
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes standalone Windows-style relative paths', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'memory', 'failed at private\\cache\\source dump');
+    const rec = P.readProgress(d, 'memory');
+    assert.equal(rec.error.message, 'failed at [redacted-path]');
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes JSON-style credentials and extensionless spaced paths', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'memory', 'failed at /Users/sree/Private Exports/source dump with "api_key": "sk-secret value"');
+    const rec = P.readProgress(d, 'memory');
+    const serialized = JSON.stringify(rec);
+    assert.equal(serialized.includes('/Users/sree/Private Exports/source dump'), false);
+    assert.equal(serialized.includes('sk-secret value'), false);
+    assert.equal(rec.error.message, 'failed at [redacted-path]');
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
 test('[Progress] percent clamps and returns null when no total', () => {
     assert.equal(P.percent(null), null);
     assert.equal(P.percent({ total: 0 }), null);
