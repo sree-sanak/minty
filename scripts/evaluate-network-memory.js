@@ -37,7 +37,8 @@ function validateCasePrivacy(value, location = '$') {
         if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(sanitized)) {
             throw new Error(`private-looking eval case value: email-like value at ${location}`);
         }
-        if (/\b(?:\+?\d[\s().-]?){10,}\b/.test(sanitized)) {
+        const phoneCandidates = sanitized.match(/(?:\+?\d|\(\d{3}\))[\d\s().-]{7,}\d/g) || [];
+        if (phoneCandidates.some(candidate => candidate.replace(/\D/g, '').length >= 10)) {
             throw new Error(`private-looking eval case value: phone-like value at ${location}`);
         }
         if (/\b(?:sk|pk|rk)-(?:live|test|proj|pat|key)-[A-Za-z0-9_-]{8,}\b/i.test(sanitized)) {
