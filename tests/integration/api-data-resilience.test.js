@@ -284,6 +284,71 @@ test('POST /api/network/query returns agent privacy envelope and redacts direct 
     });
 });
 
+test('POST /api/network/query uses precomputed contact evidence like the agent CLI', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-contact-evidence-'));
+    seedDataDir(dir, []);
+    const unified = path.join(dir, 'unified');
+    writeJson(path.join(unified, 'contacts.json'), [
+        {
+            id: 'c_ev_http',
+            name: 'Evidence Only Person',
+            phones: ['12065550199'],
+            emails: ['evidence@example.com'],
+            notes: '',
+            tags: [],
+            sources: { telegram: { userId: 'tg_1' } },
+            lastContactedAt: '2026-04-30T00:00:00.000Z',
+            daysSinceContact: 8,
+            relationshipScore: 25,
+            interactionCount: 0,
+            activeChannels: ['telegram'],
+            isGroup: false,
+        },
+        {
+            id: 'c_warm_unrelated',
+            name: 'Warm Unrelated Person',
+            notes: '',
+            tags: [],
+            sources: { linkedin: { position: 'Finance operator', company: 'BankCo' } },
+            lastContactedAt: '2026-05-01T00:00:00.000Z',
+            daysSinceContact: 1,
+            relationshipScore: 90,
+            interactionCount: 40,
+            activeChannels: ['linkedin'],
+            isGroup: false,
+        },
+    ]);
+    writeJson(path.join(unified, 'contact-evidence.json'), {
+        c_ev_http: {
+            contactId: 'c_ev_http',
+            topics: ['defi', 'lending protocol', 'risk'],
+            topicEvidence: [
+                { topic: 'defi', count: 2, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                { topic: 'lending protocol', count: 1, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+            ],
+            sources: ['telegram'],
+            interactionCount: 2,
+            confidence: 0.75,
+        },
+    });
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'Who do I know working in DeFi lending protocols?' }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.equal(payload.results[0].name, 'Evidence Only Person');
+        assert.match(payload.results[0].id, /^contact:[a-p]+$/);
+        assert.ok(payload.results[0].reasons.some(reason => reason.kind === 'contact_evidence'));
+        assert.equal(payload.diagnostics.contactEvidenceContacts, 1);
+        assert.equal(payload.diagnostics.evidenceBacked, true);
+        assert.doesNotMatch(JSON.stringify(payload), /c_ev_http|12065550199|evidence@example\.com|2026-05-01/);
+    });
+});
+
 test('POST /api/network/query does not turn contact-detail-only queries into generic results', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-detail-only-'));
     seedDataDir(dir, []);
