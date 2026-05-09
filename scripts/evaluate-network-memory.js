@@ -7,12 +7,13 @@ const path = require('path');
 const { loadData } = require('./agent-query');
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { evaluateRelationshipQueries } = require('../crm/evaluation');
+const { handleMessage } = require('./minty-mcp-server');
 
 const FIXTURE_PATH = path.join(__dirname, '..', 'tests', 'fixtures', 'agent-workflows.json');
 
 function loadDefaultCases() {
     const all = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
-    return Object.freeze(all.filter(c => c.target === 'query_network'));
+    return Object.freeze(all);
 }
 
 const DEFAULT_CASES = loadDefaultCases();
@@ -33,15 +34,51 @@ function readCases(file) {
     return parsed;
 }
 
+function parseMcpToolEnvelope(resp) {
+    const text = resp && resp.result && resp.result.content && resp.result.content[0] && resp.result.content[0].text;
+    if (!text) return {};
+    return JSON.parse(text);
+}
+
+function runAgentEvalCase(testCase, data) {
+    if (typeof testCase === 'string') {
+        return queryNetwork(testCase, { ...data, limit: 10 });
+    }
+
+    const target = testCase && testCase.target;
+    const args = (testCase && testCase.arguments) || {};
+
+    if (target === 'query_network') {
+        const query = args.query || testCase.query || '';
+        const opts = { ...data, limit: 10 };
+        if (args.source) opts.source = args.source;
+        if (args.sources) opts.sources = args.sources;
+        return queryNetwork(query, opts);
+    }
+
+    if (typeof target === 'string' && target.startsWith('mcp:')) {
+        const tool = target.slice('mcp:'.length);
+        const resp = handleMessage({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: tool, arguments: args },
+        }, data);
+        return parseMcpToolEnvelope(resp);
+    }
+
+    throw new Error(`Unsupported eval target: ${target}`);
+}
+
 function main() {
     const args = parseArgs(process.argv.slice(2));
     const data = loadData(args.dataDir);
     const cases = readCases(args.casesPath);
-    const report = evaluateRelationshipQueries(cases, (query) => queryNetwork(query, { ...data, limit: 10 }));
+    const report = evaluateRelationshipQueries(cases, (testCase) => runAgentEvalCase(testCase, data));
     console.log(JSON.stringify({ dataDir: args.dataDir, ...report }, null, 2));
     process.exitCode = report.failed ? 1 : 0;
 }
 
 if (require.main === module) main();
 
-module.exports = { DEFAULT_CASES, parseArgs };
+module.exports = { DEFAULT_CASES, parseArgs, runAgentEvalCase };

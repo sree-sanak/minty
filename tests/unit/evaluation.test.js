@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { evaluateRelationshipQueries } = require('../../crm/evaluation');
-const { DEFAULT_CASES } = require('../../scripts/evaluate-network-memory');
+const { DEFAULT_CASES, runAgentEvalCase } = require('../../scripts/evaluate-network-memory');
 
 test('evaluates relationship query quality using evidence-backed criteria', () => {
     const cases = [
@@ -117,12 +117,64 @@ test('agent-workflows fixture exists, is synthetic, and DEFAULT_CASES loads from
     assert.ok(!/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/.test(raw.replace(/555-0\d{3}/g, '')),
         'fixture must not contain real-looking phone numbers');
 
-    // DEFAULT_CASES must match the fixture's query_network cases (loaded from file, not inline)
-    const networkCases = fixture.filter(c => c.target === 'query_network');
+    // DEFAULT_CASES must match the fixture (loaded from file, not inline)
     const defaultCaseQueries = DEFAULT_CASES.map(c => c.query).sort();
-    const fixtureCaseQueries = networkCases.map(c => c.query).sort();
+    const fixtureCaseQueries = fixture.map(c => c.query).sort();
     assert.deepEqual(defaultCaseQueries, fixtureCaseQueries,
-        'DEFAULT_CASES queries must match fixture query_network cases');
+        'DEFAULT_CASES queries must match fixture cases');
+});
+
+test('passes structured eval case arguments to the runner while preserving legacy query strings', () => {
+    const structuredCases = [{
+        name: 'telegram-filtered-query',
+        target: 'query_network',
+        arguments: { query: 'telegram defi operators', source: 'telegram' },
+        minResults: 1,
+        requirePaths: ['results.0.matchedSources.0'],
+    }];
+    const seenStructured = [];
+    const structuredReport = evaluateRelationshipQueries(structuredCases, (testCase) => {
+        seenStructured.push(testCase.arguments);
+        return {
+            results: [{ name: 'Tara Telegram', matchedSources: ['telegram'], evidence: [{ kind: 'contact_evidence' }] }],
+            diagnostics: { usedFallback: false },
+            safety: { readOnly: true },
+        };
+    });
+
+    assert.deepEqual(seenStructured, [{ query: 'telegram defi operators', source: 'telegram' }]);
+    assert.equal(structuredReport.failed, 0);
+    assert.equal(structuredReport.cases[0].query, 'telegram defi operators');
+
+    const seenLegacy = [];
+    const legacyReport = evaluateRelationshipQueries([{ query: 'who knows DeFi?', maxResults: 0 }], (query) => {
+        seenLegacy.push(query);
+        return { results: [], diagnostics: { usedFallback: false } };
+    });
+
+    assert.deepEqual(seenLegacy, ['who knows DeFi?']);
+    assert.equal(legacyReport.failed, 0);
+});
+
+test('runAgentEvalCase executes MCP source_health cases as parsed envelopes', async () => {
+    const out = await runAgentEvalCase({
+        target: 'mcp:source_health',
+        arguments: { source: 'telegram' },
+    }, {
+        contacts: [],
+        interactions: [],
+        insights: {},
+        contactEvidence: {},
+        sourceEvents: [],
+        hybridIndex: [],
+        syncState: { telegram: { lastSyncAt: '2026-05-08T00:00:00Z', status: 'ok' } },
+        nowForTests: '2026-05-08T01:00:00Z',
+    });
+
+    assert.equal(out.sources && typeof out.sources === 'object' && !Array.isArray(out.sources), true);
+    assert.ok(out.sources.telegram);
+    assert.equal(out.safety.contactDetailsOmitted, true);
+    assert.equal(out.results, undefined, 'source_health must not return people');
 });
 
 test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
