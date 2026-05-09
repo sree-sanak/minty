@@ -15,6 +15,7 @@
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { canonicalSafeSource } = require('../crm/source-events');
 const { buildAgentSourceHealth, canonicalSource } = require('../crm/agent-source-health');
+const { redactDirectContactDetails, agentSafetyEnvelope } = require('../crm/privacy-envelope');
 const { resolveDataDir, loadData } = require('./agent-query');
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,10 @@ function safeEvidence(evidence) {
     if (!Array.isArray(evidence)) return [];
     return evidence.map(e => {
         if (!e || typeof e !== 'object') return e;
-        const safe = { ...e };
+        const safe = {};
+        for (const [key, value] of Object.entries(e)) {
+            safe[key] = typeof value === 'string' ? redactDirectContactDetails(value) : value;
+        }
         // Insight topic details can contain raw conversation-derived text.
         // Preserve the evidence signal, but not the sensitive topic string.
         if (safe.kind === 'topic') delete safe.detail;
@@ -123,15 +127,15 @@ function safeEvidence(evidence) {
 
 function safeResult(r) {
     const safe = {
-        name: r.name,
-        title: r.title,
-        company: r.company,
-        city: r.city,
-        warmth: r.warmth,
+        name: redactDirectContactDetails(r.name),
+        title: redactDirectContactDetails(r.title),
+        company: redactDirectContactDetails(r.company),
+        city: redactDirectContactDetails(r.city),
+        warmth: redactDirectContactDetails(r.warmth),
         relationshipScore: r.relationshipScore,
-        confidence: r.confidence,
+        confidence: redactDirectContactDetails(r.confidence),
         evidence: safeEvidence(r.evidence),
-        suggestedAction: r.suggestedAction,
+        suggestedAction: redactDirectContactDetails(r.suggestedAction),
         daysSinceContact: r.daysSinceContact,
         interactionCount: r.interactionCount,
     };
@@ -244,7 +248,7 @@ function executeTool(name, args, data) {
         const result = queryNetwork(person, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
         const matches = result.results.map(safeResult);
         const envelope = {
-            person,
+            person: result.query,
             matches,
             diagnostics: result.diagnostics,
             safety: result.safety,
@@ -259,28 +263,23 @@ function executeTool(name, args, data) {
         const goal = args.goal.trim();
         const limit = clampLimit(args.limit, 5);
         const result = queryNetwork(goal, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
-        const topPeople = result.results.map(r => ({
+        const topPeople = result.results.map(safeResult).map(r => ({
             name: r.name,
             title: r.title,
             company: r.company,
             warmth: r.warmth,
             confidence: r.confidence,
             daysSinceContact: r.daysSinceContact,
-            why: (r.evidence || []).map(e => e.label).join('; ') || 'General network match',
+            why: (r.evidence || []).map(e => e.label).filter(Boolean).join('; ') || 'General network match',
             suggestedAction: r.suggestedAction,
         }));
         const envelope = {
-            goal,
+            goal: result.query,
             intent: result.intent,
             topPeople,
             dataFreshness: buildDataFreshness(contacts, sourceEvents, result.diagnostics && result.diagnostics.sourceCoverage),
             diagnostics: result.diagnostics,
-            safety: {
-                contactDetailsOmitted: true,
-                readOnly: true,
-                noLlmCalls: true,
-                noOutreachTriggered: true,
-            },
+            safety: { ...agentSafetyEnvelope(), noOutreachTriggered: true },
         };
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
     }
