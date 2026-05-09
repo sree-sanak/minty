@@ -94,7 +94,7 @@ function buildSourceAnswerability(healthEnvelope, opts = {}) {
         ? Object.entries(healthEnvelope.sources)
             .map(([rawSource, row]) => {
                 const source = canonicalSource(rawSource);
-                return source ? { source, ...(row && typeof row === 'object' ? row : {}) } : null;
+                return source ? { ...(row && typeof row === 'object' ? row : {}), source } : null;
             })
             .filter(Boolean)
         : [];
@@ -119,12 +119,14 @@ function buildSourceAnswerability(healthEnvelope, opts = {}) {
     const warnings = new Set(perSource.flatMap(row => row.warnings));
     if (invalidSource) warnings.add('invalid_source');
     if (explicit && !perSource.length) warnings.add('no_source_health');
-    const blocked = explicit && (invalidSource || !perSource.length || perSource.every(row => !row.answerable));
+    const answerableSources = perSource.filter(row => row.answerable).map(row => row.source);
+    const blocked = explicit && (invalidSource || !perSource.length || perSource.some(row => !row.answerable));
 
     return {
         answerable: !blocked,
         status: blocked ? 'blocked' : 'answerable',
         sources: perSource.map(row => row.source),
+        answerableSources,
         warnings: [...warnings].sort(),
         perSource,
         suggestedNextStep: blocked
