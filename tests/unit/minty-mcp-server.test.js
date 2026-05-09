@@ -334,6 +334,38 @@ describe('person_context tool', () => {
         assert.equal(parsed.safety.noLlmCalls, true);
     });
 
+    it('redacts direct contact details echoed in the person field', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 28, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'alice@example.com +15551234567 Alice' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.person, '[redacted email] [redacted phone] Alice');
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
+    });
+
+    it('redacts direct contact details from allowlisted result string fields at the MCP boundary', () => {
+        const safe = safeResult({
+            name: 'Alice alice@example.com',
+            title: 'Call +15551234567',
+            company: 'Example',
+            city: 'London',
+            warmth: 'strong',
+            confidence: 'high',
+            evidence: [{ kind: 'keyword', label: 'email alice@example.com', detail: 'phone +15551234567' }],
+            suggestedAction: 'Ask alice@example.com for intro',
+        });
+
+        const serialized = JSON.stringify(safe);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
+        assert.equal(safe.name, 'Alice [redacted email]');
+        assert.equal(safe.evidence[0].detail, 'phone [redacted phone]');
+    });
+
     it('redacts raw insight topic details from person_context evidence', async () => {
         const sensitiveInsights = {
             li_002: {
@@ -506,6 +538,22 @@ describe('workflow_brief tool', () => {
         assert.ok(parsed.dataFreshness);
         assert.ok(parsed.dataFreshness.contactCount != null);
         assert.ok(parsed.dataFreshness.generatedAt);
+    });
+
+    it('redacts direct contact details echoed in workflow goal', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 36, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'ask alice@example.com at +15551234567 for Monzo intro' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.goal, 'ask [redacted email] at [redacted phone] for Monzo intro');
+        assert.equal(parsed.safety.contactIdsOmitted, true);
+        assert.equal(parsed.safety.noLlmCalls, true);
+        assert.equal(parsed.safety.noOutreachTriggered, true);
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
     });
 
     it('reports privacy-safe per-source freshness in workflow_brief', async () => {
