@@ -5,7 +5,8 @@
  *
  * Export Minty relationship-memory envelopes for GBrain/private brain ingestion.
  * This is local, deterministic, source-backed, and privacy conservative:
- * direct emails, phone numbers, and raw contact objects are never emitted.
+ * direct emails, phone numbers, raw contact ids, group contacts, raw messages,
+ * source handles, private paths, URLs, and arbitrary insight prose are never emitted.
  */
 
 'use strict';
@@ -14,18 +15,20 @@ const fs = require('fs');
 const path = require('path');
 const { resolveDataDir, loadData } = require('./agent-query');
 const { warmthLabel } = require('../crm/agent-retrieval');
-
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-const PHONE_RE = /\+?\d[\d\s().-]{6,}\d/g;
+const { stripDirectContactDetails, agentSafetyEnvelope } = require('../crm/privacy-envelope');
+const { canonicalSafeSource, safeContactRef, parseSafeTimestamp } = require('../crm/source-events');
+const { extractAllowedTopics } = require('../crm/evidence-patches');
 
 function text(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
 
 function safeText(value, fallback = '') {
-    const cleaned = text(value)
-        .replace(EMAIL_RE, '')
-        .replace(PHONE_RE, '')
+    const cleaned = stripDirectContactDetails(text(value))
+        .replace(/(?:https?|ftp|file):\/\/\S+/gi, '')
+        .replace(/\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|private[_-]?key|password|token|secret|credential|session|cookie)[_-]?(?:path|file)?\s*[:=]\s*\S+/gi, '')
+        .replace(/(?:^|\s)(?:[A-Za-z]:\\|\/Users\/|\/home\/|\/root\/|\/tmp\/|\.\/|\.\.\/)[^\s]+/g, ' ')
+        .replace(/(^|\s)@[A-Za-z0-9_.-]{2,}/g, ' ')
         .replace(/[<>]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
@@ -34,6 +37,29 @@ function safeText(value, fallback = '') {
 
 function uniq(values) {
     return [...new Set(values.map(v => safeText(v)).filter(Boolean))];
+}
+
+function safeTopics(values, limit = 20) {
+    const out = [];
+    for (const value of values.flat()) {
+        for (const topic of extractAllowedTopics(value)) {
+            if (!out.includes(topic)) out.push(topic);
+            if (out.length >= limit) return out;
+        }
+    }
+    return out;
+}
+
+function safeSourceNames(contact) {
+    const names = Object.keys((contact && contact.sources) || {})
+        .map(canonicalSafeSource)
+        .filter(Boolean)
+        .sort();
+    return [...new Set(names)];
+}
+
+function safeCitationRef(contactRef, kind, index) {
+    return `${contactRef}:gbrain:${kind}:${index}`;
 }
 
 function linkedinSource(contact) {
@@ -61,44 +87,74 @@ function contactLocation(contact) {
     return safeText(contact.city) || safeText(contact.location) || safeText(li.location) || null;
 }
 
-function sourceNames(contact) {
-    return Object.keys((contact && contact.sources) || {}).sort();
-}
-
 function buildRelationshipMemoryEnvelope(contact, insights = {}) {
-    const contactInsights = insights[contact.id] || {};
+    if (!contact || contact.isGroup === true) return null;
+
+    const contactRef = safeContactRef(contact.id);
+    const contactInsights = (insights && (insights[contact.id] || insights[contactRef])) || {};
     const title = contactTitle(contact);
     const company = contactCompany(contact);
     const location = contactLocation(contact);
-    const topics = uniq([
+    const sources = safeSourceNames(contact);
+    const latestAt = parseSafeTimestamp(contact.lastSyncedAt || contact.updatedAt || contact.lastContactedAt);
+    const topics = safeTopics([
         ...(Array.isArray(contact.tags) ? contact.tags : []),
+        ...(Array.isArray(contactInsights.keywords) ? contactInsights.keywords : []),
         ...(Array.isArray(contactInsights.topics) ? contactInsights.topics : []),
         title,
         company,
         location,
-    ]).slice(0, 20);
+    ]);
 
     const evidence = [];
-    for (const source of sourceNames(contact)) {
+    sources.forEach((source, index) => {
         evidence.push({
+            citationRef: safeCitationRef(contactRef, 'source', index),
+            kind: 'source_presence',
             source,
-            label: `Present in ${source} source data`,
-            detail: source === 'googleContacts'
-                ? 'Synced from Google Contacts metadata; direct contact details omitted.'
-                : 'Derived from local Minty source data; direct contact details omitted.',
+            label: safeText(`Present in ${source} source data`),
+            detail: source === 'googlecontacts'
+                ? safeText('Synced from Google Contacts metadata; direct contact details omitted.')
+                : safeText('Derived from local Minty source data; direct contact details omitted.'),
+            latestAt,
+            count: 1,
         });
-    }
-    if (title) evidence.push({ source: 'minty', label: 'Role/title evidence', detail: title });
-    if (company) evidence.push({ source: 'minty', label: 'Company evidence', detail: company });
-    if (location) evidence.push({ source: 'minty', label: 'Location evidence', detail: location });
-    for (const topic of topics.slice(0, 8)) {
-        evidence.push({ source: 'minty', label: 'Topic evidence', detail: topic });
-    }
+    });
 
+    [
+        ['role', 'Role/title evidence', title],
+        ['company', 'Company evidence', company],
+        ['location', 'Location evidence', location],
+    ].forEach(([kind, label, detail], index) => {
+        if (!detail) return;
+        evidence.push({
+            citationRef: safeCitationRef(contactRef, kind, index),
+            kind,
+            source: 'minty',
+            label: safeText(label),
+            detail: safeText(detail),
+            latestAt,
+            count: 1,
+        });
+    });
+
+    topics.slice(0, 8).forEach((topic, index) => {
+        evidence.push({
+            citationRef: safeCitationRef(contactRef, 'topic', index),
+            kind: 'topic',
+            source: 'minty',
+            label: safeText('Allowed topic evidence'),
+            detail: safeText(topic),
+            latestAt,
+            count: 1,
+        });
+    });
+
+    const confidence = evidence.length >= 4 && sources.length > 0 ? 'medium' : 'low';
     return {
         type: 'relationship_memory',
-        schemaVersion: 1,
-        id: contact.id,
+        schemaVersion: 2,
+        contactRef,
         person: safeText(contact.name || contact.displayName, 'Unknown person'),
         headline: [title, company].filter(Boolean).join(' at ') || title || company || null,
         title,
@@ -110,37 +166,52 @@ function buildRelationshipMemoryEnvelope(contact, insights = {}) {
             warmth: warmthLabel(contact.relationshipScore || 0),
             interactionCount: contact.interactionCount || 0,
             daysSinceContact: contact.daysSinceContact ?? null,
-            activeChannels: Array.isArray(contact.activeChannels) ? contact.activeChannels : [],
+            activeChannels: Array.isArray(contact.activeChannels)
+                ? [...new Set(contact.activeChannels.map(canonicalSafeSource).filter(Boolean))].sort()
+                : [],
         },
         evidence,
         sourceMetadata: {
-            sources: sourceNames(contact),
-            lastSyncedAt: contact.lastSyncedAt || contact.updatedAt || null,
-            confidence: evidence.length >= 3 ? 'medium' : 'low',
-            freshness: contact.lastSyncedAt ? 'source_synced' : 'unknown',
+            sources,
+            latestAt,
+            profileSourceCount: sources.length,
+            evidenceCount: evidence.length,
+            confidence,
+            freshness: latestAt ? 'source_synced' : 'unknown',
         },
         safety: {
-            directContactDetailsOmitted: true,
-            omittedFields: ['emails', 'phones', 'rawContact'],
-            safeToUseInAgentContext: true,
+            ...agentSafetyEnvelope({ omittedFields: ['messageBodies', 'groupNames', 'groupIds', 'sourceHandles', 'privatePaths', 'rawInsightText'] }),
             readOnly: true,
+            noLlmCalls: true,
+            contactIdsOmitted: true,
+            directContactDetailsOmitted: true,
+            rawMessagesOmitted: true,
+            rawInsightTextOmitted: true,
+            noOutreachTriggered: true,
+            safeToUseInAgentContext: true,
         },
     };
 }
 
 function envelopeToMarkdown(envelope) {
     const lines = [];
-    lines.push(`## ${envelope.person}`);
-    if (envelope.headline) lines.push(`- Headline: ${envelope.headline}`);
-    if (envelope.location) lines.push(`- Location: ${envelope.location}`);
-    lines.push(`- Relationship: ${envelope.relationship.warmth}, score ${envelope.relationship.score}`);
-    lines.push(`- Sources: ${envelope.sourceMetadata.sources.join(', ') || 'unknown'}`);
-    if (envelope.topics.length) lines.push(`- Topics: ${envelope.topics.join(', ')}`);
-    lines.push('- Safety: direct contact details omitted; read-only relationship memory.');
+    lines.push(`## ${safeText(envelope.person, 'Unknown person')}`);
+    lines.push(`- Contact ref: ${safeText(envelope.contactRef, 'unknown')}`);
+    if (envelope.headline) lines.push(`- Headline: ${safeText(envelope.headline)}`);
+    if (envelope.location) lines.push(`- Location: ${safeText(envelope.location)}`);
+    lines.push(`- Relationship: ${safeText(envelope.relationship.warmth)}, score ${Number(envelope.relationship.score) || 0}`);
+    lines.push(`- Sources: ${envelope.sourceMetadata.sources.map(safeText).filter(Boolean).join(', ') || 'unknown'}`);
+    lines.push(`- Confidence: ${safeText(envelope.sourceMetadata.confidence || 'low')}`);
+    if (envelope.sourceMetadata.latestAt) lines.push(`- Latest safe timestamp: ${safeText(envelope.sourceMetadata.latestAt)}`);
+    if (envelope.topics.length) lines.push(`- Topics: ${uniq(envelope.topics).join(', ')}`);
+    lines.push('- Safety: direct contact details, contact ids, raw messages, and raw insight text omitted; read-only relationship memory.');
     if (envelope.evidence.length) {
         lines.push('- Evidence:');
         for (const e of envelope.evidence.slice(0, 12)) {
-            lines.push(`  - ${e.label}${e.detail ? `: ${e.detail}` : ''}`);
+            const citation = e.citationRef ? ` (citation: ${safeText(e.citationRef)})` : '';
+            const label = safeText(e.label, 'Evidence');
+            const detail = safeText(e.detail);
+            lines.push(`  - ${label}${detail ? `: ${detail}` : ''}${citation}`);
         }
     }
     return lines.join('\n');
@@ -158,7 +229,7 @@ function buildMarkdownDocument(envelopes, generatedAt = new Date().toISOString()
         '',
         '# Minty Relationship Memory Export',
         '',
-        'Private local export for GBrain/Hermes ingestion. Direct emails, phone numbers, and raw contact records are intentionally omitted.',
+        'Private local export for GBrain/Hermes ingestion. Direct contact details, raw contact ids, raw messages, source handles, group contacts, private paths, URLs, and arbitrary insight prose are intentionally omitted.',
         '',
     ];
     for (const envelope of envelopes) {
@@ -173,11 +244,13 @@ function exportGbrainMemory(opts = {}) {
     if (!dataDir) throw new Error('No Minty contacts found. Run npm run google-contacts:hermes && npm run merge first.');
 
     const { contacts, insights } = loadData(dataDir);
-    const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : contacts.length;
-    const envelopes = contacts
-        .filter(c => c && safeText(c.name || c.displayName, ''))
+    const sourceContacts = Array.isArray(contacts) ? contacts : [];
+    const exportableContacts = sourceContacts.filter(c => c && c.isGroup !== true && safeText(c.name || c.displayName, ''));
+    const limit = Number.isInteger(opts.limit) && opts.limit > 0 ? opts.limit : exportableContacts.length;
+    const envelopes = exportableContacts
         .slice(0, limit)
-        .map(c => buildRelationshipMemoryEnvelope(c, insights));
+        .map(c => buildRelationshipMemoryEnvelope(c, insights))
+        .filter(Boolean);
 
     const outDir = opts.outDir || path.join(dataDir, 'gbrain');
     fs.mkdirSync(outDir, { recursive: true });
