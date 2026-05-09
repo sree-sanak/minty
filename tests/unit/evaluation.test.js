@@ -264,6 +264,33 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
         assert.deepEqual(positiveCase.forbidSubstrings, ['raw-phone-555-0101']);
     }
 
+    const mcpSearchCase = DEFAULT_CASES.find(c => c.name === 'crypto-insurance-mcp-search');
+    assert.ok(mcpSearchCase, 'MCP search eval case should exist');
+    assert.equal(mcpSearchCase.target, 'mcp:search_network');
+    assert.deepEqual(mcpSearchCase.arguments, {
+        query: 'Who do I know for crypto insurance?',
+    });
+    assert.equal(mcpSearchCase.minResults, 1);
+    assert.equal(mcpSearchCase.disallowFallback, true);
+    assert.deepEqual(mcpSearchCase.requireEvidenceKinds, ['keyword', 'topic']);
+    assert.deepEqual(mcpSearchCase.requirePaths, ['safety.readOnly', 'results.0.evidence.0.kind']);
+    assert.deepEqual(mcpSearchCase.forbidPaths, ['results.0.email', 'results.0.phone']);
+    assert.deepEqual(mcpSearchCase.forbidSubstrings, ['raw-phone-555-0101']);
+
+    const telegramHealthCase = DEFAULT_CASES.find(c => c.name === 'telegram-source-health-mcp');
+    assert.ok(telegramHealthCase, 'MCP source_health eval case should exist');
+    assert.equal(telegramHealthCase.target, 'mcp:source_health');
+    assert.deepEqual(telegramHealthCase.arguments, { source: 'telegram' });
+    assert.equal(telegramHealthCase.disallowFallback, true);
+    assert.deepEqual(telegramHealthCase.requirePaths, [
+        'safety.readOnly',
+        'safety.contactDetailsOmitted',
+        'sources.telegram.status',
+        'sources.telegram.freshness',
+    ]);
+    assert.deepEqual(telegramHealthCase.forbidPaths, ['results.0.name', 'results.0.email', 'results.0.phone']);
+    assert.deepEqual(telegramHealthCase.forbidSubstrings, ['raw-phone-555-0101']);
+
     const impossibleCase = DEFAULT_CASES.find(c => c.query === 'Who do I know for impossible private codename zzqv?');
     assert.ok(impossibleCase, 'impossible-query eval case should exist');
     assert.equal(impossibleCase.maxResults, 0);
