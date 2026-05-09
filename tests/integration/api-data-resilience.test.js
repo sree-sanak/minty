@@ -284,6 +284,33 @@ test('POST /api/network/query returns agent privacy envelope and redacts direct 
     });
 });
 
+test('POST /api/network/query does not expose raw topic text from insights evidence', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-topic-privacy-'));
+    seedDataDir(dir, []);
+    writeJson(path.join(dir, 'unified/insights.json'), {
+        wa_12065550100: {
+            topics: ['payments PRIVATE_QA_TOPIC_SENTINEL_7319 board complaint'],
+        },
+    });
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/network/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: 'payments' }),
+        });
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        assert.ok(payload.results.length > 0, 'expected topic-backed result');
+        const topicReason = payload.results[0].reasons.find(reason => reason.kind === 'topic');
+        assert.ok(topicReason, 'expected topic evidence reason');
+        assert.equal(topicReason.detail, 'Topic match from precomputed insights');
+        assert.doesNotMatch(JSON.stringify(payload), /PRIVATE_QA_TOPIC_SENTINEL_7319|board complaint/);
+        assert.equal(payload.safety.contactDetailsOmitted, true);
+        assert.equal(payload.safety.contactIdsOmitted, true);
+    });
+});
+
 test('POST /api/network/query uses precomputed contact evidence like the agent CLI', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-contact-evidence-'));
     seedDataDir(dir, []);

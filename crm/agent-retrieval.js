@@ -16,7 +16,7 @@ const { scoreContactForGoal } = require('./utils');
 const { matchContactEvidence } = require('./contact-evidence');
 const { buildSourceEvents, summarizeSourceCoverage, safeContactRef } = require('./source-events');
 const { buildHybridIndex, queryHybridIndex } = require('./hybrid-index');
-const { redactDirectContactDetails, agentSafetyEnvelope } = require('./privacy-envelope');
+const { redactDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail } = require('./privacy-envelope');
 
 // ---------------------------------------------------------------------------
 // Warmth label from relationship score
@@ -535,7 +535,7 @@ function queryNetwork(query, opts = {}) {
             evidence:          (r.reasons || []).map(reason => ({
                 kind:   reason.kind,
                 label:  redactDirectContactDetails(reason.label),
-                detail: redactDirectContactDetails(reason.detail) || null,
+                detail: safeEvidenceDetail(reason),
             })),
             evidenceBacked:    (r.reasons || []).length > 0,
             suggestedAction:   suggestAction(r, parsed.intent),

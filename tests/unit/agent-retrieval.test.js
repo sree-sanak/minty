@@ -601,7 +601,7 @@ describe('agent-retrieval: queryNetwork()', () => {
             confidence: 'high',
             evidence: [
                 { kind: 'keyword', label: 'stripe', detail: 'Company: Stripe' },
-                { kind: 'topic', label: 'Recent conversation', detail: 'payments infrastructure' },
+                { kind: 'topic', label: 'Recent conversation', detail: 'Topic match from precomputed insights' },
                 { kind: 'recent', label: 'Recent', detail: '2 days ago' },
             ],
             evidenceBacked: true,
