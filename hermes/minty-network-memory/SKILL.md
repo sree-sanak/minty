@@ -8,11 +8,14 @@ version: 1.0.0
 
 ## When to use
 
-Call Minty when a Hermes workflow needs to understand the user's private network:
+Call Minty when a Hermes workflow needs private, read-only relationship memory:
 
-- **Who do I know?** — find people by role, company, location, or topic
-- **Person context** — get relationship history and evidence before reaching out
-- **Workflow briefs** — get a concise brief of relevant people for a goal
+- **Search the network** — `search_network` for people by role, company, source, location, topic, or goal.
+- **Person context** — `person_context` before meetings, follow-ups, introductions, or relationship-sensitive decisions.
+- **Workflow brief** — `workflow_brief` when Sree has a goal and needs the highest-leverage people plus safe next steps.
+- **Source readiness** — `source_health` before source-specific questions, after low-evidence results, or when freshness matters.
+
+Never answer source-specific relationship questions from vibes. If Sree asks "who did I talk to on Telegram/Email/Slack/etc.", call `source_health` before source-specific retrieval, then use `search_network` with `source` / `sources` filters only if the source is fresh and evidence-bearing.
 
 ## MCP configuration
 
@@ -30,32 +33,56 @@ mcp_servers:
 ## Available tools
 
 ### search_network
-Search the network with natural language. Returns ranked contacts with evidence.
+Search the network with natural language. Returns ranked contacts with evidence, warmth, confidence, source diagnostics, and suggested safe next actions.
 
 ```json
 { "query": "investors in London who know about AI", "limit": 5 }
 ```
 
+Use `source` / `sources` filters for source-specific questions:
+
+```json
+{ "query": "people I discussed Telegram bots with", "source": "telegram", "limit": 5 }
+```
+
 ### person_context
-Look up a specific person. Returns relationship context, warmth, and evidence.
+Look up a specific person. Returns relationship context, warmth, evidence, and safe diagnostics.
 
 ```json
 { "person": "Alice Müller", "limit": 3 }
 ```
 
 ### workflow_brief
-Generate a workflow brief for a goal. Returns top people, why each matters,
-suggested next steps, and data freshness metadata.
+Generate a goal-first brief. Returns top people, why each matters, data freshness, and safe next steps. This is the default tool for "who can help me with X right now?".
 
 ```json
 { "goal": "Find EU crypto insurance distribution partners", "limit": 5 }
 ```
 
+### source_health
+Check which Minty sources are fresh, evidence-bearing, stale, empty, or unsafe before relying on source-specific answers.
+
+```json
+{ "source": "telegram" }
+{ "sources": ["telegram", "slack"] }
+{ "query": "who from Telegram knows DeFi?" }
+```
+
+## Readiness levels
+
+- **Demo-ready:** `npm run seed:demo`, `npm run mcp`, and `npm run agent -- "investors in London"` work against synthetic data.
+- **Dogfood-ready:** `npm run memory:refresh` succeeds against real local data, `source_health` reports fresh/evidence-bearing sources, and outputs omit direct contact details.
+- **Hermes-native:** this skill is installed and the Minty MCP server is registered, so Hermes can call `search_network`, `person_context`, `workflow_brief`, and `source_health` without shelling into the repo.
+
+Use `npm run hermes:doctor` to inspect readiness before claiming Minty is usable in a Hermes workflow. Use `npm run gbrain:export` only for privacy-safe durable-memory export, not raw contact/message dumps.
+
 ## Source health preflight
 
-Before source-specific queries (`telegram`, `gmail/email`, `linkedin`, `whatsapp`, `sms`, `slack`) call `source_health` if freshness or coverage matters. If the source is stale/empty, say so instead of answering from vibes.
+Before source-specific queries (`telegram`, `gmail/email`, `linkedin`, `whatsapp`, `sms`, `slack`) call `source_health` if freshness or coverage matters. If the source is stale/empty, say so instead of answering from vibes. For stale or low-evidence results, call `source_health` before deciding whether to retry with `source` / `sources` filters or return an honest empty/low-confidence answer.
 
-Example: `{ "source": "telegram" }`
+## Agent surface maintenance contract
+
+`scripts/minty-mcp-server.js` is the source of truth for exposed MCP tools. Any PR that adds, removes, or renames a tool must update the docs and skill in the same PR: `tests/unit/minty-mcp-server.test.js`, `docs/HERMES_INTEGRATION.md`, `hermes/minty-network-memory/SKILL.md`, and the docs drift test in `tests/unit/agent-surface-docs.test.js`.
 
 ## Safety constraints
 
@@ -102,6 +129,9 @@ npm run gbrain:export
 
 ```
 Hermes goal: "Prepare for EU crypto insurance expansion"
+
+0. If the goal depends on a source, call source_health({ source: "telegram" })
+   → Confirms freshness/evidence before source-specific answers
 
 1. Call workflow_brief({ goal: "EU crypto insurance partners" })
    → Returns top 5 people with evidence and suggested actions
