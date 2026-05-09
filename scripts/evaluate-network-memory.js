@@ -13,7 +13,7 @@ const FIXTURE_PATH = path.join(__dirname, '..', 'tests', 'fixtures', 'agent-work
 
 function loadDefaultCases() {
     const all = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
-    return Object.freeze(all);
+    return Object.freeze(validateCases(all));
 }
 
 const DEFAULT_CASES = loadDefaultCases();
@@ -27,11 +27,48 @@ function parseArgs(argv) {
     return out;
 }
 
+function validateCasePrivacy(value, location = '$') {
+    if (typeof value === 'string') {
+        const exampleDomainEmail = /[A-Z0-9._%+-]+@example\.(?:com|test|org)\b/ig;
+        const allowedSentinelPhone = /raw-phone-555-0\d{3}/g;
+        const sanitized = value
+            .replace(exampleDomainEmail, '[example-email]')
+            .replace(allowedSentinelPhone, '[sentinel-phone]');
+        if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(sanitized)) {
+            throw new Error(`private-looking eval case value: email-like value at ${location}`);
+        }
+        if (/\b(?:\+?\d[\s().-]?){10,}\b/.test(sanitized)) {
+            throw new Error(`private-looking eval case value: phone-like value at ${location}`);
+        }
+        if (/\b(?:sk|pk|rk)-(?:live|test|proj|pat|key)-[A-Za-z0-9_-]{8,}\b/i.test(sanitized)) {
+            throw new Error(`private-looking eval case value: token-like value at ${location}`);
+        }
+        if (/\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password)\s*[:=]\s*[^\s,;]{6,}/i.test(sanitized)) {
+            throw new Error(`private-looking eval case value: secret-like value at ${location}`);
+        }
+        return;
+    }
+    if (Array.isArray(value)) {
+        value.forEach((item, idx) => validateCasePrivacy(item, `${location}[${idx}]`));
+        return;
+    }
+    if (value && typeof value === 'object') {
+        for (const [key, child] of Object.entries(value)) {
+            validateCasePrivacy(child, `${location}.${key}`);
+        }
+    }
+}
+
+function validateCases(cases) {
+    if (!Array.isArray(cases)) throw new Error('cases file must contain an array');
+    validateCasePrivacy(cases);
+    return cases;
+}
+
 function readCases(file) {
     if (!file) return DEFAULT_CASES;
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (!Array.isArray(parsed)) throw new Error('cases file must contain an array');
-    return parsed;
+    return validateCases(parsed);
 }
 
 function parseMcpToolEnvelope(resp) {
@@ -81,4 +118,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { DEFAULT_CASES, parseArgs, runAgentEvalCase };
+module.exports = { DEFAULT_CASES, parseArgs, readCases, runAgentEvalCase };
