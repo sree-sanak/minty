@@ -69,15 +69,56 @@ test('[Progress] finishProgress marks step=done; isActive returns false', () => 
     fs.rmSync(d, { recursive: true, force: true });
 });
 
-test('[Progress] failProgress records error message + optional stack', () => {
+test('[Progress] failProgress records sanitized error metadata without stack traces', () => {
     const d = mkTempDir();
     P.startProgress(d, 'linkedin');
-    const e = new Error('network down');
+    const e = new Error('/Users/sree/private/export.csv failed for alice@example.com with token=secret');
+    e.code = 'ENOENT';
+    e.stack = 'Error: alice@example.com\n    at /Users/sree/private/export.csv:1:1';
     P.failProgress(d, 'linkedin', e);
     const rec = P.readProgress(d, 'linkedin');
     assert.equal(rec.step, 'error');
-    assert.equal(rec.error.message, 'network down');
-    assert.ok(typeof rec.error.stack === 'string');
+    assert.equal(rec.message, '[redacted-path] failed for [redacted-email] with [redacted-credential]');
+    assert.equal(rec.error.message, '[redacted-path] failed for [redacted-email] with [redacted-credential]');
+    assert.equal(rec.error.code, 'ENOENT');
+    assert.equal(rec.error.name, 'Error');
+    assert.equal(rec.error.stack, undefined);
+    assert.ok(!JSON.stringify(rec).includes('alice@example.com'));
+    assert.ok(!JSON.stringify(rec).includes('/Users/sree/private/export.csv'));
+    assert.ok(!JSON.stringify(rec).includes('secret'));
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes bearer tokens, Windows paths, and unsafe metadata', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'email', {
+        message: 'authorization: Bearer abc123 at C:\\Users\\sree\\private\\export and \\\\server\\share\\tokenfile',
+        code: '../../SECRET',
+        name: 'Error /tmp/private',
+    });
+    const rec = P.readProgress(d, 'email');
+    const serialized = JSON.stringify(rec);
+    assert.equal(rec.error.code, undefined);
+    assert.equal(rec.error.name, undefined);
+    assert.equal(serialized.includes('abc123'), false);
+    assert.equal(serialized.includes('C:\\Users\\sree'), false);
+    assert.equal(serialized.includes('server\\share'), false);
+    assert.match(rec.error.message, /\[redacted-credential\]/);
+    assert.match(rec.error.message, /\[redacted-path\]/);
+    fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('[Progress] failProgress sanitizes string errors', () => {
+    const d = mkTempDir();
+    P.failProgress(d, 'telegram', 'Bearer zzz999 failed for +1 555 123 4567 in /tmp/source-export');
+    const rec = P.readProgress(d, 'telegram');
+    const serialized = JSON.stringify(rec);
+    assert.equal(serialized.includes('zzz999'), false);
+    assert.equal(serialized.includes('+1 555 123 4567'), false);
+    assert.equal(serialized.includes('/tmp/source-export'), false);
+    assert.match(rec.error.message, /Bearer \[redacted-credential\]/);
+    assert.match(rec.error.message, /\[redacted-phone\]/);
+    assert.match(rec.error.message, /\[redacted-path\]/);
     fs.rmSync(d, { recursive: true, force: true });
 });
 

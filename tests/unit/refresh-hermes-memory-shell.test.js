@@ -21,6 +21,10 @@ function runRefreshWithStubs({ npmExitCode, diagnosticsExitCode }) {
 
         fs.writeFileSync(path.join(binDir, 'npm'), [
             '#!/usr/bin/env bash',
+            'if [[ "$*" == *"gbrain:export"* ]]; then',
+            '  mkdir -p data/gbrain',
+            '  printf "# synthetic relationship memory\\n" > data/gbrain/relationship-memory.md',
+            'fi',
             `exit ${npmExitCode}`,
             '',
         ].join('\n'));
@@ -40,11 +44,20 @@ function runRefreshWithStubs({ npmExitCode, diagnosticsExitCode }) {
             cwd: ROOT_DIR,
             env: {
                 ...process.env,
-                PATH: `${binDir}:${process.env.PATH}`,
+                PATH: `${binDir}:/usr/bin:/bin`,
             },
             encoding: 'utf8',
         });
     } finally {
+        const generatedMemory = path.join(ROOT_DIR, 'data', 'gbrain', 'relationship-memory.md');
+        fs.rmSync(generatedMemory, { force: true });
+        try {
+            fs.rmdirSync(path.dirname(generatedMemory));
+        } catch (err) {
+            if (!err || err.code !== 'ENOENT') {
+                if (!err || err.code !== 'ENOTEMPTY') throw err;
+            }
+        }
         fs.rmSync(dir, { recursive: true, force: true });
     }
 }
