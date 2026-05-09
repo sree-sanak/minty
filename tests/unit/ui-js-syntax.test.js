@@ -18,7 +18,9 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
 const vm = require('vm');
 
 // Import serveIndex-style behavior indirectly: just start the server on a
@@ -85,4 +87,23 @@ test('[UI]: inline <script> blocks are syntactically valid JS', async () => {
     } finally {
         child.kill('SIGTERM');
     }
+});
+
+test('[UI]: contact-load error messages are escaped before innerHTML', () => {
+    const uiSource = fs.readFileSync(path.join(__dirname, '../../crm/ui.html.js'), 'utf8');
+    assert.match(
+        uiSource,
+        /Render error: '\s*\+\s*esc\(e\.message\)\s*\+\s*'<\/div>'/,
+        'render errors must escape exception messages before writing innerHTML',
+    );
+    assert.match(
+        uiSource,
+        /Failed to load contacts: '\s*\+\s*esc\(e\.message\)\s*\+\s*'<\/div>'/,
+        'fetch errors must escape exception messages before writing innerHTML',
+    );
+    assert.doesNotMatch(
+        uiSource,
+        /innerHTML\s*=\s*['`][^\n]*(?:Render error|Failed to load contacts:)[^\n]*\+\s*e\.message/,
+        'contact-load errors should not interpolate raw e.message into innerHTML',
+    );
 });
