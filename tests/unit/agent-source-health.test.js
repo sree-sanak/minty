@@ -196,3 +196,34 @@ test('[AgentSourceHealth]: fresh explicit source still blocks when query has no 
     assert.equal(answerability.status, 'blocked');
     assert.ok(answerability.warnings.includes('no_query_evidence'));
 });
+
+test('[AgentSourceHealth]: explicit multi-source answerability blocks when any requested source is unsafe', () => {
+    const answerability = buildSourceAnswerability({
+        status: 'warning',
+        sources: {
+            telegram: { status: 'ready', warnings: [] },
+            linkedin: { status: 'stale', warnings: ['no_recent_sync'] },
+        },
+        invalidSourceFilters: [],
+    }, { explicit: true });
+
+    assert.equal(answerability.answerable, false);
+    assert.equal(answerability.status, 'blocked');
+    assert.deepEqual(answerability.sources, ['linkedin', 'telegram']);
+    assert.deepEqual(answerability.answerableSources, ['telegram']);
+    assert.ok(answerability.warnings.includes('no_recent_sync'));
+});
+
+test('[AgentSourceHealth]: source answerability keeps canonical source keys authoritative', () => {
+    const answerability = buildSourceAnswerability({
+        status: 'ok',
+        sources: {
+            telegram: { source: 'email', status: 'ready', warnings: [] },
+        },
+        invalidSourceFilters: [],
+    }, { explicit: true });
+
+    assert.deepEqual(answerability.sources, ['telegram']);
+    assert.deepEqual(answerability.answerableSources, ['telegram']);
+    assert.equal(answerability.perSource[0].source, 'telegram');
+});
