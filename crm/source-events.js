@@ -78,11 +78,11 @@ function textSignal(i) {
 
 function buildSourceEvents({ contacts = [], interactions = [], insights = {} } = {}) {
     const safeContacts = Array.isArray(contacts) ? contacts : [];
-    const byId = new Map(safeContacts.filter(c => c && c.id && !c.isGroup).map(c => [c.id, c]));
+    const byId = new Map(safeContacts.filter(c => c && c.id && !isGroupLike(c)).map(c => [c.id, c]));
     const events = [];
 
     for (const c of safeContacts) {
-        if (!c || !c.id || c.isGroup) continue;
+        if (!c || !c.id || isGroupLike(c)) continue;
         const sources = Object.entries(c.sources || {})
             .filter(([, payload]) => hasMeaningfulPayload(payload))
             .map(([source]) => canonicalSafeSource(source))
@@ -110,7 +110,7 @@ function buildSourceEvents({ contacts = [], interactions = [], insights = {} } =
         const contactId = i.contactId || i.contact_id || i.personId || i.participantContactId || null;
         if (contactId && !byId.has(contactId)) {
             const rawContact = safeContacts.find(c => c && c.id === contactId);
-            if (rawContact && rawContact.isGroup) continue;
+            if (rawContact && isGroupLike(rawContact)) continue;
         }
         const attributed = contactId != null && byId.has(contactId);
         const source = canonicalSafeSource(i.source || i.channel || 'interaction');
@@ -157,7 +157,7 @@ function countBy(items, fn) {
 }
 
 function summarizeSourceCoverage({ contacts = [], sourceEvents = [], matchingContactIds = [] } = {}) {
-    const safeContacts = Array.isArray(contacts) ? contacts.filter(c => c && !c.isGroup) : [];
+    const safeContacts = Array.isArray(contacts) ? contacts.filter(c => c && !isGroupLike(c)) : [];
     const events = Array.isArray(sourceEvents) ? sourceEvents.filter(e => e && typeof e === 'object' && !Array.isArray(e)) : [];
     const matchIds = new Set(Array.isArray(matchingContactIds) ? matchingContactIds : []);
     const matchRefs = new Set([...matchIds].map(safeContactRef));
