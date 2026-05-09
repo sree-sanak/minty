@@ -11,6 +11,35 @@
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
     {
+        "name": "crypto-insurance-mcp-search",
+        "target": "mcp:search_network",
+        "arguments": {
+            "query": "Who do I know for crypto insurance?"
+        },
+        "minResults": 1,
+        "requireEvidenceKinds": ["keyword", "topic"],
+        "disallowFallback": true,
+        "requirePaths": ["safety.readOnly", "results.0.evidence.0.kind"],
+        "forbidPaths": ["results.0.email", "results.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
+        "name": "telegram-source-health-mcp",
+        "target": "mcp:source_health",
+        "arguments": {
+            "source": "telegram"
+        },
+        "disallowFallback": true,
+        "requirePaths": [
+            "safety.readOnly",
+            "safety.contactDetailsOmitted",
+            "sources.telegram.status",
+            "sources.telegram.freshness"
+        ],
+        "forbidPaths": ["results.0.name", "results.0.email", "results.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
         "name": "eu-crypto-insurance-positive",
         "target": "query_network",
         "query": "Who do I know for EU crypto insurance?",
