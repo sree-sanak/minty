@@ -26,9 +26,11 @@ function containsSubstring(value, needle) {
 }
 
 function evaluateOne(testCase, queryFn) {
-    const output = queryFn(testCase.query);
+    const runnerInput = testCase && testCase.arguments ? testCase : testCase.query;
+    const output = queryFn(runnerInput);
     const results = Array.isArray(output && output.results) ? output.results : [];
     const diagnostics = output && output.diagnostics || {};
+    const queryLabel = testCase.query || (testCase.arguments && testCase.arguments.query) || testCase.name || '';
     const failures = [];
     const minResults = Number.isInteger(testCase.minResults) ? testCase.minResults : 0;
     const maxResults = Number.isInteger(testCase.maxResults) ? testCase.maxResults : null;
@@ -56,7 +58,7 @@ function evaluateOne(testCase, queryFn) {
     if (forbiddenSubstrings.some(needle => containsSubstring(output, needle))) failures.push('forbidden_substring_present');
     const evidenceBackedResults = results.filter(r => (r.evidence || []).length > 0 || r.evidenceBacked).length;
     return {
-        query: testCase.query,
+        query: queryLabel,
         passed: failures.length === 0,
         failures,
         resultCount: results.length,
