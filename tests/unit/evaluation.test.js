@@ -210,6 +210,20 @@ test('readCases rejects custom eval fixtures with private-looking strings before
         /private-looking eval case value: token-like value at \$\[0\]\.query/
     );
 
+    const phoneCasesPath = path.join(tmpDir, 'phone-cases.json');
+    fs.writeFileSync(phoneCasesPath, JSON.stringify([
+        {
+            name: 'unsafe-phone-case',
+            target: 'query_network',
+            query: 'Find (415) 555-2671',
+        },
+    ]));
+
+    assert.throws(
+        () => readCases(phoneCasesPath),
+        /private-looking eval case value: phone-like value at \$\[0\]\.query/
+    );
+
     assert.ok(DEFAULT_CASES.length >= 3, 'default synthetic eval cases still load');
 });
 
