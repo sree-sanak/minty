@@ -3,7 +3,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildAgentSourceHealth } = require('../../crm/agent-source-health');
+const { buildAgentSourceHealth, buildSourceAnswerability } = require('../../crm/agent-source-health');
 
 const NOW = '2026-05-06T08:00:00Z';
 
@@ -137,4 +137,62 @@ test('[AgentSourceHealth]: malformed nested source fields degrade safely', () =>
         sourceEvents: [],
         syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z' } },
     }, { source: 'telegram', now: NOW }));
+});
+
+test('[AgentSourceHealth]: source answerability blocks stale explicit sources', () => {
+    const health = buildAgentSourceHealth({
+        contacts: [{ id: 'c_private', sources: { telegram: {} }, activeChannels: ['telegram'] }],
+        interactions: [],
+        contactEvidence: {},
+        sourceEvents: [],
+        syncState: { telegram: { lastSyncAt: '2026-04-01T00:00:00Z', status: 'ok' } },
+    }, { source: 'telegram', now: '2026-05-09T00:00:00Z' });
+
+    const answerability = buildSourceAnswerability(health, { explicit: true });
+
+    assert.equal(answerability.answerable, false);
+    assert.equal(answerability.status, 'blocked');
+    assert.deepEqual(answerability.sources, ['telegram']);
+    assert.ok(answerability.warnings.includes('no_recent_sync'));
+    assert.match(answerability.suggestedNextStep, /refresh|source_health|service/i);
+});
+
+test('[AgentSourceHealth]: source answerability allows fresh query-matched sources', () => {
+    const health = buildAgentSourceHealth({
+        contacts: [{ id: 'c_private', sources: { telegram: { username: 'synthetic' } }, activeChannels: ['telegram'] }],
+        interactions: [{ contactId: 'c_private', source: 'telegram', body: 'synthetic agent infra note', at: '2026-05-08T00:00:00Z' }],
+        contactEvidence: { c_private: { sources: ['telegram'], topics: ['agent infra'], evidenceCount: 1 } },
+        sourceEvents: [{ source: 'telegram', timestamp: '2026-05-08T00:00:00Z', contactRef: 'contact:abcdefghijklmnop' }],
+        syncState: { telegram: { lastSyncAt: '2026-05-08T00:00:00Z', status: 'ok' } },
+    }, { source: 'telegram', now: '2026-05-09T00:00:00Z' });
+
+    const answerability = buildSourceAnswerability(health, {
+        explicit: true,
+        queryEvidenceChecked: true,
+        queryMatchedSources: ['telegram'],
+    });
+
+    assert.equal(answerability.answerable, true);
+    assert.equal(answerability.status, 'answerable');
+    assert.deepEqual(answerability.sources, ['telegram']);
+});
+
+test('[AgentSourceHealth]: fresh explicit source still blocks when query has no source-matched evidence', () => {
+    const health = buildAgentSourceHealth({
+        contacts: [{ id: 'c_private', sources: { telegram: { username: 'synthetic' } }, activeChannels: ['telegram'] }],
+        interactions: [{ contactId: 'c_private', source: 'telegram', body: 'synthetic robotics note', at: '2026-05-08T00:00:00Z' }],
+        contactEvidence: { c_private: { sources: ['telegram'], topics: ['robotics'], evidenceCount: 1 } },
+        sourceEvents: [{ source: 'telegram', timestamp: '2026-05-08T00:00:00Z', contactRef: 'contact:abcdefghijklmnop' }],
+        syncState: { telegram: { lastSyncAt: '2026-05-08T00:00:00Z', status: 'ok' } },
+    }, { source: 'telegram', now: '2026-05-09T00:00:00Z' });
+
+    const answerability = buildSourceAnswerability(health, {
+        explicit: true,
+        queryEvidenceChecked: true,
+        queryMatchedSources: [],
+    });
+
+    assert.equal(answerability.answerable, false);
+    assert.equal(answerability.status, 'blocked');
+    assert.ok(answerability.warnings.includes('no_query_evidence'));
 });
