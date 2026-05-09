@@ -204,7 +204,7 @@ Keep `EMAIL_RE` / `PHONE_RE` only if still used by `safeText`; otherwise delete 
 
 **Step 2: Replace `safeText` with shared redaction and profile-boundary scrubbing**
 
-Replace `safeText()` with a final-boundary scrubber that removes direct contact details plus URLs, handle-like source labels, and obvious private/token paths before any value is written to JSONL or Markdown:
+Replace `safeText()` with a final-boundary scrubber that removes direct contact details plus URLs, handle-like source labels, and obvious private/token paths before any value is written to JSONL or Markdown. Reuse the existing local `text()` helper already defined near the top of `scripts/export-gbrain-memory.js`; do not add a new import for it unless that helper is later moved/exported deliberately:
 
 ```js
 function safeText(value, fallback = '') {
