@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const { evaluateRelationshipQueries } = require('../../crm/evaluation');
-const { DEFAULT_CASES, runAgentEvalCase } = require('../../scripts/evaluate-network-memory');
+const { DEFAULT_CASES, readCases, runAgentEvalCase } = require('../../scripts/evaluate-network-memory');
 
 test('evaluates relationship query quality using evidence-backed criteria', () => {
     const cases = [
@@ -175,6 +175,67 @@ test('runAgentEvalCase executes MCP source_health cases as parsed envelopes', as
     assert.ok(out.sources.telegram);
     assert.equal(out.safety.contactDetailsOmitted, true);
     assert.equal(out.results, undefined, 'source_health must not return people');
+});
+
+test('readCases rejects custom eval fixtures with private-looking strings before running', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-eval-cases-'));
+    const emailCasesPath = path.join(tmpDir, 'email-cases.json');
+    fs.writeFileSync(emailCasesPath, JSON.stringify([
+        {
+            name: 'unsafe-private-case',
+            target: 'query_network',
+            query: 'Find person@gmail.com',
+        },
+    ]));
+
+    assert.throws(
+        () => readCases(emailCasesPath),
+        /private-looking eval case value: email-like value at \$\[0\]\.query/
+    );
+
+    const tokenCasesPath = path.join(tmpDir, 'token-cases.json');
+    fs.writeFileSync(tokenCasesPath, JSON.stringify([
+        {
+            name: 'unsafe-token-case',
+            target: 'query_network',
+            query: 'Use sk-test-synthetic0000 for setup',
+        },
+    ]));
+
+    assert.throws(
+        () => readCases(tokenCasesPath),
+        /private-looking eval case value: token-like value at \$\[0\]\.query/
+    );
+
+    assert.ok(DEFAULT_CASES.length >= 3, 'default synthetic eval cases still load');
+});
+
+test('readCases allows synthetic example domains and explicit sentinel strings', () => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-eval-cases-'));
+    const casesPath = path.join(tmpDir, 'cases.json');
+    fs.writeFileSync(casesPath, JSON.stringify([
+        {
+            name: 'safe-synthetic-case',
+            target: 'query_network',
+            query: 'Find founder@example.test but forbid raw-phone-555-0101',
+            forbidSubstrings: ['raw-phone-555-0101', 'founder@example.test'],
+        },
+    ]));
+
+    assert.deepEqual(readCases(casesPath), [
+        {
+            name: 'safe-synthetic-case',
+            target: 'query_network',
+            query: 'Find founder@example.test but forbid raw-phone-555-0101',
+            forbidSubstrings: ['raw-phone-555-0101', 'founder@example.test'],
+        },
+    ]);
 });
 
 test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
