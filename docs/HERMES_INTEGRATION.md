@@ -54,6 +54,20 @@ Copy or symlink `hermes/minty-network-memory/SKILL.md` into your Hermes skills d
 
 ## Smoke tests
 
+### Readiness doctor
+
+Before telling an agent that Minty is ready, run:
+
+```bash
+npm run hermes:doctor
+```
+
+Interpret readiness at three levels:
+
+- **Demo-ready:** demo fixtures plus `npm run mcp` / `npm run agent` return plausible source-backed results.
+- **Dogfood-ready:** real local data is refreshed with `npm run memory:refresh`, source health is fresh/evidence-bearing, and outputs omit direct contact details.
+- **Hermes-native:** the MCP server is registered and the `minty-network-memory` skill is installed so Hermes can call tools directly.
+
 ### Test the MCP server directly
 
 ```bash
@@ -71,6 +85,9 @@ PY
 
 # Or run the unit tests
 node --test tests/unit/minty-mcp-server.test.js
+
+# Run the package MCP entrypoint
+npm run mcp
 ```
 
 ### Test via agent CLI
@@ -100,8 +117,8 @@ npm test
 ## Available tools
 
 ### search_network
-Natural-language network search. Input: `{ query, limit? }`.
-Returns ranked results with relationship scores, warmth labels, evidence, and suggested actions.
+Natural-language network search. Input: `{ query, limit?, source?, sources? }`.
+Returns ranked results with relationship scores, warmth labels, evidence, source diagnostics, and suggested actions. Use `source` / `sources` filters after `source_health` when the user asks source-specific questions.
 
 ### person_context
 Person lookup. Input: `{ person, limit? }`.
@@ -113,7 +130,22 @@ Returns top people, why each matters, next steps, and data freshness metadata.
 
 ### source_health
 Source readiness preflight. Input: `{ source?, sources?, query? }`.
-Returns redacted source rows with freshness, counts, evidence coverage, warnings, and safe next-step commands. Use it before source-specific questions like "who did I talk to on Telegram?" and when a query returns low evidence.
+Returns redacted source rows with freshness, counts, evidence coverage, warnings, and safe next-step commands. Use it before source-specific questions like "who did I talk to on Telegram?" and when a query returns low evidence. Never answer source-specific relationship questions from vibes.
+
+## Agent surface maintenance contract
+
+`scripts/minty-mcp-server.js` is the source of truth for MCP tools. Any PR that adds, removes, or renames a tool must update all four places in the same change:
+
+1. `tests/unit/minty-mcp-server.test.js` exact tool-list assertion.
+2. `docs/HERMES_INTEGRATION.md` available-tools section.
+3. `hermes/minty-network-memory/SKILL.md` available-tools and operating rules.
+4. `tests/unit/agent-surface-docs.test.js` docs drift assertions when the contract changes.
+
+Run the docs contract before committing:
+
+```bash
+node --test tests/unit/agent-surface-docs.test.js
+```
 
 ## Example queries
 
