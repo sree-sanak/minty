@@ -88,6 +88,51 @@ function evidenceSources(evidence) {
     return out;
 }
 
+function buildSourceAnswerability(healthEnvelope, opts = {}) {
+    const explicit = opts.explicit === true;
+    const sourceRows = healthEnvelope && healthEnvelope.sources && typeof healthEnvelope.sources === 'object' && !Array.isArray(healthEnvelope.sources)
+        ? Object.entries(healthEnvelope.sources)
+            .map(([rawSource, row]) => {
+                const source = canonicalSource(rawSource);
+                return source ? { source, ...(row && typeof row === 'object' ? row : {}) } : null;
+            })
+            .filter(Boolean)
+        : [];
+    const invalidSource = Array.isArray(healthEnvelope && healthEnvelope.invalidSourceFilters)
+        && healthEnvelope.invalidSourceFilters.length > 0;
+    const queryEvidenceChecked = opts.queryEvidenceChecked === true;
+    const queryMatchedSources = new Set((Array.isArray(opts.queryMatchedSources) ? opts.queryMatchedSources : [])
+        .map(canonicalSource)
+        .filter(Boolean));
+
+    const perSource = sourceRows.map(row => {
+        const warnings = new Set(Array.isArray(row.warnings) ? row.warnings.filter(w => typeof w === 'string' && w) : []);
+        if (explicit && queryEvidenceChecked && !queryMatchedSources.has(row.source)) warnings.add('no_query_evidence');
+        const warningList = [...warnings].sort();
+        return {
+            source: row.source,
+            answerable: row.status === 'ready' && warningList.length === 0,
+            warnings: warningList,
+        };
+    }).sort((a, b) => a.source.localeCompare(b.source));
+
+    const warnings = new Set(perSource.flatMap(row => row.warnings));
+    if (invalidSource) warnings.add('invalid_source');
+    if (explicit && !perSource.length) warnings.add('no_source_health');
+    const blocked = explicit && (invalidSource || !perSource.length || perSource.every(row => !row.answerable));
+
+    return {
+        answerable: !blocked,
+        status: blocked ? 'blocked' : 'answerable',
+        sources: perSource.map(row => row.source),
+        warnings: [...warnings].sort(),
+        perSource,
+        suggestedNextStep: blocked
+            ? 'Call source_health for details, then refresh or repair the local source before answering from it.'
+            : 'Proceed with source-filtered retrieval from answerable requested sources only.',
+    };
+}
+
 function buildAgentSourceHealth(data = {}, options = {}) {
     const contacts = Array.isArray(data.contacts) ? data.contacts : [];
     const interactions = Array.isArray(data.interactions) ? data.interactions : [];
@@ -157,4 +202,4 @@ function buildAgentSourceHealth(data = {}, options = {}) {
     };
 }
 
-module.exports = { buildAgentSourceHealth, canonicalSource, normalizeSourceFilter };
+module.exports = { buildAgentSourceHealth, buildSourceAnswerability, canonicalSource, normalizeSourceFilter };
