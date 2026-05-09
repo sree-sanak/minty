@@ -3453,9 +3453,10 @@ function handleGetCalendarUpcoming(req, res, params, paths, uuid) {
 // ---------------------------------------------------------------------------
 // Network query (TASK-028)
 // ---------------------------------------------------------------------------
-const { parseQuery: parseNetworkQuery, filterIndex, describeQuery } = require('./network-query');
+const { parseQuery: parseNetworkQuery, describeQuery } = require('./network-query');
 const { getDataHealthSummary } = require('./staleness');
 const { safeContactRef } = require('./source-events');
+const { queryNetwork: queryAgentNetwork } = require('./agent-retrieval');
 const { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope } = require('./privacy-envelope');
 
 // Load query index (returns [] if not yet built)
@@ -3465,7 +3466,7 @@ function loadQueryIndex(paths) {
 }
 
 // POST /api/network/query — instant Layer 2 results. No runtime LLM calls.
-const { annotateResults: annotateQueryResults, expandQuery: expandQueryTerms } = require('./query-reasons');
+const { expandQuery: expandQueryTerms } = require('./query-reasons');
 
 function loadNetworkQueryDiagnostics(paths, extra = {}) {
     const syncStatePath = path.join(path.dirname(paths.contacts), '..', 'sync-state.json');
@@ -3496,10 +3497,22 @@ function redactResponseStrings(value) {
     return redactDirectContactDetails(value);
 }
 
+function normalizeContactRef(id, contactRef) {
+    const candidate = contactRef || id;
+    if (typeof candidate === 'string' && candidate.startsWith('contact:')) return candidate;
+    return safeContactRef(id);
+}
+
 function prepareNetworkResultsForResponse(results) {
     return (results || []).map(result => {
         if (!result || typeof result !== 'object' || !result.id) return result;
-        const ref = safeContactRef(result.id);
+        const ref = normalizeContactRef(result.id, result.contactRef);
+        const reasons = Array.isArray(result.reasons) ? result.reasons : (Array.isArray(result.evidence) ? result.evidence : []);
+        const safeReasons = reasons.slice(0, 5).map(reason => ({
+            kind: redactDirectContactDetails(reason && reason.kind || ''),
+            label: redactDirectContactDetails(reason && reason.label || ''),
+            detail: redactDirectContactDetails(reason && reason.detail || ''),
+        }));
         return {
             id: ref,
             contactRef: ref,
@@ -3507,30 +3520,28 @@ function prepareNetworkResultsForResponse(results) {
             company: redactDirectContactDetails(result.company || '') || null,
             title: redactDirectContactDetails(result.title || '') || null,
             city: redactDirectContactDetails(result.city || '') || null,
+            relevance: Number.isFinite(result.relevance) ? result.relevance : 0,
+            relationshipScore: Number.isFinite(result.relationshipScore) ? result.relationshipScore : 0,
+            warmth: redactDirectContactDetails(result.warmth || '') || null,
+            confidence: redactDirectContactDetails(result.confidence || '') || null,
+            evidence: safeReasons,
+            evidenceBacked: Boolean(result.evidenceBacked || safeReasons.length),
+            suggestedAction: redactDirectContactDetails(result.suggestedAction || '') || null,
+            daysSinceContact: Number.isFinite(result.daysSinceContact) ? result.daysSinceContact : null,
+            interactionCount: Number.isFinite(result.interactionCount) ? result.interactionCount : 0,
             roles: Array.isArray(result.roles) ? result.roles.slice(0, 5).map(redactDirectContactDetails) : [],
             seniority: redactDirectContactDetails(result.seniority || '') || null,
-            relationshipScore: Number.isFinite(result.relationshipScore) ? result.relationshipScore : 0,
-            daysSinceContact: Number.isFinite(result.daysSinceContact) ? result.daysSinceContact : null,
             meetScore: Number.isFinite(result.meetScore) ? result.meetScore : 0,
             groupSignal: Number.isFinite(result.groupSignal) ? result.groupSignal : 0,
             reason: redactDirectContactDetails(result.reason || '') || null,
-            reasons: Array.isArray(result.reasons) ? result.reasons.slice(0, 5).map(reason => ({
-                kind: redactDirectContactDetails(reason && reason.kind || ''),
-                label: redactDirectContactDetails(reason && reason.label || ''),
-                detail: redactDirectContactDetails(reason && reason.detail || ''),
-            })) : [],
+            reasons: safeReasons,
         };
     });
 }
 
-function hasEvidenceReason(result) {
-    return Array.isArray(result && result.reasons) && result.reasons.some(reason => {
-        if (!reason || typeof reason !== 'object') return false;
-        const kind = typeof reason.kind === 'string' ? reason.kind.trim() : '';
-        const label = typeof reason.label === 'string' ? reason.label.trim() : '';
-        const detail = typeof reason.detail === 'string' ? reason.detail.trim() : '';
-        return Boolean(kind && (label || detail));
-    });
+function readJsonIfExists(filePath, fallback) {
+    try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    catch { return fallback; }
 }
 
 async function handleEmptyNetworkQuery(req, res, paths) {
@@ -3554,113 +3565,56 @@ async function handleNetworkQuery(req, res, _params, paths) {
     try { reqBody = await body(req); } catch { reqBody = {}; }
     const query = ((reqBody && reqBody.query) || '').trim();
     if (!query) { json(res, { error: 'query required' }, 400); return; }
+
     const safeQuery = redactDirectContactDetails(query);
     const queryForMatching = stripDirectContactDetails(query);
-
-    const index   = loadQueryIndex(paths);
     const parsedQ = parseNetworkQuery(queryForMatching);
-    const parsedForResponse = { ...parsedQ, raw: safeQuery };
-    let candidates = filterIndex(index, parsedQ);
-    const description = describeQuery(parsedQ);
-
-    // Semantic expansion: if the structured filter returned no results AND the
-    // query has free-text terms with known expansions, fall back to a broader
-    // match over Apollo/LinkedIn/insights text. This is what makes queries like
-    // "anyone who works on notification systems" actually find people, instead
-    // of returning empty because 'notification' isn't a role keyword.
     const { expandedTerms } = expandQueryTerms(parsedQ);
-    if (candidates.length < 3 && expandedTerms.length) {
-        const contactsById = Object.fromEntries(loadContacts(paths).map(c => [c.id, c]));
-        const matched = [];
-        for (const entry of index) {
-            if (candidates.some(c => c.id === entry.id)) continue;
-            const c = contactsById[entry.id];
-            const text = (
-                (entry.title || '') + ' ' +
-                (entry.company || '') + ' ' +
-                (c?.apollo?.headline || '') + ' ' +
-                (c?.apollo?.industry || '') + ' ' +
-                (c?.sources?.linkedin?.position || '') + ' ' +
-                (c?.sources?.linkedin?.company || '')
-            ).toLowerCase();
-            if (expandedTerms.some(t => t.length > 2 && text.includes(t))) {
-                matched.push(entry);
-            }
-        }
-        // Append the semantic matches after structured matches
-        candidates = candidates.concat(matched.slice(0, 20 - candidates.length));
+
+    if (!queryForMatching) {
+        json(res, redactResponseStrings({
+            query: safeQuery,
+            parsed: { ...parsedQ, raw: safeQuery },
+            description: describeQuery(parsedQ),
+            expandedTerms,
+            results: [],
+            enhanced: false,
+            processingMs: 0,
+            diagnostics: loadNetworkQueryDiagnostics(paths, { noData: false, resultCount: 0, evidenceBacked: false }),
+            safety: agentSafetyEnvelope(),
+        }));
+        return;
     }
 
-    // Group-path signal: candidates tied into the user's WhatsApp social graph
-    // (many small group co-memberships) get a tie-breaking boost. The base
-    // filterIndex ranking is preserved; the boost only shifts candidates within
-    // a similar-score band. Helps when LinkedIn/email data is thin but someone
-    // is clearly in your inner circle via WhatsApp communities.
-    const memberships = loadGroupMemberships();
-    const fullContacts = loadContacts(paths);
-    const groupSignal = computeGroupSignalScores(fullContacts, memberships);
-    const contactsById = Object.fromEntries(fullContacts.map(c => [c.id, c]));
-
-    let insightsByContactId = {};
-    try {
-        const ins = JSON.parse(fs.readFileSync(paths.insights, 'utf8'));
-        insightsByContactId = ins || {};
-    } catch { /* missing insights.json is fine */ }
-
-    // Re-rank within the shortlist by adding (groupSignal * 3) to the intent-based
-    // sort key. Keeping the multiplier small preserves the dominant role/location
-    // signals but lets group-path break ties and bubble up tightly-connected people.
-    const baseIntentScore = (c) => {
-        switch (parsedQ.intent) {
-            case 'meet':      return c.meetScore || 0;
-            case 'reconnect': return c.daysSinceContact || 0;
-            case 'intro':     return (c.seniority_rank || 1) * 20;
-            default:          return c.relationshipScore || 0;
-        }
-    };
-    candidates = [...candidates].sort((a, b) => {
-        const locBoostA = (parsedQ.locations?.length && parsedQ.locations.some(l => a.city === l)) ? 1000 : 0;
-        const locBoostB = (parsedQ.locations?.length && parsedQ.locations.some(l => b.city === l)) ? 1000 : 0;
-        const gA = (groupSignal[a.id] || 0) * 3;
-        const gB = (groupSignal[b.id] || 0) * 3;
-        return (locBoostB + baseIntentScore(b) + gB) - (locBoostA + baseIntentScore(a) + gA);
+    const unifiedDir = path.dirname(paths.contacts);
+    const contacts = loadContacts(paths);
+    const agentResult = queryAgentNetwork(queryForMatching, {
+        contacts,
+        insights: readJsonIfExists(paths.insights, {}),
+        interactions: readJsonIfExists(paths.interactions, []),
+        contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
+        sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
+        hybridIndex: readJsonIfExists(path.join(unifiedDir, 'hybrid-index.json'), []),
+        limit: Number.isInteger(reqBody.limit) ? reqBody.limit : 20,
+        source: reqBody.source,
+        sources: reqBody.sources,
     });
-
-    // Instant result shape (Layer 2 only)
-    const instant = candidates.slice(0, 20).map(c => ({
-        id:                c.id,
-        name:              c.name,
-        company:           c.company,
-        title:             c.title,
-        city:              c.city,
-        roles:             c.roles,
-        seniority:         c.seniority,
-        relationshipScore: c.relationshipScore,
-        daysSinceContact:  c.daysSinceContact,
-        meetScore:         c.meetScore,
-        groupSignal:       groupSignal[c.id] || 0,
-        reason:            null,
-    }));
-
-    // Annotate with reasons ("Show thinking") — purely additive, doesn't change ranking.
-    const annotated = annotateQueryResults(parsedQ, instant, {
-        contactsById, insightsByContactId,
-    });
-
-    const responseResults = prepareNetworkResultsForResponse(annotated);
+    const responseResults = prepareNetworkResultsForResponse(agentResult.results);
 
     json(res, redactResponseStrings({
+        ...agentResult,
         query: safeQuery,
-        parsed: parsedForResponse,
-        description,
+        parsed: { ...parsedQ, raw: safeQuery },
+        description: describeQuery(parsedQ),
         expandedTerms,
         results: responseResults,
         enhanced: false,
         processingMs: 0,
         diagnostics: loadNetworkQueryDiagnostics(paths, {
-            noData: fullContacts.length === 0,
+            ...(agentResult.diagnostics || {}),
+            noData: contacts.length === 0,
             resultCount: responseResults.length,
-            evidenceBacked: annotated.some(hasEvidenceReason),
+            evidenceBacked: responseResults.some(result => Array.isArray(result.reasons) && result.reasons.length > 0),
         }),
         safety: agentSafetyEnvelope(),
     }));
