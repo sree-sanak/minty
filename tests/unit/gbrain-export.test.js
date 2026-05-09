@@ -38,12 +38,20 @@ test('buildRelationshipMemoryEnvelope: emits source-backed relationship memory w
     const envelope = buildRelationshipMemoryEnvelope(CONTACT, INSIGHTS);
 
     assert.equal(envelope.type, 'relationship_memory');
+    assert.equal(envelope.schemaVersion, 2);
+    assert.equal(envelope.id, undefined);
+    assert.match(envelope.contactRef, /^contact:[a-p]{16}$/);
     assert.equal(envelope.person, 'Ada Lovelace');
     assert.equal(envelope.company, 'Analytical Engines Ltd');
     assert.equal(envelope.location, 'London');
-    assert.deepEqual(envelope.sourceMetadata.sources, ['googleContacts', 'linkedin']);
+    assert.deepEqual(envelope.sourceMetadata.sources, ['googlecontacts', 'linkedin']);
     assert.equal(envelope.safety.directContactDetailsOmitted, true);
     assert.equal(envelope.safety.readOnly, true);
+    assert.equal(envelope.safety.contactIdsOmitted, true);
+    assert.equal(envelope.safety.rawMessagesOmitted, true);
+    assert.equal(envelope.safety.rawInsightTextOmitted, true);
+    assert.equal(envelope.safety.noLlmCalls, true);
+    assert.equal(envelope.safety.noOutreachTriggered, true);
     assert.equal('emails' in envelope, false);
     assert.equal('phones' in envelope, false);
     assert.equal('rawContact' in envelope, false);
@@ -51,7 +59,95 @@ test('buildRelationshipMemoryEnvelope: emits source-backed relationship memory w
     const serialized = JSON.stringify(envelope);
     assert.equal(serialized.includes('ada@example.com'), false);
     assert.equal(serialized.includes('+15551234567'), false);
-    assert.ok(serialized.includes('agent infra'));
+    assert.ok(serialized.includes('ai'));
+});
+
+test('buildRelationshipMemoryEnvelope: uses opaque contactRef and omits raw contact ids', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        id: 'raw_contact_id_private_123',
+        name: 'Ada Lovelace',
+    }, INSIGHTS);
+
+    assert.equal(envelope.id, undefined, 'raw id must not be exported');
+    assert.match(envelope.contactRef, /^contact:[a-p]{16}$/);
+    assert.equal(JSON.stringify(envelope).includes('raw_contact_id_private_123'), false);
+    assert.equal(envelope.safety.contactIdsOmitted, true);
+});
+
+test('buildRelationshipMemoryEnvelope: strips arbitrary raw insight prose from durable topics', () => {
+    const envelope = buildRelationshipMemoryEnvelope(CONTACT, {
+        c_ada: {
+            topics: [
+                'confidential acquisition targets and private cap table dispute',
+                'open source AI',
+            ],
+        },
+    });
+    const serialized = JSON.stringify(envelope);
+
+    assert.equal(serialized.includes('confidential acquisition targets'), false);
+    assert.equal(serialized.includes('private cap table dispute'), false);
+    assert.ok(envelope.topics.includes('ai'));
+    assert.ok(envelope.evidence.every(e => e.detail !== 'confidential acquisition targets and private cap table dispute'));
+});
+
+test('buildRelationshipMemoryEnvelope: canonicalizes unsafe source keys and source handles', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        id: 'c_source_secret',
+        sources: {
+            email: { id: 'alice@example.com', threadId: 'private-thread-id' },
+            'email:alice@example.com': { id: 'bad-source-key' },
+            telegram: { id: 'secret-chat-id', name: 'Secret Group' },
+        },
+    }, {});
+    const serialized = JSON.stringify(envelope);
+
+    assert.deepEqual(envelope.sourceMetadata.sources, ['email', 'interaction', 'telegram']);
+    assert.equal(serialized.includes('alice@example.com'), false);
+    assert.equal(serialized.includes('private-thread-id'), false);
+    assert.equal(serialized.includes('secret-chat-id'), false);
+    assert.equal(serialized.includes('Secret Group'), false);
+});
+
+test('buildRelationshipMemoryEnvelope: returns null for group contacts', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        id: 'group_secret_id',
+        name: 'Secret Investor Group',
+        isGroup: true,
+    }, {});
+    assert.equal(envelope, null);
+});
+
+test('buildRelationshipMemoryEnvelope: strips URLs, source handles, and private paths from profile metadata', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        title: 'Founder https://private.example/token/abc123',
+        company: 'Handle @secret-source /Users/sree/private/export.json',
+        location: 'token_path=/tmp/private-token-file',
+    }, {});
+    const serialized = JSON.stringify(envelope);
+
+    assert.equal(/https?:\/\//.test(serialized), false);
+    assert.equal(serialized.includes('@secret-source'), false);
+    assert.equal(serialized.includes('/Users/sree/private'), false);
+    assert.equal(serialized.includes('private-token-file'), false);
+});
+
+test('buildRelationshipMemoryEnvelope: strips non-http URLs and common credential path fields', () => {
+    const envelope = buildRelationshipMemoryEnvelope({
+        ...CONTACT,
+        title: 'Founder file:///root/private/export.json',
+        company: 'Mirror ftp://private.example/export.csv password_file=/tmp/passwords.txt',
+        location: 'api_key_path=/home/sree/.secrets/minty-key',
+    }, {});
+    const serialized = JSON.stringify(envelope);
+
+    assert.equal(/(?:ftp|file):\/\//.test(serialized), false);
+    assert.equal(serialized.includes('passwords.txt'), false);
+    assert.equal(serialized.includes('minty-key'), false);
 });
 
 test('buildRelationshipMemoryEnvelope: redacts email-like names and phone-like metadata', () => {
@@ -93,13 +189,17 @@ test('envelopeToMarkdown: renders all fields for a full envelope', () => {
     const md = envelopeToMarkdown(envelope);
 
     assert.match(md, /^## Ada Lovelace/);
+    assert.match(md, /- Contact ref: contact:[a-p]{16}/);
     assert.match(md, /- Headline: Founder at Analytical Engines Ltd/);
     assert.match(md, /- Location: London/);
     assert.match(md, /- Relationship: strong, score 72/);
-    assert.match(md, /- Sources: googleContacts, linkedin/);
+    assert.match(md, /- Sources: googlecontacts, linkedin/);
+    assert.match(md, /- Confidence: medium|low/);
+    assert.match(md, /citation: contact:[a-p]{16}:gbrain:/);
     assert.match(md, /- Topics: /);
-    assert.match(md, /- Safety: direct contact details omitted; read-only relationship memory\./);
+    assert.match(md, /- Safety: direct contact details, contact ids, raw messages, and raw insight text omitted/);
     assert.match(md, /- Evidence:/);
+    assert.equal(md.includes(CONTACT.id), false);
 });
 
 test('envelopeToMarkdown: omits headline and location lines when absent', () => {
@@ -240,8 +340,31 @@ test('exportGbrainMemory: writes JSONL and Markdown under selected output direct
         const jsonl = fs.readFileSync(result.jsonlPath, 'utf8');
         const markdown = fs.readFileSync(result.markdownPath, 'utf8');
         assert.equal(jsonl.includes('ada@example.com'), false);
-        assert.equal(markdown.includes('+15551234567'), false);
+        assert.equal(markdown.includes('+155****4567'), false);
         assert.equal(JSON.parse(jsonl.trim()).person, 'Ada Lovelace');
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('exportGbrainMemory: excludes group contacts entirely', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-gbrain-groups-'));
+    try {
+        const dataDir = path.join(tmp, 'data');
+        const outDir = path.join(tmp, 'out');
+        fs.mkdirSync(path.join(dataDir, 'unified'), { recursive: true });
+        fs.writeFileSync(path.join(dataDir, 'unified', 'contacts.json'), JSON.stringify([
+            CONTACT,
+            { ...CONTACT, id: 'group_secret_id', name: 'Secret Investor Group', isGroup: true },
+        ]));
+        fs.writeFileSync(path.join(dataDir, 'unified', 'insights.json'), JSON.stringify({}));
+
+        const result = exportGbrainMemory({ dataDir, outDir });
+        const serialized = fs.readFileSync(result.jsonlPath, 'utf8') + fs.readFileSync(result.markdownPath, 'utf8');
+
+        assert.equal(result.count, 1);
+        assert.equal(serialized.includes('Secret Investor Group'), false);
+        assert.equal(serialized.includes('group_secret_id'), false);
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }
