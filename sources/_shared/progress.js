@@ -75,6 +75,50 @@ function safeWrite(filePath, payload) {
  * Build a progress payload with derived fields.
  * `base` may include any of { source, step, message, current, total, itemsProcessed, errors, startedAt, error }.
  */
+function redactErrorText(value) {
+    if (value === undefined || value === null) return '';
+    return String(value)
+        .replace(/^\s*at\s+[^\n]+/gm, '[redacted-stack]')
+        .replace(/(["'`])[^"'`\n]*[\\/][^"'`\n]*\1/g, '$1[redacted-path]$1')
+        .replace(/\[[^\]\n]*[\\/][^\]\n]*\]/g, '[[redacted-path]]')
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+        .replace(/\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+/gi, '[redacted-credential]')
+        .replace(/["']?(?:token|password|passwd|secret|api[-_ ]?key|authorization)["']?\s*:\s*["'][^"'\n]*["']/gi, '[redacted-credential]')
+        .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted-credential]')
+        .replace(/\b(?:token|password|passwd|secret|api[-_ ]?key|authorization)\s*[:=]\s*[^\s,;]+/gi, '[redacted-credential]')
+        .replace(/\b(?:\+?\d[\d\s().-]{7,}\d)\b/g, '[redacted-phone]')
+        .replace(/\b[A-Za-z]:\\[^\n,;]+/g, '[redacted-path]')
+        .replace(/(?:\b[A-Za-z]:|\\\\[^\\\n,;]+\\[^\\\n,;]+|~)?[\\/][^\n,;]*?\.[A-Za-z0-9]{1,10}\b/g, '[redacted-path]')
+        .replace(/(?:~|\/)[^\n,;]+/g, '[redacted-path]')
+        .replace(/\b[\w.@%+-]+(?:\\[\w .@%+-]+)+\b/g, '[redacted-path]')
+        .replace(/(?:\b[A-Za-z]:|~)?[\\/][\w.@%+\-]+(?:[\\/][\w.@%+\-]+)*\b/g, '[redacted-path]')
+        .replace(/\b[\w.@%+-]+(?:\/[\w .@%+-]+)+\b/g, '[redacted-path]');
+}
+
+function safeErrorCode(error) {
+    const code = error && error.code;
+    if (typeof code !== 'string') return undefined;
+    return /^[A-Z0-9_-]{2,40}$/.test(code) ? code : undefined;
+}
+
+function safeErrorName(error) {
+    const name = error && error.name;
+    if (typeof name !== 'string') return undefined;
+    return /^[A-Za-z][A-Za-z0-9_.-]{0,60}$/.test(name) ? name : undefined;
+}
+
+function sanitizeError(error) {
+    if (!error) return undefined;
+    const rawMessage = typeof error === 'string' ? error : error.message;
+    const message = redactErrorText(rawMessage || 'Failed.') || 'Failed.';
+    const out = { message };
+    const code = safeErrorCode(error);
+    const name = safeErrorName(error);
+    if (code) out.code = code;
+    if (name) out.name = name;
+    return out;
+}
+
 function buildPayload(prev, patch) {
     const now = new Date().toISOString();
     const merged = {
@@ -141,11 +185,12 @@ function finishProgress(dataDir, source, summary = {}) {
  */
 function failProgress(dataDir, source, error) {
     const prev = readProgress(dataDir, source);
+    const sanitizedError = sanitizeError(error);
     const payload = buildPayload(prev, {
         source,
         step: 'error',
-        message: error && error.message ? error.message : 'Failed.',
-        error: error ? { message: error.message, stack: error.stack && String(error.stack).split('\n').slice(0, 5).join('\n') } : undefined,
+        message: sanitizedError ? sanitizedError.message : 'Failed.',
+        error: sanitizedError,
     });
     return writeProgress(dataDir, source, payload, /*replace=*/false);
 }
