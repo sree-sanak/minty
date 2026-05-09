@@ -58,4 +58,10 @@ function agentSafetyEnvelope(extra = {}) {
     };
 }
 
-module.exports = { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope };
+function safeEvidenceDetail(reason = {}) {
+    const kind = reason && reason.kind;
+    if (kind === 'topic') return 'Topic match from precomputed insights';
+    return redactDirectContactDetails(reason && reason.detail || '') || null;
+}
+
+module.exports = { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail };

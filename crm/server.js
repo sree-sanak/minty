@@ -3457,7 +3457,7 @@ const { parseQuery: parseNetworkQuery, describeQuery } = require('./network-quer
 const { getDataHealthSummary } = require('./staleness');
 const { safeContactRef } = require('./source-events');
 const { queryNetwork: queryAgentNetwork } = require('./agent-retrieval');
-const { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope } = require('./privacy-envelope');
+const { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail } = require('./privacy-envelope');
 
 // Load query index (returns [] if not yet built)
 function loadQueryIndex(paths) {
@@ -3511,7 +3511,7 @@ function prepareNetworkResultsForResponse(results) {
         const safeReasons = reasons.slice(0, 5).map(reason => ({
             kind: redactDirectContactDetails(reason && reason.kind || ''),
             label: redactDirectContactDetails(reason && reason.label || ''),
-            detail: redactDirectContactDetails(reason && reason.detail || ''),
+            detail: safeEvidenceDetail(reason),
         }));
         return {
             id: ref,
