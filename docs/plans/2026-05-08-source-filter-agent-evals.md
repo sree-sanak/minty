@@ -22,7 +22,19 @@ This complements, not duplicates:
 - `2026-05-06-agent-workflow-evals.md`: established the first eval harness; this plan narrows the next iteration to source-filter and MCP parity.
 - `2026-05-07-memory-refresh-diagnostics.md`: reports pipeline freshness; these evals prove the answering layer respects source trust.
 - Current `main` already exposes exactly four MCP tools in `tests/unit/minty-mcp-server.test.js`: `person_context`, `search_network`, `source_health`, and `workflow_brief`. This plan should not change that exact tool-list assertion; it routes evals through the existing `source_health` tool.
-- Current `scripts/evaluate-network-memory.js` still filters default cases down to `query_network`, and `crm/evaluation.js` still passes only `testCase.query` into the runner. Those are the narrow implementation gaps this plan closes.
+
+## Implementation status as of 2026-05-09
+
+PR #149 shipped Tasks 1-2: `npm run network:evaluate` can now pass structured arguments and route cases through `query_network` or MCP tools such as `mcp:source_health`. The remaining product gap is no longer the runner; it is the synthetic source-specific fixture set and contract assertions.
+
+The next builder should start at Task 3 and then complete Tasks 4-5 in order:
+
+1. Seed a Telegram-only synthetic contact/evidence/source-event fixture with no emails, phones, handles, group names, raw IDs, message bodies, token paths, or private brain paths.
+2. Add the positive Telegram, negative LinkedIn, invalid-source fail-closed, and `mcp:source_health` eval cases.
+3. Add `minSources`/`maxSources` handling in `crm/evaluation.js` so source-health evals are checked as first-class envelopes, not people results.
+4. Document that retrieval/source-health/MCP changes must run `npm run seed:demo && npm run network:evaluate`.
+
+Do not create a new plan for this follow-up unless the implementation target changes; this document is already the source-filter eval plan.
 
 ## Success criteria
 
