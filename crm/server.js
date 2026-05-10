@@ -3595,6 +3595,7 @@ async function handleNetworkQuery(req, res, _params, paths) {
         contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
         sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
         hybridIndex: readJsonIfExists(path.join(unifiedDir, 'hybrid-index.json'), []),
+        syncState: readJsonIfExists(path.join(unifiedDir, '..', 'sync-state.json'), {}),
         limit: Number.isInteger(reqBody.limit) ? reqBody.limit : 20,
         source: reqBody.source,
         sources: reqBody.sources,
