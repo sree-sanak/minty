@@ -586,6 +586,37 @@ describe('workflow_brief tool', () => {
         assert.equal(JSON.stringify(parsed).includes('tg_wf_stale'), false);
     });
 
+    it('source-filtered workflow briefs return safe source display labels when answerable', async () => {
+        const contacts = [{
+            id: 'wf_answerable', name: 'Workflow Telegram Person',
+            sources: { telegram: { userId: 'tg_wf_secret_handle' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{
+            id: 'wf_i_answerable', source: 'telegram', type: 'direct', contactId: 'wf_answerable',
+            body: 'Discussed crypto insurance broker partnerships.',
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 38, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'Find crypto insurance partners', source: 'telegram' } },
+        }, {
+            contacts,
+            insights: {},
+            interactions,
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.answerability.status, 'answerable');
+        assert.equal(parsed.topPeople.length, 1);
+        assert.deepEqual(parsed.topPeople[0].matchedSources, ['telegram']);
+        assert.deepEqual(parsed.topPeople[0].answerSources, ['Telegram']);
+        assert.equal(parsed.topPeople[0].sourceSummary, 'Telegram');
+        assert.equal(JSON.stringify(parsed).includes('tg_wf_secret_handle'), false);
+    });
+
     it('reports privacy-safe per-source freshness in workflow_brief', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 35, method: 'tools/call',
@@ -926,6 +957,9 @@ describe('safeResult', () => {
         suggestedAction: 'Send a message',
         daysSinceContact: 5,
         interactionCount: 12,
+        matchedSources: ['telegram'],
+        answerSources: ['Telegram'],
+        sourceSummary: 'Telegram',
         // Fields from queryNetwork that MUST be stripped at MCP layer:
         relevance: 42,
         evidenceBacked: true,
@@ -942,9 +976,9 @@ describe('safeResult', () => {
         const safe = safeResult(FULL_RESULT);
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
-            'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'name',
-            'relationshipScore', 'suggestedAction', 'title', 'warmth',
+            'answerSources', 'city', 'company', 'confidence', 'daysSinceContact',
+            'evidence', 'interactionCount', 'matchedSources', 'name',
+            'relationshipScore', 'sourceSummary', 'suggestedAction', 'title', 'warmth',
         ]);
     });
 
@@ -961,6 +995,9 @@ describe('safeResult', () => {
         assert.equal(safe.suggestedAction, 'Send a message');
         assert.equal(safe.daysSinceContact, 5);
         assert.equal(safe.interactionCount, 12);
+        assert.deepEqual(safe.matchedSources, ['telegram']);
+        assert.deepEqual(safe.answerSources, ['Telegram']);
+        assert.equal(safe.sourceSummary, 'Telegram');
     });
 
     it('strips emails, phones, rawContact, sources, id, activeChannels, relevance, evidenceBacked', () => {
@@ -973,6 +1010,20 @@ describe('safeResult', () => {
         assert.equal(safe.activeChannels, undefined);
         assert.equal(safe.relevance, undefined, 'relevance is internal scoring detail');
         assert.equal(safe.evidenceBacked, undefined, 'evidenceBacked is internal metadata');
+    });
+
+    it('redacts direct contact details from source display fields at the MCP boundary', () => {
+        const safe = safeResult({
+            name: 'Safe Person',
+            answerSources: ['Telegram', 'alice@example.com', '+155****4567'],
+            sourceSummary: 'Telegram, alice@example.com, +155****4567',
+        });
+
+        const serialized = JSON.stringify(safe);
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('+155****4567'), false);
+        assert.deepEqual(safe.answerSources, ['Telegram', '[redacted email]', '[redacted phone]']);
+        assert.equal(safe.sourceSummary, 'Telegram, [redacted email], [redacted phone]');
     });
 
     it('handles result with missing optional fields gracefully', () => {
@@ -1034,6 +1085,8 @@ describe('search_network source filter', () => {
         // matchedSources must be safe canonical labels
         assert.ok(parsed.results[0].matchedSources);
         assert.deepEqual(parsed.results[0].matchedSources, ['telegram']);
+        assert.deepEqual(parsed.results[0].answerSources, ['Telegram']);
+        assert.equal(parsed.results[0].sourceSummary, 'Telegram');
         // Must not leak direct contact details
         assertNoDirectContactDetails(parsed);
         const serialized = JSON.stringify(parsed);

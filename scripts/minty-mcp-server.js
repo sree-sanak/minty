@@ -127,6 +127,15 @@ function safeEvidence(evidence) {
     });
 }
 
+function safeStringArray(values) {
+    if (!Array.isArray(values)) return undefined;
+    const safe = values
+        .filter(v => typeof v === 'string')
+        .map(v => redactDirectContactDetails(v))
+        .filter(Boolean);
+    return safe.length ? safe : undefined;
+}
+
 function safeResult(r) {
     const safe = {
         name: redactDirectContactDetails(r.name),
@@ -142,6 +151,11 @@ function safeResult(r) {
         interactionCount: r.interactionCount,
     };
     if (r.matchedSources) safe.matchedSources = r.matchedSources;
+    const answerSources = safeStringArray(r.answerSources);
+    if (answerSources) safe.answerSources = answerSources;
+    if (typeof r.sourceSummary === 'string' && r.sourceSummary.trim()) {
+        safe.sourceSummary = redactDirectContactDetails(r.sourceSummary);
+    }
     return safe;
 }
 
@@ -280,6 +294,9 @@ function executeTool(name, args, data) {
             warmth: r.warmth,
             confidence: r.confidence,
             daysSinceContact: r.daysSinceContact,
+            matchedSources: r.matchedSources,
+            answerSources: r.answerSources,
+            sourceSummary: r.sourceSummary,
             why: (r.evidence || []).map(e => e.label).filter(Boolean).join('; ') || 'General network match',
             suggestedAction: r.suggestedAction,
         }));
