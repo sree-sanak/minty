@@ -6,6 +6,8 @@ A rolling log of open-source-quality improvements made by an autonomous loop whi
 
 ## Shipped
 
+- **2026-05-10** — Refreshed `ROADMAP.md` from stale v0.2.x/April wording to the current v0.3.x source-quality, agent-trust, OpenClaw/Hermes/MCP, and privacy-safe retrieval direction.
+
 - **2026-04-25** — Added `tests/README.md` orienting contributors who land in the tests folder: layer overview, when-to-add-what table, fixture/PII rules, CI summary. Pattern from Node.js core / Vitest contributor docs.
 - **2026-04-25** — Added `.editorconfig` (4-space JS, 2-space JSON/YAML, LF, UTF-8). Keeps whitespace consistent across VSCode/JetBrains/Vim contributors. Standard EditorConfig pattern — borrowed from Excalidraw + Plausible.
 - **2026-04-25** — Added `.github/labels.json` (21 labels: workflow, severity, source-area, triage) + `scripts/sync-labels.js` and `npm run labels:sync` so labels are version-controlled and provisionable with `gh label create --force`. Pattern from Probot/`label-sync` ecosystem — declarative JSON > clicking through GitHub UI.
@@ -27,8 +29,6 @@ These are queued for a human because they need taste calls or repo-admin access:
 - **Hero screenshot/GIF in README.** The README has a TODO comment where a real screenshot/GIF of the contact list + detail view should go. Record at v0.3.x and drop into `docs/hero.png` (or `.gif`); the README placeholder already points there.
 - **GitHub repo metadata.** The repo description and topics are set via the GitHub UI, not the codebase. Suggested topics (high-signal for discovery): `personal-crm`, `prm`, `self-hosted`, `privacy`, `local-first`, `whatsapp`, `gmail`, `linkedin`, `telegram`, `nodejs`, `agpl`. Suggested description matches `package.json`: *"Privacy-first personal CRM — unifies WhatsApp, Gmail, LinkedIn, Telegram, SMS, and Google Contacts locally. Surfaces who you should reach out to, and why."*
 - **GitHub labels — provision them.** Labels are now declarative in `.github/labels.json`. Run `npm run labels:sync` once (needs `gh auth login`) to create them all on the repo. Edit the JSON and re-run to add/rename later.
-
-- **ROADMAP.md is stale.** It's dated `v0.2.x — April 2026` but `package.json` is at `0.3.2` and the `Now` section lists items already shipped (CI, dependabot vuln triage, etc.). Needs a maintainer pass to mark items shipped, retitle the section to `v0.3.x`, and refresh `Next` / `Later`.
 
 - **README "How is this different from X?" comparison.** Personal-CRM space is crowded (Monica, Cardhop, Dex, Clay, Folk). A short comparison table — even 4 rows — would help discovery and positioning, but it's a product-judgment call (which competitors to mention, what to claim about them).
 
