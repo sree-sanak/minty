@@ -553,7 +553,37 @@ describe('workflow_brief tool', () => {
         assert.equal(parsed.safety.noOutreachTriggered, true);
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('alice@example.com'), false);
-        assert.equal(serialized.includes('+15551234567'), false);
+        assert.equal(serialized.includes('+155****4567'), false);
+    });
+
+    it('source-filtered workflow briefs return a blocked empty state when the source is stale', async () => {
+        const contacts = [{
+            id: 'wf_stale', name: 'Workflow Telegram Person',
+            sources: { telegram: { userId: 'tg_wf_stale' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{
+            id: 'wf_i_stale', source: 'telegram', type: 'direct', contactId: 'wf_stale',
+            body: 'Discussed crypto insurance broker partnerships.',
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 37, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'Find crypto insurance partners', source: 'telegram' } },
+        }, {
+            contacts,
+            insights: {},
+            interactions,
+            syncState: { telegram: { lastSyncAt: '2026-04-01T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.deepEqual(parsed.topPeople, []);
+        assert.equal(parsed.answerability.status, 'blocked');
+        assert.ok(parsed.answerability.warnings.includes('no_recent_sync'));
+        assert.deepEqual(parsed.diagnostics.answerability, parsed.answerability);
+        assert.equal(JSON.stringify(parsed).includes('tg_wf_stale'), false);
     });
 
     it('reports privacy-safe per-source freshness in workflow_brief', async () => {
@@ -990,11 +1020,17 @@ describe('search_network source filter', () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 90, method: 'tools/call',
             params: { name: 'search_network', arguments: { query: 'DeFi lending protocols', source: 'telegram' } },
-        }, { contacts, insights: {}, interactions });
+        }, {
+            contacts,
+            insights: {},
+            interactions,
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+        });
 
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.results.length, 1);
         assert.equal(parsed.results[0].name, 'Telegram DeFi Person');
+        assert.equal(parsed.answerability.status, 'answerable');
         // matchedSources must be safe canonical labels
         assert.ok(parsed.results[0].matchedSources);
         assert.deepEqual(parsed.results[0].matchedSources, ['telegram']);

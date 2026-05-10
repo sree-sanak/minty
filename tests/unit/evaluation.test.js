@@ -291,6 +291,23 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
     assert.deepEqual(telegramHealthCase.forbidPaths, ['results.0.name', 'results.0.email', 'results.0.phone']);
     assert.deepEqual(telegramHealthCase.forbidSubstrings, ['raw-phone-555-0101']);
 
+    const blockedSourceCase = DEFAULT_CASES.find(c => c.name === 'telegram-source-filter-no-evidence-blocked');
+    assert.ok(blockedSourceCase, 'blocked source-filter eval case should exist');
+    assert.equal(blockedSourceCase.target, 'mcp:search_network');
+    assert.deepEqual(blockedSourceCase.arguments, {
+        query: 'impossible private codename zzqv',
+        source: 'telegram',
+    });
+    assert.equal(blockedSourceCase.maxResults, 0);
+    assert.equal(blockedSourceCase.disallowFallback, true);
+    assert.deepEqual(blockedSourceCase.requirePaths, [
+        'safety.readOnly',
+        'answerability.status',
+        'diagnostics.answerability.status',
+    ]);
+    assert.deepEqual(blockedSourceCase.forbidPaths, ['results.0.name', 'results.0.email', 'results.0.phone']);
+    assert.deepEqual(blockedSourceCase.forbidSubstrings, ['raw-phone-555-0101']);
+
     const impossibleCase = DEFAULT_CASES.find(c => c.query === 'Who do I know for impossible private codename zzqv?');
     assert.ok(impossibleCase, 'impossible-query eval case should exist');
     assert.equal(impossibleCase.maxResults, 0);

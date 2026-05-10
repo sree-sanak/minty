@@ -17,6 +17,7 @@ const { matchContactEvidence } = require('./contact-evidence');
 const { buildSourceEvents, summarizeSourceCoverage, safeContactRef } = require('./source-events');
 const { buildHybridIndex, queryHybridIndex } = require('./hybrid-index');
 const { redactDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail } = require('./privacy-envelope');
+const { buildAgentSourceHealth, buildSourceAnswerability } = require('./agent-source-health');
 
 // ---------------------------------------------------------------------------
 // Warmth label from relationship score
@@ -373,6 +374,34 @@ function matchedSourcesForContact(contact, sourceFilter, evidence = {}, requireE
     return [...new Set(filtered)].sort();
 }
 
+function collectQueryMatchedSources(contactIds, evidenceByContactId, contactEvidenceMatches, hybridMatches) {
+    const sources = new Set();
+    const byContact = Object.create(null);
+    function add(id, source) {
+        const canonical = canonicalSource(source);
+        if (!canonical || canonical === 'interaction') return;
+        sources.add(canonical);
+        if (!byContact[id]) byContact[id] = [];
+        byContact[id].push(canonical);
+    }
+    for (const id of contactIds) {
+        const interactionEvidence = evidenceByContactId[id];
+        if (interactionEvidence) {
+            for (const source of sourceList(interactionEvidence.sources)) add(id, source);
+        }
+        const contactEvidence = contactEvidenceMatches[id];
+        if (contactEvidence) {
+            for (const source of sourceList(contactEvidence.sources)) add(id, source);
+        }
+        const hybridMatch = hybridMatches[id];
+        if (hybridMatch) {
+            for (const source of sourceList(hybridMatch.sources)) add(id, source);
+        }
+        if (byContact[id]) byContact[id] = [...new Set(byContact[id])].sort();
+    }
+    return { sources: [...sources].sort(), byContact };
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -382,7 +411,7 @@ const MAX_QUERY_LENGTH = 1000;
 function queryNetwork(query, opts = {}) {
     const q = typeof query === 'string' ? query.slice(0, MAX_QUERY_LENGTH) : '';
     const safeOpts = opts != null && typeof opts === 'object' ? opts : {};
-    const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, limit = 10 } = safeOpts;
+    const { contacts: rawContacts, insights: rawInsights, interactions: rawInteractions, contactEvidence: rawContactEvidence, sourceEvents: rawSourceEvents, hybridIndex: rawHybridIndex, syncState: rawSyncState, limit = 10 } = safeOpts;
     const explicitSourceFilter = normalizeSourceFilter(safeOpts);
     const hasExplicitSourceFilter = explicitSourceFilter.sources.length > 0 || explicitSourceFilter.invalid.length > 0;
     const sourceFilter = hasExplicitSourceFilter ? explicitSourceFilter.sources : null;
@@ -397,6 +426,7 @@ function queryNetwork(query, opts = {}) {
     const sourceEvents = Array.isArray(rawSourceEvents)
         ? rawSourceEvents
         : buildSourceEvents({ contacts, interactions, insights });
+    const syncState = rawSyncState && typeof rawSyncState === 'object' && !Array.isArray(rawSyncState) ? rawSyncState : {};
     const contactIds = new Set(contacts.map(c => c.id));
     const contactEvidence = Object.create(null);
     const evidenceSource = rawContactEvidence && typeof rawContactEvidence === 'object' ? rawContactEvidence : {};
@@ -495,22 +525,43 @@ function queryNetwork(query, opts = {}) {
         r.matchScore = (r.matchScore || 0) + goalScore;
     }
 
+    const queryMatchedSources = collectQueryMatchedSources(
+        evidenced.map(r => r.id),
+        interactionEvidenceByContactId,
+        contactEvidenceMatches,
+        hybridMatches,
+    );
+    const sourceHealth = hasExplicitSourceFilter
+        ? buildAgentSourceHealth({ contacts, interactions, contactEvidence, sourceEvents, syncState }, {
+            source: safeOpts.source,
+            sources: safeOpts.sources,
+            now: safeOpts.nowForTests,
+        })
+        : null;
+    const sourceAnswerability = sourceHealth
+        ? buildSourceAnswerability(sourceHealth, {
+            explicit: true,
+            queryEvidenceChecked: true,
+            queryMatchedSources: queryMatchedSources.sources,
+        })
+        : null;
+
     // 6. Sort by blended score descending
     evidenced.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
 
     function matchedSourcesForResult(r) {
         const contact = contactsById[r.id];
         if (!sourceFilter || !contact) return undefined;
-        return matchedSourcesForContact(contact, sourceFilter, {
-            interactionSources: interactionEvidenceByContactId[r.id] ? [...interactionEvidenceByContactId[r.id].sources] : [],
-            contactEvidenceSources: contactEvidenceMatches[r.id] ? sourceList(contactEvidenceMatches[r.id].sources) : [],
-            hybridSources: hybridMatches[r.id] ? sourceList(hybridMatches[r.id].sources) : [],
-        }, sourceFilter.length > 0);
+        // Explicit source-filtered answers must be backed by query-level evidence,
+        // not merely by profile/source availability on the contact record.
+        return sourceList(queryMatchedSources.byContact && queryMatchedSources.byContact[r.id]).filter(s => sourceFilter.includes(s));
     }
 
     // 7. Apply source filter if active; fail closed if invalid filters present
     let filtered = evidenced;
     if (invalidSourceFilters.length) {
+        filtered = [];
+    } else if (sourceAnswerability && !sourceAnswerability.answerable) {
         filtered = [];
     } else if (sourceFilter) {
         filtered = evidenced.filter(r => (matchedSourcesForResult(r) || []).length > 0);
@@ -574,8 +625,10 @@ function queryNetwork(query, opts = {}) {
             hybridEvidenceContacts: Object.keys(hybridMatches).length,
             ...(sourceFilter ? { sourceFilter } : {}),
             ...(invalidSourceFilters.length ? { invalidSourceFilters } : {}),
+            ...(sourceAnswerability ? { answerability: sourceAnswerability } : {}),
             sourceCoverage,
         },
+        ...(sourceAnswerability ? { answerability: sourceAnswerability } : {}),
         safety: agentSafetyEnvelope(),
     };
 }
