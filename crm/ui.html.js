@@ -2261,7 +2261,7 @@ async function loadToday() {
     todayLoaded = true;
     renderToday(el);
   } catch (e) {
-    el.innerHTML = \`<div class="loading" style="color:#ef4444">Failed to load: \${e.message}</div>\`;
+    el.innerHTML = \`<div class="loading" style="color:#ef4444">Failed to load: \${esc(e.message)}</div>\`;
   }
 }
 
