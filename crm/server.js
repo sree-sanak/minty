@@ -233,7 +233,7 @@ function sanitizeSourceInfo(info) {
 }
 
 function saveOverrides(overrides, paths) {
-    fs.writeFileSync(paths.overrides, JSON.stringify(overrides, null, 2));
+    atomicWriteJsonSync(paths.overrides, overrides);
 }
 
 // Lightweight summary for list view
@@ -451,7 +451,7 @@ function loadDebriefs(paths) {
 
 function saveDebriefs(paths, store) {
     const p = path.join(path.dirname(paths.contacts), 'meeting-debriefs.json');
-    fs.writeFileSync(p, JSON.stringify(store, null, 2));
+    atomicWriteJsonSync(p, store);
 }
 
 /**
@@ -492,7 +492,7 @@ async function handleSaveDebrief(req, res, [meetingId], paths) {
                 g.assignments[mv.contactId] = { stage: mv.stage, updatedAt: new Date().toISOString() };
                 touched = true;
             }
-            if (touched) fs.writeFileSync(paths.goals, JSON.stringify(goals, null, 2));
+            if (touched) atomicWriteJsonSync(paths.goals, goals);
         }
         json(res, { meetingId, debrief: updated[meetingId] });
     } catch (e) {
@@ -855,7 +855,7 @@ async function handleSaveNotes(req, res, [id], paths , ) {
     if (!contact) return json(res, { error: 'not found' }, 404);
     contact.notes = notes;
     contact.updatedAt = new Date().toISOString();
-    fs.writeFileSync(paths.contacts, JSON.stringify(contacts, null, 2));
+    atomicWriteJsonSync(paths.contacts, contacts);
     json(res, { ok: true });
 }
 
@@ -3210,7 +3210,7 @@ async function handleSaveGoals(req, res, params, paths) {
     } else {
         return json(res, { error: 'invalid body' }, 400);
     }
-    fs.writeFileSync(paths.goals, JSON.stringify(goals, null, 2));
+    atomicWriteJsonSync(paths.goals, goals);
     json(res, goals);
 }
 
@@ -3258,7 +3258,7 @@ async function handleGoalAssign(req, res, [goalId], paths) {
 
     goal.assignments = assignments;
     goal.updatedAt = new Date().toISOString();
-    fs.writeFileSync(paths.goals, JSON.stringify(goals, null, 2));
+    atomicWriteJsonSync(paths.goals, goals);
     json(res, { goal });
 }
 
