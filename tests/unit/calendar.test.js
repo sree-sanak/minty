@@ -301,3 +301,27 @@ test('[Calendar]: sortMeetings does not mutate input array', () => {
     sortMeetings(meetings);
     assert.equal(meetings[0].id, original[0].id);
 });
+
+
+test('[Calendar]: enrichAttendees preserves daysSinceContact=0 for same-day contacts', () => {
+    const contacts = [{
+        id: 'c_today',
+        name: 'Today Contact',
+        emails: ['today@example.com'],
+        relationshipScore: 42,
+        lastContactedAt: '2026-05-10T09:00:00.000Z',
+        daysSinceContact: 0,
+        isGroup: false,
+    }];
+    const attendees = [{
+        email: 'today@example.com',
+        displayName: 'Today Contact',
+        self: false,
+        responseStatus: 'accepted',
+    }];
+
+    const [enriched] = enrichAttendees(attendees, buildEmailIndex(contacts), {});
+
+    assert.equal(enriched.contactId, 'c_today');
+    assert.equal(enriched.daysSinceContact, 0);
+});
