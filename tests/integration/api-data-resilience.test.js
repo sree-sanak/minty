@@ -311,7 +311,7 @@ test('POST /api/network/query does not expose raw topic text from insights evide
     });
 });
 
-test('POST /api/network/query uses precomputed contact evidence like the agent CLI', async () => {
+test('POST /api/network/query uses sync state for source-filtered precomputed evidence', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-contact-evidence-'));
     seedDataDir(dir, []);
     const unified = path.join(dir, 'unified');
@@ -358,15 +358,23 @@ test('POST /api/network/query uses precomputed contact evidence like the agent C
             confidence: 0.75,
         },
     });
+    writeJson(path.join(dir, 'sync-state.json'), {
+        telegram: { status: 'ok', lastSyncAt: '2026-05-01T00:00:00.000Z' },
+    });
 
     await withServer(dir, async (base) => {
         const res = await fetch(`${base}/api/network/query`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: 'Who do I know working in DeFi lending protocols?' }),
+            body: JSON.stringify({
+                query: 'Who do I know working in DeFi lending protocols?',
+                sources: ['telegram'],
+            }),
         });
         assert.equal(res.status, 200);
         const payload = await res.json();
+        assert.equal(payload.answerability.status, 'answerable');
+        assert.deepEqual(payload.answerability.answerableSources, ['telegram']);
         assert.equal(payload.results[0].name, 'Evidence Only Person');
         assert.match(payload.results[0].id, /^contact:[a-p]+$/);
         assert.ok(payload.results[0].reasons.some(reason => reason.kind === 'contact_evidence'));
