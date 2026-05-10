@@ -138,6 +138,24 @@ function expandQuery(parsed) {
 // Per-candidate evidence
 // ---------------------------------------------------------------------------
 
+function citation(source, subjectId, field, provenance, observedAt = null) {
+    return {
+        source,
+        subjectId: subjectId || null,
+        field,
+        provenance,
+        observedAt: observedAt || null,
+    };
+}
+
+function contactObservedAt(contact) {
+    return contact?.updatedAt || contact?.lastContactedAt || null;
+}
+
+function citedReason(reason, cite) {
+    return { ...reason, citation: cite };
+}
+
 function buildReasons(candidate, parsed, ctx = {}) {
     const reasons = [];
     const contact = (ctx.contactsById && ctx.contactsById[candidate.id]) || null;
@@ -148,11 +166,11 @@ function buildReasons(candidate, parsed, ctx = {}) {
     if (parsed.roles && parsed.roles.length) {
         const matched = parsed.roles.filter(r => (candidate.roles || []).includes(r));
         for (const r of matched) {
-            reasons.push({
+            reasons.push(citedReason({
                 kind: 'role',
                 label: titleCase(r),
                 detail: candidate.title ? candidate.title : (candidate.company ? 'at ' + candidate.company : null),
-            });
+            }, citation('contact', candidate.id, 'title', 'local-contact', contactObservedAt(contact || candidate))));
         }
     }
 
@@ -160,7 +178,10 @@ function buildReasons(candidate, parsed, ctx = {}) {
     if (parsed.locations && parsed.locations.length) {
         for (const l of parsed.locations) {
             if (candidate.city === l) {
-                reasons.push({ kind: 'location', label: titleCase(l), detail: 'Confirmed location' });
+                reasons.push(citedReason(
+                    { kind: 'location', label: titleCase(l), detail: 'Confirmed location' },
+                    citation('contact', candidate.id, 'location', 'local-contact', contactObservedAt(contact || candidate))
+                ));
             }
         }
     }
@@ -171,11 +192,18 @@ function buildReasons(candidate, parsed, ctx = {}) {
     for (const term of expandedTerms) {
         if (term.length < 3) continue;
         if (contactText.includes(term)) {
-            reasons.push({
+            const keywordMatch = explainKeywordMatchWithField(contact || candidate, term);
+            reasons.push(citedReason({
                 kind: 'keyword',
                 label: term,
-                detail: explainKeywordMatch(contact || candidate, term),
-            });
+                detail: keywordMatch ? keywordMatch.detail : null,
+            }, citation(
+                'contact',
+                candidate.id,
+                keywordMatch ? keywordMatch.field : 'metadata',
+                'local-contact',
+                contactObservedAt(contact || candidate)
+            )));
             if (reasons.filter(r => r.kind === 'keyword').length >= 3) break;
         }
     }
@@ -186,12 +214,18 @@ function buildReasons(candidate, parsed, ctx = {}) {
             if (!t) continue;
             const tl = t.toLowerCase();
             if (expandedTerms.some(et => tl.includes(et) || et.includes(tl))) {
-                reasons.push({ kind: 'topic', label: 'Recent conversation', detail: t });
+                reasons.push(citedReason(
+                    { kind: 'topic', label: 'Recent conversation', detail: t },
+                    citation('insights', candidate.id, 'topics', 'local-insight', insight.analyzedAt || null)
+                ));
                 break;
             }
             // Or direct match against raw query terms
             if (lowerQuery.includes(tl) || tl.includes(lowerQuery)) {
-                reasons.push({ kind: 'topic', label: 'Recent conversation', detail: t });
+                reasons.push(citedReason(
+                    { kind: 'topic', label: 'Recent conversation', detail: t },
+                    citation('insights', candidate.id, 'topics', 'local-insight', insight.analyzedAt || null)
+                ));
                 break;
             }
         }
@@ -200,41 +234,46 @@ function buildReasons(candidate, parsed, ctx = {}) {
     // Warmth signal — only when the query implies access (intro, ask, meet)
     const wantsWarm = ['meet', 'intro'].includes(parsed.intent) || /warm|intro|trust/.test(lowerQuery);
     if (wantsWarm && candidate.relationshipScore >= 50) {
-        reasons.push({
+        reasons.push(citedReason({
             kind: 'warmth',
             label: 'Warm',
             detail: 'Relationship score ' + candidate.relationshipScore,
-        });
+        }, citation('contact', candidate.id, 'relationshipScore', 'derived-local', contactObservedAt(contact || candidate))));
     }
 
     // Recent contact
     if (candidate.daysSinceContact != null && candidate.daysSinceContact <= 14) {
-        reasons.push({
+        reasons.push(citedReason({
             kind: 'recent',
             label: 'Recent',
             detail: candidate.daysSinceContact === 0 ? 'Today' :
                     candidate.daysSinceContact === 1 ? 'Yesterday' :
                     candidate.daysSinceContact + ' days ago',
-        });
+        }, citation('contact', candidate.id, 'daysSinceContact', 'derived-local', contactObservedAt(contact || candidate))));
     }
 
     return reasons;
 }
 
 function explainKeywordMatch(c, term) {
+    const match = explainKeywordMatchWithField(c, term);
+    return match ? match.detail : null;
+}
+
+function explainKeywordMatchWithField(c, term) {
     if (!c) return null;
     const t = term.toLowerCase();
     const checks = [
-        { val: c.company, label: 'Company' },
-        { val: c.title || c.position, label: 'Title' },
-        { val: c.sources?.linkedin?.company, label: 'Company' },
-        { val: c.sources?.linkedin?.position, label: 'Title' },
-        { val: c.apollo?.headline, label: 'Headline' },
-        { val: c.apollo?.industry, label: 'Industry' },
+        { val: c.company, label: 'Company', field: 'company' },
+        { val: c.title || c.position, label: 'Title', field: 'title' },
+        { val: c.sources?.linkedin?.company, label: 'Company', field: 'linkedin.company' },
+        { val: c.sources?.linkedin?.position, label: 'Title', field: 'linkedin.position' },
+        { val: c.apollo?.headline, label: 'Headline', field: 'apollo.headline' },
+        { val: c.apollo?.industry, label: 'Industry', field: 'apollo.industry' },
     ];
-    for (const { val, label } of checks) {
+    for (const { val, label, field } of checks) {
         if (!val) continue;
-        if (String(val).toLowerCase().includes(t)) return label + ': ' + val;
+        if (String(val).toLowerCase().includes(t)) return { detail: label + ': ' + val, field };
     }
     return null;
 }
