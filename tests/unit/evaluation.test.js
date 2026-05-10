@@ -38,6 +38,60 @@ test('fails cases that return fallback-only or unevidenced answers', () => {
     assert.equal(report.cases[0].failures.includes('missing_required_evidence'), true);
 });
 
+test('enforces exact required path values in agent envelopes', () => {
+    const cases = [
+        {
+            query: 'safe envelope',
+            requirePathValues: {
+                'safety.readOnly': true,
+                'safety.contactDetailsOmitted': true,
+                'results.0.confidence': 'high',
+                'results.0.evidence': [{ kind: 'contact_evidence' }],
+            },
+        },
+        {
+            query: 'unsafe envelope',
+            requirePathValues: {
+                'safety.readOnly': true,
+                'safety.contactDetailsOmitted': true,
+            },
+        },
+        {
+            query: 'missing envelope',
+            requirePathValues: {
+                'safety.readOnly': true,
+            },
+        },
+    ];
+    const queryFn = (query) => {
+        if (query === 'safe envelope') {
+            return {
+                safety: { readOnly: true, contactDetailsOmitted: true },
+                results: [{ confidence: 'high', evidence: [{ kind: 'contact_evidence' }] }],
+                diagnostics: { usedFallback: false },
+            };
+        }
+        if (query === 'unsafe envelope') {
+            return {
+                safety: { readOnly: false, contactDetailsOmitted: false },
+                results: [],
+                diagnostics: { usedFallback: false },
+            };
+        }
+        return { results: [], diagnostics: { usedFallback: false } };
+    };
+
+    const report = evaluateRelationshipQueries(cases, queryFn);
+
+    assert.equal(report.failed, 2);
+    assert.deepEqual(report.cases[0].failures, []);
+    assert.deepEqual(report.cases[1].failures, [
+        'required_path_value_mismatch:safety.readOnly',
+        'required_path_value_mismatch:safety.contactDetailsOmitted',
+    ]);
+    assert.deepEqual(report.cases[2].failures, ['required_path_value_mismatch:safety.readOnly']);
+});
+
 test('enforces required paths, forbidden paths, and forbidden substrings in agent envelopes', () => {
     const cases = [
         {
@@ -260,6 +314,7 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
         assert.equal(positiveCase.disallowFallback, true);
         assert.deepEqual(positiveCase.requireEvidenceKinds, ['keyword', 'topic']);
         assert.deepEqual(positiveCase.requirePaths, ['safety.readOnly', 'results.0.evidenceBacked']);
+        assert.deepEqual(positiveCase.requirePathValues, { 'safety.readOnly': true });
         assert.deepEqual(positiveCase.forbidPaths, ['results.0.email', 'results.0.phone']);
         assert.deepEqual(positiveCase.forbidSubstrings, ['raw-phone-555-0101']);
     }
@@ -274,6 +329,7 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
     assert.equal(mcpSearchCase.disallowFallback, true);
     assert.deepEqual(mcpSearchCase.requireEvidenceKinds, ['keyword', 'topic']);
     assert.deepEqual(mcpSearchCase.requirePaths, ['safety.readOnly', 'results.0.evidence.0.kind']);
+    assert.deepEqual(mcpSearchCase.requirePathValues, { 'safety.readOnly': true });
     assert.deepEqual(mcpSearchCase.forbidPaths, ['results.0.email', 'results.0.phone']);
     assert.deepEqual(mcpSearchCase.forbidSubstrings, ['raw-phone-555-0101']);
 
@@ -288,6 +344,10 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
         'sources.telegram.status',
         'sources.telegram.freshness',
     ]);
+    assert.deepEqual(telegramHealthCase.requirePathValues, {
+        'safety.readOnly': true,
+        'safety.contactDetailsOmitted': true,
+    });
     assert.deepEqual(telegramHealthCase.forbidPaths, ['results.0.name', 'results.0.email', 'results.0.phone']);
     assert.deepEqual(telegramHealthCase.forbidSubstrings, ['raw-phone-555-0101']);
 
@@ -305,6 +365,7 @@ test('DEFAULT_CASES enforce agent envelope trust/privacy contracts', () => {
         'answerability.status',
         'diagnostics.answerability.status',
     ]);
+    assert.deepEqual(blockedSourceCase.requirePathValues, { 'safety.readOnly': true });
     assert.deepEqual(blockedSourceCase.forbidPaths, ['results.0.name', 'results.0.email', 'results.0.phone']);
     assert.deepEqual(blockedSourceCase.forbidSubstrings, ['raw-phone-555-0101']);
 

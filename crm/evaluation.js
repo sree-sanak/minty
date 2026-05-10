@@ -4,19 +4,29 @@
 
 'use strict';
 
+const { isDeepStrictEqual } = require('node:util');
+
 function evidenceKinds(result) {
     return new Set((result && Array.isArray(result.evidence) ? result.evidence : []).map(e => e && e.kind).filter(Boolean));
 }
 
-function hasPath(value, path) {
-    if (typeof path !== 'string' || path.trim() === '') return false;
+function getPathValue(value, path) {
+    if (typeof path !== 'string' || path.trim() === '') return { exists: false, value: undefined };
     let current = value;
     for (const part of path.split('.')) {
-        if (current == null || (typeof current !== 'object' && typeof current !== 'function')) return false;
-        if (!Object.hasOwn(current, part)) return false;
+        if (current == null || (typeof current !== 'object' && typeof current !== 'function')) return { exists: false, value: undefined };
+        if (!Object.hasOwn(current, part)) return { exists: false, value: undefined };
         current = current[part];
     }
-    return current !== undefined;
+    return { exists: current !== undefined, value: current };
+}
+
+function hasPath(value, path) {
+    return getPathValue(value, path).exists;
+}
+
+function sameJsonValue(actual, expected) {
+    return isDeepStrictEqual(actual, expected);
 }
 
 function containsSubstring(value, needle) {
@@ -49,6 +59,13 @@ function evaluateOne(testCase, queryFn) {
     const requiredPaths = Array.isArray(testCase.requirePaths) ? testCase.requirePaths : [];
     for (const path of requiredPaths) {
         if (!hasPath(output, path)) failures.push(`missing_required_path:${path}`);
+    }
+    const requiredPathValues = testCase && testCase.requirePathValues && typeof testCase.requirePathValues === 'object' && !Array.isArray(testCase.requirePathValues)
+        ? testCase.requirePathValues
+        : {};
+    for (const [path, expected] of Object.entries(requiredPathValues)) {
+        const actual = getPathValue(output, path);
+        if (!actual.exists || !sameJsonValue(actual.value, expected)) failures.push(`required_path_value_mismatch:${path}`);
     }
     const forbiddenPaths = Array.isArray(testCase.forbidPaths) ? testCase.forbidPaths : [];
     for (const path of forbiddenPaths) {
