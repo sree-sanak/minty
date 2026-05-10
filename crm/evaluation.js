@@ -35,10 +35,18 @@ function containsSubstring(value, needle) {
     return typeof serialized === 'string' && serialized.includes(needle);
 }
 
+function resultArray(output, resultPath) {
+    if (typeof resultPath === 'string' && resultPath.trim() !== '') {
+        const selected = getPathValue(output, resultPath);
+        return Array.isArray(selected.value) ? selected.value : [];
+    }
+    return Array.isArray(output && output.results) ? output.results : [];
+}
+
 function evaluateOne(testCase, queryFn) {
     const runnerInput = testCase && testCase.arguments ? testCase : testCase.query;
     const output = queryFn(runnerInput);
-    const results = Array.isArray(output && output.results) ? output.results : [];
+    const results = resultArray(output, testCase && testCase.resultPath);
     const diagnostics = output && output.diagnostics || {};
     const queryLabel = testCase.query || (testCase.arguments && testCase.arguments.query) || testCase.name || '';
     const failures = [];

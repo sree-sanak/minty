@@ -38,6 +38,41 @@ test('fails cases that return fallback-only or unevidenced answers', () => {
     assert.equal(report.cases[0].failures.includes('missing_required_evidence'), true);
 });
 
+test('evaluates alternate result arrays selected by resultPath', () => {
+    const cases = [
+        {
+            query: 'person context',
+            resultPath: 'matches',
+            minResults: 1,
+            requireEvidenceKinds: ['keyword'],
+        },
+        {
+            query: 'workflow brief',
+            resultPath: 'topPeople',
+            minResults: 2,
+        },
+    ];
+    const queryFn = (query) => {
+        if (query === 'person context') {
+            return {
+                matches: [{ evidence: [{ kind: 'keyword' }] }],
+                diagnostics: { usedFallback: false },
+            };
+        }
+        return {
+            topPeople: [{ name: 'Synthetic One' }, { name: 'Synthetic Two' }],
+            diagnostics: { usedFallback: false },
+        };
+    };
+
+    const report = evaluateRelationshipQueries(cases, queryFn);
+
+    assert.equal(report.failed, 0);
+    assert.equal(report.cases[0].resultCount, 1);
+    assert.equal(report.cases[0].evidenceBackedResults, 1);
+    assert.equal(report.cases[1].resultCount, 2);
+});
+
 test('enforces exact required path values in agent envelopes', () => {
     const cases = [
         {
