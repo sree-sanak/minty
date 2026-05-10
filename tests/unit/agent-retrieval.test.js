@@ -1141,6 +1141,81 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.equal(serialized.includes('tg_x'), false, 'must not leak telegram userId');
         assert.equal(serialized.includes('wa_y'), false, 'must not leak whatsapp id');
     });
+
+    it('adds user-facing source labels beside evidence-backed matchedSources', () => {
+        const contacts = [{
+            id: 'c_tg_labels',
+            name: 'Tara Telegram',
+            sources: { telegram: { userId: 'tg_private_handle' } },
+            activeChannels: ['telegram'],
+            relationshipScore: 80,
+            daysSinceContact: 2,
+            interactionCount: 3,
+        }];
+        const interactions = [{
+            id: 'i_tg_labels',
+            source: 'telegram',
+            type: 'direct',
+            contactId: 'c_tg_labels',
+            body: 'Discussed defi market operators and distribution.',
+        }];
+
+        const out = queryNetwork('defi operators', {
+            contacts,
+            insights: {},
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-09T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        assert.equal(out.results.length, 1);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+        assert.deepEqual(out.results[0].answerSources, ['Telegram']);
+        assert.equal(out.results[0].sourceSummary, 'Telegram');
+        assert.equal(JSON.stringify(out).includes('tg_private_handle'), false);
+    });
+
+    it('formats multiple safe source labels without raw source payloads', () => {
+        const contacts = [{
+            id: 'c_multi_labels',
+            name: 'Multi Source',
+            sources: {
+                googleContacts: { resourceName: 'people/private-person' },
+                linkedin: { publicIdentifier: 'private-linkedin-handle' },
+            },
+            relationshipScore: 72,
+            daysSinceContact: 7,
+            interactionCount: 4,
+        }];
+        const contactEvidence = {
+            c_multi_labels: {
+                topics: ['ai market entry'],
+                sources: ['googleContacts', 'linkedin'],
+                topicEvidence: [{ topic: 'ai market entry', sources: ['googleContacts', 'linkedin'] }],
+            },
+        };
+
+        const out = queryNetwork('ai market entry', {
+            contacts,
+            insights: {},
+            contactEvidence,
+            sources: ['googleContacts', 'linkedin'],
+            syncState: {
+                googleContacts: { lastSyncAt: '2026-05-09T00:00:00Z' },
+                linkedin: { lastSyncAt: '2026-05-09T00:00:00Z' },
+            },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        assert.equal(out.results.length, 1);
+        assert.deepEqual(out.results[0].matchedSources, ['googlecontacts', 'linkedin']);
+        assert.deepEqual(out.results[0].answerSources, ['Google Contacts', 'LinkedIn']);
+        assert.equal(out.results[0].sourceSummary, 'Google Contacts, LinkedIn');
+        const serialized = JSON.stringify(out.results[0]);
+        assert.equal(serialized.includes('people/private-person'), false);
+        assert.equal(serialized.includes('private-linkedin-handle'), false);
+    });
 });
 
 // ---------------------------------------------------------------------------
