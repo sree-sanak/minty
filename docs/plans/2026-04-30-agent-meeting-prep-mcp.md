@@ -2,9 +2,9 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Add a `meeting_prep` MCP tool so Hermes can ask Minty for the next source-backed meeting brief without opening the CRM UI.
+**Goal:** Add a `meeting_prep` MCP tool so Hermes can ask Minty for the next source-backed meeting brief without opening the CRM UI, while preserving the newer MCP trust contract around source health, opaque refs, and privacy-safe citations.
 
-**Architecture:** Reuse Minty's existing Calendar sync path: `crm/sync.js` already writes enriched `sync-state.json.calendar.upcomingMeetings`, and `crm/server.js` already re-enriches that data for Today and `/api/calendar/upcoming`. Add a pure `crm/meeting-prep.js` module that converts those meetings into a redacted agent envelope, extend `scripts/agent-query.js` to load sync state, and expose the result via `scripts/minty-mcp-server.js`. No runtime LLM calls, no outreach, no new dependencies.
+**Architecture:** Reuse Minty's existing Calendar sync path: `crm/sync.js` already writes enriched `sync-state.json.calendar.upcomingMeetings`, and `crm/server.js` already re-enriches that data for Today and `/api/calendar/upcoming`. Add a pure `crm/meeting-prep.js` module that converts those pre-enriched meetings into a redacted agent envelope, extend `scripts/agent-query.js` to load only sanitized calendar sync metadata for agent callers, and expose the result via `scripts/minty-mcp-server.js`. Meeting prep should reuse the trust-contract conventions from retrieval/person-context/source-health — opaque refs, redacted citations, honest empty states, and freshness preflight — without exposing raw calendar/contact records. No runtime LLM calls, no outreach, no new dependencies.
 
 **Tech Stack:** Plain Node.js CommonJS, Node built-in test runner, existing `data/sync-state.json`, `data/unified/contacts.json`, `data/unified/insights.json`, `crm/calendar.js`, `scripts/minty-mcp-server.js`.
 
@@ -17,6 +17,9 @@ Minty's pivot is agent-native private network memory. The existing MCP surface i
 - `search_network` — find relevant people by goal/query.
 - `person_context` — look up a known person.
 - `workflow_brief` — get a goal-oriented people list.
+- `source_health` — preflight whether a source is fresh/evidence-bearing before trusting source-scoped answers.
+
+**2026-05-10 update:** This plan predates the newer `source_health`, source answerability gate, opaque contact refs, and GBrain export trust-contract work. Implement the updated snippets below, not the older raw-id shape. Meeting prep must be at least as strict as `search_network`/`person_context`: no raw calendar event ids, raw contact ids, attendee emails, phones, URLs, descriptions, source handles, private paths, or raw invalid input in the agent envelope.
 
 The missing agent workflow is meeting prep. Calendar data already exists and is refreshed by the daemon, but Hermes cannot ask: **“I have a call soon — who is it with, what do I know, what should I remember, and how fresh is this context?”** That is a sharper wedge than another CRM screen because it lands inside Sree's existing assistant workflow right before a high-value interaction.
 
@@ -24,18 +27,19 @@ This plan is intentionally narrow: one read-only MCP tool, one pure formatter, s
 
 Success criteria:
 
-- `meeting_prep` appears in MCP `tools/list` beside `search_network`, `person_context`, and `workflow_brief`.
-- `meeting_prep({ horizonHours: 48 })` returns the next upcoming meeting with matched attendees, relationship warmth, topics/open loops/meeting briefs, citations, freshness metadata, and safety metadata.
+- `meeting_prep` appears in MCP `tools/list` beside `person_context`, `search_network`, `source_health`, and `workflow_brief`; update exact tool-count/name assertions from 4 tools to 5 tools.
+- `meeting_prep({ horizonHours: 48 })` returns the next upcoming meeting with matched attendees, relationship warmth, topics/open loops/meeting briefs, opaque citations, freshness metadata, and safety metadata.
 - `meeting_prep({ person: "Alice" })` prefers the next meeting whose matched attendee name includes Alice.
-- The envelope omits emails, phone numbers, URLs/join links, raw attendee objects, raw contact records, raw calendar locations, and calendar descriptions.
+- The envelope omits emails, phone numbers, URLs/join links, raw attendee objects, raw contact records, raw contact ids, raw calendar event ids, raw calendar locations, and calendar descriptions.
 - Empty/low-data states fail usefully: no fabricated context, no stale confidence inflation.
 
 Privacy contract for implementation:
 
-- Treat every calendar-derived string as untrusted private data. Meeting titles, locations, attendee display names, and citation labels can contain emails, phone numbers, Zoom/Meet links, dial-ins, addresses, or pasted descriptions.
-- Run every returned string through one central redaction helper, and add whole-envelope tests that `JSON.stringify(prep)` excludes fixture emails, phones, URLs, and join links.
+- Treat every calendar-derived string as untrusted private data. Meeting titles, locations, attendee display names, attendee ids, event ids, and citation labels can contain emails, phone numbers, Zoom/Meet links, dial-ins, addresses, or pasted descriptions.
+- Run every returned string through one central redaction helper, and add whole-envelope tests that `JSON.stringify(prep)` excludes fixture emails, phones, URLs, raw event ids, raw contact ids, source handles, private filesystem paths, and token-path-like strings.
 - Do not return raw `location`; return `locationType` (`video`, `phone`, `in_person`, or `unknown`) unless a future product decision explicitly requires more.
-- "Source-backed" citations must point to concrete local provenance when available: source type plus contact/interaction/event id or timestamp. Field-name-only labels are not enough to claim verification.
+- "Source-backed" citations must point to concrete local provenance when available without exposing raw ids: source type, opaque `citationRef`, observed timestamp, and redacted evidence kind are enough. Field-name-only labels are not enough to claim verification, but raw event/contact ids are not allowed in MCP output.
+- Opaque refs require `MINTY_REF_SECRET` or `MINTY_MCP_REF_SECRET` in production. If no ref secret is configured, fail closed with `opaque_ref_unavailable` rather than returning raw ids. Refs are stable only for the configured secret; rotating the secret invalidates previously issued `eventRef`, `contactRef`, and `citationRef` values.
 
 ---
 
@@ -59,7 +63,10 @@ const assert = require('node:assert/strict');
 
 const { buildMeetingPrep } = require('../../crm/meeting-prep');
 
+process.env.MINTY_REF_SECRET ||= 'unit-test-only-meeting-prep-ref-secret';
+
 const NOW = '2026-04-30T09:00:00Z';
+const READY_CALENDAR = { status: 'ok', stale: false, lastSyncAt: '2026-04-30T08:55:00Z', evidenceBearing: true, answerable: true };
 
 function meeting(overrides = {}) {
     return {
@@ -67,7 +74,7 @@ function meeting(overrides = {}) {
         title: 'Coffee with Alice',
         startAt: '2026-04-30T11:00:00Z',
         endAt: '2026-04-30T11:30:00Z',
-        location: 'Zoom',
+        location: 'Zoom https://meet.example.com/private +44 20 7123 4567',
         attendees: [
             {
                 email: 'alice@example.com',
@@ -76,9 +83,10 @@ function meeting(overrides = {}) {
                 name: 'Alice Müller',
                 relationshipScore: 82,
                 daysSinceContact: 5,
-                topics: ['EU insurance', 'fundraising'],
-                openLoops: ['Send deck intro'],
-                meetingBrief: 'Alice is a warm investor contact.',
+                topics: ['EU insurance', '@alice_handle'],
+                openLoops: ['Send deck intro from /root/.hermes/google_token.json'],
+                meetingBrief: 'Alice is a warm investor contact; token file /Users/sree/private/api_key.json is irrelevant.',
+                responseStatus: 'accepted by alice@example.com',
             },
         ],
         ...overrides,
@@ -86,15 +94,20 @@ function meeting(overrides = {}) {
 }
 
 test('[MeetingPrep]: returns next upcoming meeting with redacted attendee context', () => {
-    const prep = buildMeetingPrep([meeting()], { now: NOW, horizonHours: 48 });
+    const prep = buildMeetingPrep([meeting()], { now: NOW, horizonHours: 48, sourceHealth: READY_CALENDAR });
 
     assert.equal(prep.status, 'ok');
-    assert.equal(prep.meeting.id, 'evt_1');
+    assert.match(prep.meeting.eventRef, /^calendar-event:/);
+    assert.equal(prep.meeting.id, undefined);
     assert.equal(prep.meeting.title, 'Coffee with Alice');
     assert.equal(prep.attendees[0].name, 'Alice Müller');
     assert.equal(prep.attendees[0].email, undefined);
     assert.equal(prep.attendees[0].relationshipScore, 82);
     assert.ok(prep.attendees[0].citations.some(c => c.source === 'insights.meetingBrief'));
+    const serialized = JSON.stringify(prep);
+    for (const forbidden of ['alice@example.com', 'c_alice', 'evt_1', 'meet.example.com', '+44 20 7123 4567', '@alice_handle', '/root/.hermes/google_token.json', '/Users/sree/private/api_key.json']) {
+        assert.equal(serialized.includes(forbidden), false, forbidden);
+    }
     assert.equal(prep.safety.contactDetailsOmitted, true);
     assert.equal(prep.safety.readOnly, true);
 });
@@ -117,6 +130,8 @@ Create `crm/meeting-prep.js`:
 ```js
 'use strict';
 
+const crypto = require('node:crypto');
+
 function toMs(value) {
     const t = Date.parse(value || '');
     return Number.isNaN(t) ? null : t;
@@ -138,7 +153,22 @@ function redactSensitiveString(value) {
         .replace(/https?:\/\/\S+/gi, '[redacted-url]')
         .replace(/\b(?:www\.)?[a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?/gi, '[redacted-url]')
         .replace(/\+?\d[\d\s().-]{7,}\d/g, '[redacted-phone]')
-        .replace(/[A-Z0-9._%+-]+@/gi, '[redacted-email]');
+        .replace(/\+?\d[\d\s().*xX-]{5,}\d/g, '[redacted-phone]')
+        .replace(/[A-Z0-9._%+-]+@/gi, '[redacted-email]')
+        .replace(/(^|[^\w])@[a-z0-9_.-]{2,}/gi, '$1[redacted-handle]')
+        .replace(/\b(?:telegram|whatsapp|linkedin|slack|email|sms|googleContacts):[^\s,;)]*/gi, '[redacted-source-ref]')
+        .replace(/(?:^|\s)(?:\.?\.?\/)?[^\s,;)]*(?:token|secret|credential|key)[^\s,;)]*\.(?:json|ya?ml|env|txt)/gi, ' [redacted-secret-path]')
+        .replace(/(?:\/[^\s,;)]*){2,}|[A-Z]:\\[^\s,;)]*/g, '[redacted-path]');
+}
+
+function isoOrNull(value) {
+    const t = toMs(value);
+    return t == null ? null : new Date(t).toISOString();
+}
+
+function safeStatus(value) {
+    const status = String(value || '').toLowerCase();
+    return ['ok', 'stale', 'error', 'missing', 'unknown'].includes(status) ? status : 'unknown';
 }
 
 function locationType(value) {
@@ -149,25 +179,76 @@ function locationType(value) {
     return 'unknown';
 }
 
-function safeAttendee(a, meetingId) {
-    const citations = [];
-    const contactId = a.contactId || null;
-    const baseCitation = {
-        contactId,
-        eventId: meetingId || null,
-        field: null,
-        observedAt: a.lastInteractionAt || a.updatedAt || a.analyzedAt || null,
-        provenance: contactId || meetingId || a.lastInteractionAt || a.updatedAt || a.analyzedAt ? 'local' : 'derived-field-only',
+class OpaqueRefUnavailableError extends Error {
+    constructor() {
+        super('opaque_ref_unavailable');
+        this.code = 'opaque_ref_unavailable';
+    }
+}
+
+function safeRef(prefix, value) {
+    const s = String(value || '');
+    const secret = process.env.MINTY_REF_SECRET || process.env.MINTY_MCP_REF_SECRET;
+    // Production must set a stable ref secret. Without it, fail closed instead of exposing raw ids.
+    // Rotating the secret intentionally invalidates previously issued opaque refs.
+    if (!secret) throw new OpaqueRefUnavailableError();
+    const digest = crypto.createHmac('sha256', secret).update(prefix).update('\0').update(s).digest('base64url');
+    return prefix + ':' + digest.slice(0, 24);
+}
+
+function sanitizeSourceHealth(health, now = Date.now()) {
+    if (!health || typeof health !== 'object') return { status: 'unknown', stale: true, evidenceBearing: false, answerable: false, lastSyncAt: null };
+    const status = safeStatus(health.status);
+    const lastSyncAt = isoOrNull(health.lastSyncAt);
+    const lastSyncMs = lastSyncAt ? Date.parse(lastSyncAt) : null;
+    const maxAgeMs = 72 * 60 * 60 * 1000;
+    const staleByAge = !lastSyncMs || lastSyncMs > now || (now - lastSyncMs) > maxAgeMs;
+    const stale = health.stale === true || status !== 'ok' || staleByAge;
+    const evidenceBearing = health.evidenceBearing === true;
+    return {
+        status,
+        stale,
+        lastSyncAt,
+        evidenceBearing,
+        answerable: status === 'ok' && !stale && evidenceBearing && health.answerable !== false,
     };
-    if (a.meetingBrief) citations.push({ ...baseCitation, field: 'meetingBrief', source: 'insights.meetingBrief', label: 'Meeting brief available' });
-    if (Array.isArray(a.topics) && a.topics.length) citations.push({ ...baseCitation, field: 'topics', source: 'insights.topics', label: redactSensitiveString(a.topics.slice(0, 3).join(', ')) });
-    if (Array.isArray(a.openLoops) && a.openLoops.length) citations.push({ ...baseCitation, field: 'openLoops', source: 'insights.openLoops', label: redactSensitiveString(a.openLoops.slice(0, 2).join('; ')) });
-    if (a.daysSinceContact != null) citations.push({ ...baseCitation, field: 'daysSinceContact', source: 'contact.daysSinceContact', label: 'Last contact ' + a.daysSinceContact + 'd ago' });
+}
+
+function sourceNotReadyEnvelope(sourceHealth, generatedAt) {
+    return {
+        status: 'degraded',
+        reason: 'Calendar source is not fresh, evidence-bearing, and answerable enough to prepare a meeting brief safely.',
+        generatedAt,
+        dataFreshness: { generatedAt, sourceHealth },
+        safety: {
+            contactDetailsOmitted: true,
+            readOnly: true,
+            noLlmCalls: true,
+            noOutreachTriggered: true,
+        },
+    };
+}
+
+function safeAttendee(a, calendarEventId) {
+    const citations = [];
+    const contactRef = a.contactId ? safeRef('contact', a.contactId) : null;
+    const eventRef = calendarEventId ? safeRef('calendar-event', calendarEventId) : null;
+    const baseCitation = {
+        citationRef: safeRef('citation', [contactRef, eventRef, a.lastInteractionAt || a.updatedAt || a.analyzedAt || ''].join('|')),
+        source: null,
+        evidenceKind: null,
+        observedAt: isoOrNull(a.lastInteractionAt || a.updatedAt || a.analyzedAt),
+        provenance: contactRef || eventRef || a.lastInteractionAt || a.updatedAt || a.analyzedAt ? 'local' : 'derived-field-only',
+    };
+    if (a.meetingBrief) citations.push({ ...baseCitation, evidenceKind: 'meeting_brief', source: 'insights.meetingBrief', label: 'Meeting brief available' });
+    if (Array.isArray(a.topics) && a.topics.length) citations.push({ ...baseCitation, evidenceKind: 'topics', source: 'insights.topics', label: redactSensitiveString(a.topics.slice(0, 3).join(', ')) });
+    if (Array.isArray(a.openLoops) && a.openLoops.length) citations.push({ ...baseCitation, evidenceKind: 'open_loops', source: 'insights.openLoops', label: redactSensitiveString(a.openLoops.slice(0, 2).join('; ')) });
+    if (a.daysSinceContact != null) citations.push({ ...baseCitation, evidenceKind: 'recency', source: 'contact.daysSinceContact', label: 'Last contact ' + a.daysSinceContact + 'd ago' });
 
     return {
-        contactId,
+        contactRef,
         name: redactSensitiveString(a.name || a.displayName || 'Unknown attendee'),
-        responseStatus: a.responseStatus || null,
+        responseStatus: a.responseStatus ? redactSensitiveString(a.responseStatus) : null,
         relationshipScore: a.relationshipScore ?? null,
         warmth: a.relationshipScore == null ? null : warmthLabel(a.relationshipScore),
         daysSinceContact: a.daysSinceContact ?? null,
@@ -187,14 +268,14 @@ function selectMeeting(meetings, opts = {}) {
     const horizonHours = Number.isFinite(opts.horizonHours) ? opts.horizonHours : 48;
     const horizonMs = nowMs + Math.max(1, Math.min(168, horizonHours)) * 60 * 60 * 1000;
     const person = String(opts.person || '').trim().toLowerCase();
-    const meetingId = String(opts.meetingId || '').trim();
+    const eventRef = String(opts.eventRef || '').trim();
 
     const candidates = (Array.isArray(meetings) ? meetings : [])
         .filter(m => m && m.id && toMs(m.startAt) != null)
         .filter(m => (toMs(m.endAt) || toMs(m.startAt)) >= nowMs && toMs(m.startAt) <= horizonMs)
         .sort((a, b) => toMs(a.startAt) - toMs(b.startAt));
 
-    if (meetingId) return candidates.find(m => String(m.id) === meetingId) || null;
+    if (eventRef) return candidates.find(m => m.id && safeRef('calendar-event', m.id) === eventRef) || null;
     if (person) {
         return candidates.find(m => (m.attendees || []).some(a =>
             String(a.name || a.displayName || '').toLowerCase().includes(person)
@@ -204,13 +285,37 @@ function selectMeeting(meetings, opts = {}) {
 }
 
 function buildMeetingPrep(meetings, opts = {}) {
-    const selected = selectMeeting(meetings, opts);
     const generatedAt = new Date(toMs(opts.now) || Date.now()).toISOString();
+    const nowMs = toMs(opts.now) || Date.now();
+    const sourceHealth = sanitizeSourceHealth(opts.sourceHealth, nowMs);
+    if (!sourceHealth.answerable) return sourceNotReadyEnvelope(sourceHealth, generatedAt);
+
+    let selected;
+    try {
+        selected = selectMeeting(meetings, opts);
+    } catch (err) {
+        if (err && err.code === 'opaque_ref_unavailable') {
+            return {
+                status: 'error',
+                reason: 'Opaque references are unavailable; meeting prep cannot safely return private calendar context.',
+                generatedAt,
+                dataFreshness: { generatedAt, sourceHealth },
+                safety: { contactDetailsOmitted: true, readOnly: true, noLlmCalls: true, noOutreachTriggered: true },
+            };
+        }
+        throw err;
+    }
     if (!selected) {
         return {
             status: 'empty',
             reason: 'No upcoming meeting matched the request inside the selected horizon.',
             generatedAt,
+            dataFreshness: {
+                generatedAt,
+                calendarLastSyncAt: isoOrNull(opts.calendarLastSyncAt),
+                calendarStatus: safeStatus(opts.calendarStatus),
+                sourceHealth,
+            },
             safety: {
                 contactDetailsOmitted: true,
                 readOnly: true,
@@ -220,16 +325,45 @@ function buildMeetingPrep(meetings, opts = {}) {
         };
     }
 
-    const attendees = (selected.attendees || []).filter(a => !isSelfOrEmpty(a)).map(a => safeAttendee(a, selected.id));
+    let attendees;
+    try {
+        attendees = (selected.attendees || []).filter(a => !isSelfOrEmpty(a)).map(a => safeAttendee(a, selected.id));
+    } catch (err) {
+        if (err && err.code === 'opaque_ref_unavailable') {
+            return {
+                status: 'error',
+                reason: 'Opaque references are unavailable; meeting prep cannot safely return private calendar context.',
+                generatedAt,
+                dataFreshness: { generatedAt, sourceHealth },
+                safety: { contactDetailsOmitted: true, readOnly: true, noLlmCalls: true, noOutreachTriggered: true },
+            };
+        }
+        throw err;
+    }
+    let eventRef;
+    try {
+        eventRef = selected.id ? safeRef('calendar-event', selected.id) : null;
+    } catch (err) {
+        if (err && err.code === 'opaque_ref_unavailable') {
+            return {
+                status: 'error',
+                reason: 'Opaque references are unavailable; meeting prep cannot safely return private calendar context.',
+                generatedAt,
+                dataFreshness: { generatedAt, sourceHealth },
+                safety: { contactDetailsOmitted: true, readOnly: true, noLlmCalls: true, noOutreachTriggered: true },
+            };
+        }
+        throw err;
+    }
     const strongest = attendees.slice().sort((a, b) => (b.relationshipScore || 0) - (a.relationshipScore || 0))[0] || null;
 
     return {
         status: 'ok',
         meeting: {
-            id: selected.id,
+            eventRef,
             title: redactSensitiveString(selected.title || '(No title)'),
-            startAt: selected.startAt || null,
-            endAt: selected.endAt || null,
+            startAt: isoOrNull(selected.startAt),
+            endAt: isoOrNull(selected.endAt),
             locationType: locationType(selected.location),
         },
         summary: strongest
@@ -238,12 +372,13 @@ function buildMeetingPrep(meetings, opts = {}) {
         attendees,
         dataFreshness: {
             generatedAt,
-            calendarLastSyncAt: opts.calendarLastSyncAt || null,
-            calendarStatus: opts.calendarStatus || 'unknown',
+            calendarLastSyncAt: isoOrNull(opts.calendarLastSyncAt),
+            calendarStatus: safeStatus(opts.calendarStatus),
+            sourceHealth,
         },
         safety: {
             contactDetailsOmitted: true,
-            omittedFields: ['emails', 'phones', 'urls', 'rawLocation', 'rawContact', 'rawAttendee', 'description'],
+            omittedFields: ['emails', 'phones', 'urls', 'rawLocation', 'rawContact', 'rawContactId', 'rawCalendarEventId', 'rawAttendee', 'description'],
             readOnly: true,
             noLlmCalls: true,
             noOutreachTriggered: true,
@@ -251,7 +386,7 @@ function buildMeetingPrep(meetings, opts = {}) {
     };
 }
 
-module.exports = { buildMeetingPrep, selectMeeting, safeAttendee, warmthLabel, redactSensitiveString, locationType };
+module.exports = { buildMeetingPrep, selectMeeting, safeAttendee, warmthLabel, redactSensitiveString, locationType, safeRef, sanitizeSourceHealth, sourceNotReadyEnvelope, OpaqueRefUnavailableError, isoOrNull, safeStatus };
 ```
 
 **Step 4: Run test to verify pass**
@@ -292,18 +427,28 @@ test('[MeetingPrep]: person filter selects matching future meeting', () => {
         meeting({ id: 'evt_alice', title: 'Alice sync', startAt: '2026-04-30T12:00:00Z' }),
     ];
 
-    const prep = buildMeetingPrep(meetings, { now: NOW, person: 'Alice', horizonHours: 48 });
+    const prep = buildMeetingPrep(meetings, { now: NOW, person: 'Alice', horizonHours: 48, sourceHealth: READY_CALENDAR });
 
     assert.equal(prep.status, 'ok');
-    assert.equal(prep.meeting.id, 'evt_alice');
+    assert.match(prep.meeting.eventRef, /^calendar-event:/);
+    assert.equal(prep.meeting.id, undefined);
+    assert.equal(JSON.stringify(prep).includes('evt_alice'), false);
 });
 
-test('[MeetingPrep]: empty state does not fabricate context', () => {
-    const prep = buildMeetingPrep([], { now: NOW, horizonHours: 48 });
+test('[MeetingPrep]: empty state does not fabricate context or omit freshness', () => {
+    const prep = buildMeetingPrep([], {
+        now: NOW,
+        horizonHours: 48,
+        calendarLastSyncAt: '2026-04-30T08:55:00Z',
+        calendarStatus: 'ok',
+        sourceHealth: { status: 'ok', stale: false, lastSyncAt: '2026-04-30T08:55:00Z', evidenceBearing: true, answerable: true },
+    });
 
     assert.equal(prep.status, 'empty');
     assert.match(prep.reason, /No upcoming meeting/);
     assert.equal(prep.attendees, undefined);
+    assert.equal(prep.dataFreshness.calendarStatus, 'ok');
+    assert.equal(prep.dataFreshness.sourceHealth.status, 'ok');
 });
 
 test('[MeetingPrep]: output never includes raw emails, phones, URLs, or locations', () => {
@@ -332,6 +477,32 @@ test('[MeetingPrep]: output never includes raw emails, phones, URLs, or location
     assert.equal(text.includes('example.com/private'), false);
     assert.equal(prep.meeting.location, undefined);
     assert.equal(prep.meeting.locationType, 'video');
+});
+
+const PATH_SENTINELS = [
+    '/tmp/minty-fixture/meeting_token.json',
+    '/tmp/minty-fixture/api_key.json',
+    '/tmp/minty-fixture/nested/credential.env',
+];
+
+test('[MeetingPrep]: path and secret redaction is order-independent across string fields', () => {
+    const prep = buildMeetingPrep([meeting({
+        title: PATH_SENTINELS[0],
+        location: PATH_SENTINELS[1],
+        attendees: [{
+            displayName: PATH_SENTINELS[2],
+            contactId: 'c_path',
+            topics: ['path ' + PATH_SENTINELS[0]],
+            openLoops: ['path ' + PATH_SENTINELS[1]],
+            meetingBrief: 'path ' + PATH_SENTINELS[2],
+        }],
+    })], { now: NOW, sourceHealth: READY_CALENDAR });
+
+    const text = JSON.stringify(prep);
+    for (const forbidden of PATH_SENTINELS) {
+        assert.equal(text.includes(forbidden), false, forbidden);
+    }
+    assert.match(text, /redacted-(?:secret-)?path/);
 });
 ```
 
@@ -387,7 +558,7 @@ Expected: prints `False` unless a test was added later.
 
 **Step 2: Extend `loadData()`**
 
-In `scripts/agent-query.js`, change `loadData()` to read `sync-state.json` from the data directory root:
+In `scripts/agent-query.js`, change `loadData()` to read `sync-state.json` from the data directory root, but expose only the calendar fields required by `meeting_prep`. Do not pass the full raw sync state into MCP tool responses.
 
 ```js
 function loadData(dataDir) {
@@ -402,11 +573,17 @@ function loadData(dataDir) {
         catch { return {}; }
     }
     const syncState = loadSyncState();
+    const calendar = syncState.calendar || {};
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
-        syncState,
-        meetings: syncState.calendar?.upcomingMeetings || [],
+        syncState: {
+            calendar: {
+                status: calendar.status || 'unknown',
+                lastSyncAt: calendar.lastSyncAt || null,
+            },
+        },
+        meetings: Array.isArray(calendar.upcomingMeetings) ? calendar.upcomingMeetings : [],
     };
 }
 ```
@@ -435,7 +612,7 @@ git commit -m "feat: load calendar state for agent tools"
 
 ### Task 4: Expose `meeting_prep` through the MCP server
 
-**Objective:** Add the fourth MCP tool and route calls to `buildMeetingPrep()` using loaded calendar data.
+**Objective:** Add the fifth MCP tool and route calls to `buildMeetingPrep()` using loaded calendar data plus sanitized source-health status.
 
 **Files:**
 - Modify: `scripts/minty-mcp-server.js:15-68`
@@ -447,18 +624,19 @@ git commit -m "feat: load calendar state for agent tools"
 In `tests/unit/minty-mcp-server.test.js`, update the `tools/list` assertion:
 
 ```js
-assert.equal(tools.length, 4);
+assert.equal(tools.length, 5);
 const names = tools.map(t => t.name).sort();
-assert.deepEqual(names, ['meeting_prep', 'person_context', 'search_network', 'workflow_brief']);
+assert.deepEqual(names, ['meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
 ```
 
 Add a tool definition shape test:
 
 ```js
-it('meeting_prep has optional meetingId, person, and horizonHours', () => {
+it('meeting_prep has optional eventRef, person, and horizonHours', () => {
     const tool = TOOLS.find(t => t.name === 'meeting_prep');
     assert.ok(tool);
-    assert.ok(tool.inputSchema.properties.meetingId);
+    assert.ok(tool.inputSchema.properties.eventRef);
+    assert.equal(tool.inputSchema.properties.meetingId, undefined);
     assert.ok(tool.inputSchema.properties.person);
     assert.ok(tool.inputSchema.properties.horizonHours);
     assert.deepEqual(tool.inputSchema.required || [], []);
@@ -480,7 +658,7 @@ Expected: FAIL — tool count/name mismatch.
 At the top of `scripts/minty-mcp-server.js`, add:
 
 ```js
-const { buildMeetingPrep } = require('../crm/meeting-prep');
+const { buildMeetingPrep, isoOrNull, safeStatus } = require('../crm/meeting-prep');
 ```
 
 Add a `TOOLS` entry:
@@ -495,7 +673,7 @@ Add a `TOOLS` entry:
     inputSchema: {
         type: 'object',
         properties: {
-            meetingId: { type: 'string', description: 'Optional exact calendar event id to prepare for' },
+            eventRef: { type: 'string', description: 'Optional opaque calendar-event ref returned by a previous meeting_prep call' },
             person: { type: 'string', description: 'Optional attendee name filter, e.g. "Alice"' },
             horizonHours: { type: 'number', description: 'Upcoming window to search, 1-168 hours, default 48' },
         },
@@ -515,12 +693,21 @@ function clampHorizonHours(value, defaultValue = 48) {
 if (name === 'meeting_prep') {
     args = args || {};
     const syncState = data.syncState || {};
+    const calendarStatus = safeStatus(syncState.calendar?.status);
+    const calendarLastSyncAt = isoOrNull(syncState.calendar?.lastSyncAt);
+    const calendarHealth = {
+        status: calendarStatus,
+        stale: calendarStatus !== 'ok',
+        lastSyncAt: calendarLastSyncAt,
+        evidenceBearing: Array.isArray(data.meetings || syncState.calendar?.upcomingMeetings),
+    };
     const prep = buildMeetingPrep(data.meetings || syncState.calendar?.upcomingMeetings || [], {
-        meetingId: args.meetingId,
+        eventRef: args.eventRef,
         person: args.person,
         horizonHours: clampHorizonHours(args.horizonHours, 48),
-        calendarLastSyncAt: syncState.calendar?.lastSyncAt || null,
-        calendarStatus: syncState.calendar?.status || 'unknown',
+        calendarLastSyncAt,
+        calendarStatus,
+        sourceHealth: calendarHealth,
     });
     return { content: [{ type: 'text', text: JSON.stringify(prep, null, 2) }] };
 }
@@ -533,6 +720,8 @@ Do not reuse `clampLimit()` for `horizonHours`; it caps at 50 and would contradi
 Append to `tests/unit/minty-mcp-server.test.js`:
 
 ```js
+process.env.MINTY_REF_SECRET ||= 'unit-test-only-meeting-prep-ref-secret';
+
 describe('meeting_prep tool', () => {
     it('returns redacted prep for the next meeting', async () => {
         const resp = await handleMessage({
@@ -541,11 +730,12 @@ describe('meeting_prep tool', () => {
         }, {
             contacts: CONTACTS,
             insights: INSIGHTS,
-            syncState: { calendar: { status: 'ok', lastSyncAt: '2026-04-30T08:55:00Z' } },
+            syncState: { calendar: { status: 'ok', lastSyncAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() } },
             meetings: [{
                 id: 'evt_1',
-                title: 'Alice call',
+                title: 'Alice call @alice_handle',
                 startAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                location: 'Zoom https://meet.example.com/private /root/.hermes/google_token.json',
                 attendees: [{
                     email: 'alice@example.com',
                     displayName: 'Alice',
@@ -553,15 +743,21 @@ describe('meeting_prep tool', () => {
                     name: 'Alice Müller',
                     relationshipScore: 72,
                     daysSinceContact: 3,
-                    topics: ['EU insurance'],
-                    meetingBrief: 'Warm founder/investor context.',
+                    topics: ['EU insurance', '@alice_handle'],
+                    meetingBrief: 'Warm founder/investor context; see /Users/sree/private/api_key.json never.',
                 }],
             }],
         });
 
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.status, 'ok');
-        assert.equal(parsed.meeting.id, 'evt_1');
+        assert.match(parsed.meeting.eventRef, /^calendar-event:/);
+        assert.equal(parsed.meeting.id, undefined);
+        assert.equal(parsed.dataFreshness.sourceHealth.status, 'ok');
+        const serialized = JSON.stringify(parsed);
+        for (const forbidden of ['evt_1', 'wa_001', 'alice@example.com', '@alice_handle', 'meet.example.com', '/root/.hermes/google_token.json', '/Users/sree/private/api_key.json']) {
+            assert.equal(serialized.includes(forbidden), false, forbidden);
+        }
         assertNoDirectContactDetails(parsed);
         assert.equal(parsed.safety.contactDetailsOmitted, true);
     });
@@ -602,7 +798,7 @@ Under “Available tools,” add:
 
 ```md
 ### meeting_prep
-Upcoming meeting brief. Input: `{ meetingId?, person?, horizonHours? }`.
+Upcoming meeting brief. Input: `{ eventRef?, person?, horizonHours? }`.
 Returns the next matching meeting with redacted attendee context, topics, open loops, source citations, and calendar freshness metadata.
 ```
 
