@@ -88,6 +88,29 @@ test('[Reasons] buildReasons surfaces keyword matches against Apollo/LinkedIn fi
     assert.ok(reasons.some(r => r.kind === 'keyword' && /fintech/i.test(r.detail || '')));
 });
 
+test('[Reasons] keyword reasons include contact-source citation metadata', () => {
+    const parsed = { raw: 'stripe payments', roles: [], locations: [], intent: 'find' };
+    const candidate = {
+        id: 'c_stripe',
+        name: 'Dana Stripe',
+        company: 'Stripe',
+        title: 'Payments Lead',
+        relationshipScore: 70,
+        daysSinceContact: 3,
+    };
+    const reasons = buildReasons(candidate, parsed, { contactsById: { c_stripe: candidate } });
+    const keyword = reasons.find(r => r.kind === 'keyword' && r.label === 'stripe');
+
+    assert.ok(keyword, 'keyword reason exists');
+    assert.deepEqual(keyword.citation, {
+        source: 'contact',
+        subjectId: 'c_stripe',
+        field: 'company',
+        provenance: 'local-contact',
+        observedAt: null,
+    });
+});
+
 test('[Reasons] buildReasons pulls topic match from insights.json', () => {
     const parsed = { raw: 'people who work on payments', roles: [], locations: [], intent: 'find' };
     const c = { id: 'c_1', roles: ['engineer'], city: null, relationshipScore: 50 };
@@ -95,6 +118,26 @@ test('[Reasons] buildReasons pulls topic match from insights.json', () => {
         insightsByContactId: { c_1: { topics: ['Stripe payments integration'] } },
     });
     assert.ok(reasons.some(r => r.kind === 'topic'));
+});
+
+test('[Reasons] topic reasons cite insights topics without raw message bodies', () => {
+    const parsed = { raw: 'crypto insurance', roles: [], locations: [], intent: 'find' };
+    const candidate = { id: 'c_alice', name: 'Alice', relationshipScore: 60 };
+    const reasons = buildReasons(candidate, parsed, {
+        contactsById: { c_alice: candidate },
+        insightsByContactId: { c_alice: { topics: ['crypto insurance'], analyzedAt: '2026-05-01T10:00:00Z' } },
+    });
+    const topic = reasons.find(r => r.kind === 'topic');
+
+    assert.ok(topic, 'topic reason exists');
+    assert.deepEqual(topic.citation, {
+        source: 'insights',
+        subjectId: 'c_alice',
+        field: 'topics',
+        provenance: 'local-insight',
+        observedAt: '2026-05-01T10:00:00Z',
+    });
+    assert.equal(JSON.stringify(topic).includes('message'), false);
 });
 
 test('[Reasons] annotateResults adds reasons + matchScore', () => {
