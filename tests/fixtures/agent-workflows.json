@@ -40,6 +40,23 @@
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
     {
+        "name": "telegram-source-filter-no-evidence-blocked",
+        "target": "mcp:search_network",
+        "arguments": {
+            "query": "impossible private codename zzqv",
+            "source": "telegram"
+        },
+        "maxResults": 0,
+        "disallowFallback": true,
+        "requirePaths": [
+            "safety.readOnly",
+            "answerability.status",
+            "diagnostics.answerability.status"
+        ],
+        "forbidPaths": ["results.0.name", "results.0.email", "results.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
         "name": "eu-crypto-insurance-positive",
         "target": "query_network",
         "query": "Who do I know for EU crypto insurance?",

@@ -107,11 +107,25 @@ function buildSourceAnswerability(healthEnvelope, opts = {}) {
 
     const perSource = sourceRows.map(row => {
         const warnings = new Set(Array.isArray(row.warnings) ? row.warnings.filter(w => typeof w === 'string' && w) : []);
-        if (explicit && queryEvidenceChecked && !queryMatchedSources.has(row.source)) warnings.add('no_query_evidence');
+        const hasQueryEvidence = queryMatchedSources.has(row.source);
+        if (explicit && queryEvidenceChecked && !hasQueryEvidence) warnings.add('no_query_evidence');
+        if (explicit && queryEvidenceChecked && hasQueryEvidence) {
+            warnings.delete('no_query_evidence');
+            // Query-level interaction/contact evidence is enough to answer even when
+            // source availability is not present on contact profile metadata.
+            warnings.delete('no_contacts');
+        }
         const warningList = [...warnings].sort();
+        let status = row.status === 'ready' ? 'ok' : row.status;
+        if (warningList.includes('not_configured')) status = 'not_configured';
+        else if (row.freshness === 'stale' || warningList.includes('no_recent_sync')) status = 'stale';
+        else if (row.freshness === 'unknown') status = 'unknown';
+        else if (!warningList.length && row.freshness === 'fresh') status = 'ok';
         return {
             source: row.source,
-            answerable: row.status === 'ready' && warningList.length === 0,
+            status,
+            freshness: row.freshness,
+            answerable: status === 'ok' && warningList.length === 0,
             warnings: warningList,
         };
     }).sort((a, b) => a.source.localeCompare(b.source));
@@ -119,6 +133,9 @@ function buildSourceAnswerability(healthEnvelope, opts = {}) {
     const warnings = new Set(perSource.flatMap(row => row.warnings));
     if (invalidSource) warnings.add('invalid_source');
     if (explicit && !perSource.length) warnings.add('no_source_health');
+    if (explicit && perSource.some(row => !row.answerable && row.warnings.some(w => w !== 'no_query_evidence'))) {
+        warnings.add('source_unhealthy');
+    }
     const answerableSources = perSource.filter(row => row.answerable).map(row => row.source);
     const blocked = explicit && (invalidSource || !perSource.length || perSource.some(row => !row.answerable));
 

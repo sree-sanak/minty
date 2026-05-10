@@ -66,6 +66,8 @@ const TOOLS = [
             properties: {
                 goal: { type: 'string', description: 'Workflow goal, e.g. "Find EU crypto insurance partners"' },
                 limit: { type: 'number', description: 'Max people to include (default 5)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
             },
             required: ['goal'],
         },
@@ -211,6 +213,8 @@ function executeTool(name, args, data) {
     const contactEvidence = (data.contactEvidence && typeof data.contactEvidence === 'object' && !Array.isArray(data.contactEvidence)) ? data.contactEvidence : {};
     const sourceEvents = Array.isArray(data.sourceEvents) ? data.sourceEvents : undefined;
     const hybridIndex = Array.isArray(data.hybridIndex) ? data.hybridIndex : undefined;
+    const syncState = (data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)) ? data.syncState : {};
+    const nowForTests = typeof data.nowForTests === 'string' ? data.nowForTests : undefined;
 
     if (name === 'search_network') {
         if (!args.query || typeof args.query !== 'string' || !args.query.trim()) {
@@ -224,6 +228,8 @@ function executeTool(name, args, data) {
             contactEvidence,
             sourceEvents,
             hybridIndex,
+            syncState,
+            nowForTests,
             limit: clampLimit(args.limit, 10),
         };
         if (args.source) queryOpts.source = args.source;
@@ -234,6 +240,7 @@ function executeTool(name, args, data) {
             intent: result.intent,
             results: result.results.map(safeResult),
             diagnostics: result.diagnostics,
+            ...(result.answerability ? { answerability: result.answerability } : {}),
             safety: result.safety,
         };
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
@@ -245,7 +252,7 @@ function executeTool(name, args, data) {
         }
         const person = args.person.trim();
         const limit = clampLimit(args.limit, 3);
-        const result = queryNetwork(person, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
+        const result = queryNetwork(person, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, nowForTests, limit });
         const matches = result.results.map(safeResult);
         const envelope = {
             person: result.query,
@@ -262,7 +269,10 @@ function executeTool(name, args, data) {
         }
         const goal = args.goal.trim();
         const limit = clampLimit(args.limit, 5);
-        const result = queryNetwork(goal, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit });
+        const queryOpts = { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, nowForTests, limit };
+        if (args.source) queryOpts.source = args.source;
+        if (args.sources) queryOpts.sources = args.sources;
+        const result = queryNetwork(goal, queryOpts);
         const topPeople = result.results.map(safeResult).map(r => ({
             name: r.name,
             title: r.title,
@@ -279,13 +289,13 @@ function executeTool(name, args, data) {
             topPeople,
             dataFreshness: buildDataFreshness(contacts, sourceEvents, result.diagnostics && result.diagnostics.sourceCoverage),
             diagnostics: result.diagnostics,
+            ...(result.answerability ? { answerability: result.answerability } : {}),
             safety: { ...agentSafetyEnvelope(), noOutreachTriggered: true },
         };
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
     }
 
     if (name === 'source_health') {
-        const syncState = (data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)) ? data.syncState : {};
         let querySourceFilter;
         let inferredSources;
         if (args.query && typeof args.query === 'string' && args.query.trim()) {

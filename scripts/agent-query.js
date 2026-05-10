@@ -123,9 +123,9 @@ if (require.main === module) {
         process.exit(1);
     }
 
-    const { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex } = loadData(dataDir);
+    const { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState } = loadData(dataDir);
 
-    const result = queryNetwork(query, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit: 10 });
+    const result = queryNetwork(query, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, limit: 10 });
 
     // Pretty-print for terminal, machine-readable JSON on stdout
     if (process.stdout.isTTY) {

@@ -362,7 +362,13 @@ describe('agent-retrieval: queryNetwork()', () => {
         ];
         const interactions = [{ id: 'i_person', source: 'telegram', type: 'direct', contactId: 'c_person', body: 'Discussed payments infrastructure.' }];
 
-        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_person')]);
         assert.equal(out.diagnostics.contactsConsidered, 1);
     });
@@ -380,6 +386,70 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
     });
 
+    it('explicit source filters block when the requested source is stale even if people match', () => {
+        const contacts = [{
+            id: 'c_stale', name: 'Stale Telegram Person',
+            sources: { telegram: { userId: 'tg_stale' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_stale', source: 'telegram', type: 'direct', contactId: 'c_stale', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-04-01T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        assert.deepEqual(out.results, []);
+        assert.equal(out.answerability.status, 'blocked');
+        assert.ok(out.answerability.warnings.includes('no_recent_sync'));
+        assert.deepEqual(out.diagnostics.answerability, out.answerability);
+    });
+
+    it('explicit source filters block when sync state is omitted', () => {
+        const contacts = [{
+            id: 'c_unsynced', name: 'Unsynced Telegram Person',
+            sources: { telegram: { userId: 'tg_unsynced' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_unsynced', source: 'telegram', type: 'direct', contactId: 'c_unsynced', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        assert.deepEqual(out.results, []);
+        assert.equal(out.answerability.status, 'blocked');
+        assert.equal(out.answerability.perSource[0].status, 'not_configured');
+        assert.ok(out.answerability.warnings.includes('source_unhealthy'));
+    });
+
+    it('explicit source filters stay answerable for fresh source-matched query evidence', () => {
+        const contacts = [{
+            id: 'c_fresh', name: 'Fresh Telegram Person',
+            sources: { telegram: { userId: 'tg_fresh' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{ id: 'i_fresh', source: 'telegram', type: 'direct', contactId: 'c_fresh', body: 'Discussed payments infrastructure.' }];
+
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_fresh')]);
+        assert.equal(out.answerability.status, 'answerable');
+        assert.deepEqual(out.answerability.answerableSources, ['telegram']);
+    });
+
     it('source filters ignore malformed interaction rows without crashing', () => {
         const contacts = [{
             id: 'c_valid', name: 'Valid Telegram',
@@ -391,7 +461,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             { id: 'i_valid', source: 'telegram', type: 'direct', contactId: 'c_valid', body: 'Discussed payments infrastructure.' },
         ];
 
-        const out = queryNetwork('payments infrastructure', { contacts, interactions, source: 'telegram' });
+        const out = queryNetwork('payments infrastructure', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_valid')]);
         assert.equal(out.diagnostics.interactionEvidenceContacts, 1);
     });
@@ -405,7 +481,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             c_evidence_string: { topics: ['payments'], sources: 'telegram' },
         };
 
-        const out = queryNetwork('telegram payments', { contacts, contactEvidence, source: 'telegram' });
+        const out = queryNetwork('telegram payments', {
+            contacts,
+            contactEvidence,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_evidence_string')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
     });
@@ -787,7 +869,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             { id: 'i_li', source: 'linkedin', contactId: 'c_li', body: 'Discussed DeFi lending protocols and collateral.' },
         ];
 
-        const out = queryNetwork('DeFi lending protocols', { contacts, interactions, sources: ['telegram'] });
+        const out = queryNetwork('DeFi lending protocols', {
+            contacts,
+            interactions,
+            sources: ['telegram'],
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.equal(out.results.length, 1);
         assert.equal(out.results[0].id, safeContactRef('c_tg'));
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
@@ -815,7 +903,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             { id: 'i_li', source: 'linkedin', contactId: 'c_li', body: 'Discussed DeFi protocol risk and lending strategies.' },
         ];
 
-        const out = queryNetwork('DeFi lending', { contacts, interactions, source: 'linkedin' });
+        const out = queryNetwork('DeFi lending', {
+            contacts,
+            interactions,
+            source: 'linkedin',
+            syncState: { linkedin: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.equal(out.results.length, 1);
         assert.equal(out.results[0].id, safeContactRef('c_li'));
         assert.deepEqual(out.results[0].matchedSources, ['linkedin']);
@@ -855,7 +949,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             body: 'Discussed DeFi lending protocols and risk.',
         }];
 
-        const out = queryNetwork('DeFi lending protocols', { contacts, interactions, source: 'telegram' });
+        const out = queryNetwork('DeFi lending protocols', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_ev')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
@@ -882,7 +982,13 @@ describe('agent-retrieval: queryNetwork()', () => {
             },
         };
 
-        const out = queryNetwork('DeFi lending protocol', { contacts, contactEvidence, source: 'telegram' });
+        const out = queryNetwork('DeFi lending protocol', {
+            contacts,
+            contactEvidence,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_cev')]);
         assert.deepEqual(out.results[0].matchedSources, ['telegram']);
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
@@ -913,6 +1019,98 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.deepEqual(out.diagnostics.sourceFilter, ['telegram']);
     });
 
+    it('explicit source filter blocks when source is not configured in sync state', () => {
+        const contacts = [{
+            id: 'c_tg', name: 'Telegram Person',
+            sources: { telegram: { userId: 'tg_123' } },
+            relationshipScore: 60, daysSinceContact: 3, interactionCount: 10,
+            activeChannels: ['telegram'], emails: [], phones: [],
+        }];
+        const interactions = [{ id: 'i_tg', source: 'telegram', contactId: 'c_tg', body: 'Discussed DeFi lending protocols and risk.' }];
+
+        const out = queryNetwork('DeFi lending protocols', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: {},
+            nowForTests: '2026-05-06T12:00:00Z',
+        });
+
+        assert.deepEqual(out.results, []);
+        assert.equal(out.answerability.status, 'blocked');
+        assert.equal(out.answerability.perSource[0].source, 'telegram');
+        assert.equal(out.answerability.perSource[0].status, 'not_configured');
+        assert.deepEqual(out.diagnostics.answerability, out.answerability);
+    });
+
+    it('explicit source filter blocks stale source evidence before returning contacts', () => {
+        const contacts = [{
+            id: 'c_email', name: 'Email Person',
+            sources: { email: {} },
+            relationshipScore: 65, daysSinceContact: 2, interactionCount: 9,
+            activeChannels: ['email'], emails: [], phones: [],
+        }];
+        const interactions = [{ id: 'i_email', source: 'email', contactId: 'c_email', body: 'Discussed DeFi lending protocols and risk.' }];
+
+        const out = queryNetwork('DeFi lending protocols', {
+            contacts,
+            interactions,
+            source: 'email',
+            syncState: { email: { lastSyncAt: '2026-04-01T00:00:00Z', status: 'ok' } },
+            nowForTests: '2026-05-06T12:00:00Z',
+        });
+
+        assert.deepEqual(out.results, []);
+        assert.equal(out.answerability.status, 'blocked');
+        assert.equal(out.answerability.perSource[0].status, 'stale');
+        assert.ok(out.answerability.warnings.includes('source_unhealthy'));
+    });
+
+    it('explicit source filter blocks fresh profile-only sources with no query evidence', () => {
+        const contacts = [{
+            id: 'c_li_profile', name: 'LinkedIn Profile',
+            sources: { linkedin: { position: 'DeFi lending analyst' } },
+            relationshipScore: 70, daysSinceContact: 4, interactionCount: 4,
+            activeChannels: ['linkedin'], emails: [], phones: [],
+        }];
+
+        const out = queryNetwork('DeFi lending', {
+            contacts,
+            source: 'linkedin',
+            syncState: { linkedin: { lastSyncAt: '2026-05-06T07:00:00Z', status: 'ok' } },
+            nowForTests: '2026-05-06T12:00:00Z',
+        });
+
+        assert.deepEqual(out.results, []);
+        assert.equal(out.answerability.status, 'blocked');
+        assert.equal(out.answerability.perSource[0].status, 'ok');
+        assert.ok(out.answerability.perSource[0].warnings.includes('no_query_evidence'));
+    });
+
+    it('explicit source filter with fresh query evidence returns only source-matched evidence', () => {
+        const contacts = [
+            { id: 'c_tg', name: 'Telegram Person', sources: { telegram: {} }, relationshipScore: 60, daysSinceContact: 3, interactionCount: 10, activeChannels: ['telegram'], emails: [], phones: [] },
+            { id: 'c_li', name: 'LinkedIn Person', sources: { linkedin: {} }, relationshipScore: 70, daysSinceContact: 5, interactionCount: 15, activeChannels: ['linkedin'], emails: [], phones: [] },
+        ];
+        const interactions = [
+            { id: 'i_tg', source: 'telegram', contactId: 'c_tg', body: 'Discussed DeFi lending protocols and risk.' },
+            { id: 'i_li', source: 'linkedin', contactId: 'c_li', body: 'Discussed DeFi lending protocols and collateral.' },
+        ];
+
+        const out = queryNetwork('DeFi lending protocols', {
+            contacts,
+            interactions,
+            source: 'telegram',
+            syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z', status: 'ok' } },
+            nowForTests: '2026-05-06T12:00:00Z',
+        });
+
+        assert.deepEqual(out.results.map(r => r.id), [safeContactRef('c_tg')]);
+        assert.deepEqual(out.results[0].matchedSources, ['telegram']);
+        assert.equal(out.answerability.status, 'answerable');
+        assert.deepEqual(out.answerability.answerableSources, ['telegram']);
+    });
+
     it('matchedSources does not leak raw channel/thread names', () => {
         const contacts = [
             {
@@ -927,7 +1125,16 @@ describe('agent-retrieval: queryNetwork()', () => {
             { id: 'i_wa', source: 'whatsapp', contactId: 'c_multi', body: 'Follow up on DeFi lending strategies.' },
         ];
 
-        const out = queryNetwork('defi lending', { contacts, interactions, sources: ['telegram', 'whatsapp'] });
+        const out = queryNetwork('defi lending', {
+            contacts,
+            interactions,
+            sources: ['telegram', 'whatsapp'],
+            syncState: {
+                telegram: { lastSyncAt: '2026-05-10T00:00:00Z' },
+                whatsapp: { lastSyncAt: '2026-05-10T00:00:00Z' },
+            },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
         assert.equal(out.results.length, 1);
         assert.deepEqual(out.results[0].matchedSources, ['telegram', 'whatsapp']);
         const serialized = JSON.stringify(out.results[0].matchedSources);
