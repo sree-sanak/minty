@@ -5699,7 +5699,7 @@ async function startEmailDevice(provider) {
     body: JSON.stringify({ provider }),
   }).then(r => r.json());
 
-  if (r.error) { ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">\${r.error}</div>\`; return; }
+  if (r.error) { ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">\${esc(r.error)}</div>\`; return; }
 
   // Google: redirect-based OAuth (device flow blocks Gmail scopes)
   if (r.auth_url) {
@@ -5712,10 +5712,10 @@ async function startEmailDevice(provider) {
   ui.innerHTML = \`
     <div style="background:#0f1117;border-radius:8px;padding:14px 16px;margin-top:4px">
       <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:10px">
-        1. Open <a href="\${r.verification_url}" target="_blank" style="color:#6366f1">\${r.verification_url}</a>
+        1. Open <a href="\${esc(r.verification_url)}" target="_blank" style="color:#6366f1">\${esc(r.verification_url)}</a>
       </div>
       <div style="font-size:0.8rem;color:#94a3b8;margin-bottom:10px">2. Sign in with Microsoft and enter this code:</div>
-      <div style="font-size:1.5rem;font-weight:700;letter-spacing:4px;color:#f1f5f9;text-align:center;padding:8px 0">\${r.user_code}</div>
+      <div style="font-size:1.5rem;font-weight:700;letter-spacing:4px;color:#f1f5f9;text-align:center;padding:8px 0">\${esc(r.user_code)}</div>
       <div class="source-log" id="email-device-status" style="margin-top:10px;text-align:center">Waiting for you to enter the code…</div>
     </div>\`;
 
@@ -5728,10 +5728,10 @@ async function startEmailDevice(provider) {
       await loadSources();
     } else if (s.status === 'expired') {
       clearInterval(emailDevicePoller); emailDevicePoller = null;
-      if (ui) ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">Code expired. <button class="source-btn secondary" onclick="startEmailDevice('\${provider}')">Try again</button></div>\`;
+      if (ui) ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">Code expired. <button class="source-btn secondary" onclick="startEmailDevice('\${jsAttr(provider)}')">Try again</button></div>\`;
     } else if (s.status === 'error') {
       clearInterval(emailDevicePoller); emailDevicePoller = null;
-      if (ui) ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">\${s.message} <button class="source-btn secondary" onclick="startEmailDevice('\${provider}')">Try again</button></div>\`;
+      if (ui) ui.innerHTML = \`<div style="color:#ef4444;font-size:0.8rem">\${esc(s.message)} <button class="source-btn secondary" onclick="startEmailDevice('\${jsAttr(provider)}')">Try again</button></div>\`;
     } else if (status) {
       status.textContent = 'Waiting…';
     }
@@ -5823,7 +5823,7 @@ function startWaPoller() {
         logEl.textContent = s.progress.message;
         if (s.progress.step === 'messages' && s.progress.total) {
           const pct = Math.round((s.progress.current / s.progress.total) * 100);
-          logEl.innerHTML = \`\${s.progress.message}<div style="margin-top:4px;height:4px;background:#1e2740;border-radius:2px"><div style="height:100%;width:\${pct}%;background:#22c55e;border-radius:2px;transition:width 0.3s"></div></div>\`;
+          logEl.innerHTML = \`\${esc(s.progress.message)}<div style="margin-top:4px;height:4px;background:#1e2740;border-radius:2px"><div style="height:100%;width:\${pct}%;background:#22c55e;border-radius:2px;transition:width 0.3s"></div></div>\`;
         }
       }
     }

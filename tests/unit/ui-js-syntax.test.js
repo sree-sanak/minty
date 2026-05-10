@@ -102,10 +102,17 @@ test('[UI]: error messages are escaped before innerHTML', () => {
         'fetch errors must escape exception messages before writing innerHTML',
     );
 
-    const unsafeLines = uiSource
+    const unsafeExceptionLines = uiSource
         .split('\n')
         .filter(line => /innerHTML\s*=/.test(line))
         .filter(line => /\$\{\s*e\.message\s*\}|\+\s*e\.message\b/.test(line))
         .filter(line => !/esc\(e\.message\)/.test(line));
-    assert.deepEqual(unsafeLines, [], 'UI errors must not interpolate raw e.message into innerHTML');
+    assert.deepEqual(unsafeExceptionLines, [], 'UI errors must not interpolate raw e.message into innerHTML');
+
+    const unsafeStatusLines = uiSource
+        .split('\n')
+        .filter(line => /innerHTML\s*=/.test(line))
+        .filter(line => /\$\{\s*(?:r\.error|s\.message|s\.progress\.message)\s*\}/.test(line))
+        .filter(line => !/esc\((?:r\.error|s\.message|s\.progress\.message)\)/.test(line));
+    assert.deepEqual(unsafeStatusLines, [], 'UI source status messages must be escaped before writing innerHTML');
 });
