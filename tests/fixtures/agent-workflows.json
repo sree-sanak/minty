@@ -50,6 +50,43 @@
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
     {
+        "name": "person-context-mcp-safe-evidence",
+        "target": "mcp:person_context",
+        "arguments": {
+            "person": "Maya Patel",
+            "limit": 3
+        },
+        "resultPath": "matches",
+        "minResults": 1,
+        "requireEvidenceKinds": ["keyword"],
+        "disallowFallback": true,
+        "requirePaths": ["safety.readOnly", "safety.contactDetailsOmitted", "matches.0.evidence.0.kind"],
+        "requirePathValues": {
+            "safety.readOnly": true,
+            "safety.contactDetailsOmitted": true
+        },
+        "forbidPaths": ["matches.0.id", "matches.0.email", "matches.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
+        "name": "workflow-brief-mcp-safe-top-people",
+        "target": "mcp:workflow_brief",
+        "arguments": {
+            "goal": "Find EU crypto insurance advisors",
+            "limit": 3
+        },
+        "resultPath": "topPeople",
+        "minResults": 1,
+        "disallowFallback": false,
+        "requirePaths": ["safety.readOnly", "safety.contactDetailsOmitted", "topPeople.0.why", "dataFreshness.contactCount"],
+        "requirePathValues": {
+            "safety.readOnly": true,
+            "safety.contactDetailsOmitted": true
+        },
+        "forbidPaths": ["topPeople.0.id", "topPeople.0.email", "topPeople.0.phone"],
+        "forbidSubstrings": ["raw-phone-555-0101"]
+    },
+    {
         "name": "telegram-source-filter-no-evidence-blocked",
         "target": "mcp:search_network",
         "arguments": {
