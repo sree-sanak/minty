@@ -140,13 +140,13 @@ npm run merge
 ```
 Writes `data/unified/contacts.json` and `data/unified/interactions.json`.
 
-## Advanced — LinkedIn auto-sync (experimental, in development)
+## Advanced — LinkedIn auto-sync (experimental)
 
-> **Status:** This PR lands the foundation modules and Playwright setup for LinkedIn auto-sync. The actual scraper (`connect.js` / `fetch.js`) lands in a follow-up PR once Approach-C (headful login + headless session reuse) has been validated on a real account via `scratch/linkedin-session-probe.js`. Until then, only `npm run linkedin:setup` is functional. The full flow and the tuning knobs below describe the target end-state.
+> **Status:** LinkedIn ZIP import remains the recommended path for most users. The opt-in auto-sync path now has implemented local commands for setup (`npm run linkedin:setup`), headful browser connection (`MINTY_LINKEDIN_AUTOSYNC=1 npm run linkedin:connect`), and best-effort scraping (`MINTY_LINKEDIN_AUTOSYNC=1 npm run linkedin:sync`), plus optional local credential helpers. Treat it as experimental: sessions can expire, LinkedIn can challenge or block automation, and the ZIP flow is still the safest source of complete exports.
 
 > **LinkedIn auto-sync will be prohibited by LinkedIn's User Agreement §8.2.** You are responsible for your own account. LinkedIn may restrict, challenge, or suspend it. Minty cannot protect you from this. If you want the maximum-safety option, use the ZIP flow above and stop here.
 
-The ZIP flow has a real downside: LinkedIn takes up to 24 hours to produce the export, so the "unified network" moment is a day late. Auto-sync will close that gap by driving a real headful browser session on your own machine. It is opt-in at every layer — Playwright isn't installed by default, the endpoints are gated behind a feature flag, and the first run requires a typed ToS acknowledgement.
+The ZIP flow has a real downside: LinkedIn takes up to 24 hours to produce the export, so the "unified network" moment is a day late. Auto-sync closes that gap by driving a real headful browser session on your own machine. It is opt-in at every layer — Playwright isn't installed by default, the HTTP endpoints are gated behind `MINTY_LINKEDIN_AUTOSYNC=1`, and the first run requires a typed ToS acknowledgement.
 
 ### Setup
 
