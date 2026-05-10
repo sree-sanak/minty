@@ -89,7 +89,7 @@ test('[UI]: inline <script> blocks are syntactically valid JS', async () => {
     }
 });
 
-test('[UI]: contact-load error messages are escaped before innerHTML', () => {
+test('[UI]: error messages are escaped before innerHTML', () => {
     const uiSource = fs.readFileSync(path.join(__dirname, '../../crm/ui.html.js'), 'utf8');
     assert.match(
         uiSource,
@@ -101,9 +101,11 @@ test('[UI]: contact-load error messages are escaped before innerHTML', () => {
         /Failed to load contacts: '\s*\+\s*esc\(e\.message\)\s*\+\s*'<\/div>'/,
         'fetch errors must escape exception messages before writing innerHTML',
     );
-    assert.doesNotMatch(
-        uiSource,
-        /innerHTML\s*=\s*['`][^\n]*(?:Render error|Failed to load contacts:)[^\n]*\+\s*e\.message/,
-        'contact-load errors should not interpolate raw e.message into innerHTML',
-    );
+
+    const unsafeLines = uiSource
+        .split('\n')
+        .filter(line => /innerHTML\s*=/.test(line))
+        .filter(line => /\$\{\s*e\.message\s*\}|\+\s*e\.message\b/.test(line))
+        .filter(line => !/esc\(e\.message\)/.test(line));
+    assert.deepEqual(unsafeLines, [], 'UI errors must not interpolate raw e.message into innerHTML');
 });
