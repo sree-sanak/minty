@@ -6,42 +6,39 @@ Dates are directional, not promises. Priorities shift with real user feedback.
 
 ---
 
-## Now (v0.2.x — April 2026)
+## Now (v0.3.x — source-quality and agent trust)
 
-- 🐞 Bug triage and stability — real-user issues are priority over new features
-- 📸 Better screenshots + a demo GIF in the README
-- 📦 Address the 8 transitive dependabot vulnerabilities flagged by GitHub
-- ⚙️ Smoke-test CI (GitHub Actions) running `npm test` on every PR
-- 📝 More code comments / inline docs on the new feature modules
+- 🧭 **Source readiness before answers** — make `source_health`, service status, and Hermes doctor output clear enough for agents to know when Minty is demo-ready, dogfood-ready, or stale.
+- 🔍 **Evidence-backed retrieval** — keep `search_network`, `person_context`, and `workflow_brief` tied to source-attributed evidence, citations, confidence, freshness, and honest empty states.
+- 🔒 **Privacy-safe agent envelopes** — preserve the no-direct-email/phone/raw-message contract across CLI, MCP, API, and GBrain export surfaces.
+- 🧪 **Deterministic trust evals** — run synthetic agent-workflow checks that catch private-data leaks, missing evidence, and misleading fallback answers before PRs land.
+- 🖼️ **Demo/readiness polish** — replace stale screenshot placeholders and keep the README quickstart aligned with the current OpenClaw/Hermes/MCP path.
 
-## Next (v0.3 — Summer 2026)
+## Next (v0.4 — source depth and activation workflows)
 
-- 🔗 **Discord importer** — DMs + direct group messages
-- 💬 **iMessage importer** (macOS) — reads from the local Messages database
-- 🎯 **Matching accuracy v2** — learned overrides, fuzzy last-name handling, better cross-source scoring
-- 🧠 **Local LLM default** — bundle Ollama + qwen2.5 as the default AI backend (no Claude CLI required)
-- 📱 **Mobile-first polish** — the layout is responsive today, but mobile deserves dedicated UX work
-- 🧪 **Integration test suite** — real-HTTP tests alongside the existing unit suite
+- 🔗 **More source coverage** — add high-signal local importers such as Discord DMs/direct groups and macOS iMessage without changing the local-first privacy model.
+- 🧩 **Source-quality workbench** — review ambiguous identity matches, weak evidence, stale sources, and ingestion gaps from the UI without exposing raw dumps to agents.
+- 🧠 **GBrain bridge hardening** — make `npm run gbrain:export` preserve opaque contact references, safe source labels, citations, freshness, and redaction boundaries.
+- 🤝 **Goal activation primitives** — expose safe meeting prep, intro paths, and next-action briefs from existing relationship evidence; no sending or outreach automation.
+- 🎯 **Matching accuracy v2** — improve learned overrides, fuzzy last-name handling, and cross-source scoring while keeping provenance visible.
 
-## Later (v0.4 – v1.0)
+## Later (v0.5 – v1.0)
 
-- 🪟 **Desktop app wrapper** — Tauri or Electron for one-click install
-- 🌐 **Browser extension** — capture conversation context as you browse LinkedIn / email
-- 🔍 **Full-text search** (SQLite FTS5) — replaces the in-memory index once datasets get large
-- 🎨 **Plugin API** for custom data sources — standardised importer interface
-- 🌍 **i18n** — UI translations, non-English name/phone matching
-- ⚡ **Performance at scale** — tuned for 20k+ contacts without UX regressions
-- 📊 **Shared network overlays** — optional, opt-in comparison with a trusted peer's graph
+- 🪟 **Desktop app wrapper** — Tauri or Electron for one-click install and background service management.
+- 🌐 **Browser extension** — capture local context as you browse LinkedIn / email, with explicit user control and no hosted tracking.
+- 🔍 **Full-text search** (SQLite FTS5) — replace the in-memory index once datasets get large.
+- 🎨 **Plugin API** for custom data sources — standardised importer interface with privacy and provenance requirements.
+- 🌍 **i18n** — UI translations, non-English name/phone matching, and source labels that remain safe for agent output.
+- ⚡ **Performance at scale** — tuned for 20k+ contacts without UX or retrieval-quality regressions.
+- 📊 **Shared network overlays** — optional, opt-in comparison with a trusted peer's graph only after the private single-user trust contract is solid.
 
 ## Commercial (ee/ — TBD)
 
-Reserved for future hosted / enterprise features under a separate commercial license. See [ee/README.md](./ee/README.md).
+Reserved for possible future enterprise packaging under a separate commercial license. See [ee/README.md](./ee/README.md).
 
 Candidates:
-- Multi-tenant auth (was in the pre-OSS codebase; removed from public)
 - SSO/SAML
 - Team admin, audit logs, RBAC
-- Hosted SaaS at `minty.app` (domain TBD)
 
 ---
 
