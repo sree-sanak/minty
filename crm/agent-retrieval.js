@@ -90,6 +90,16 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     slack: 'Slack evidence',
 });
 
+const SOURCE_DISPLAY_LABELS = Object.freeze({
+    telegram: 'Telegram',
+    whatsapp: 'WhatsApp',
+    email: 'Email',
+    sms: 'SMS',
+    linkedin: 'LinkedIn',
+    googlecontacts: 'Google Contacts',
+    slack: 'Slack',
+});
+
 function canonicalSource(source) {
     const key = String(source || 'interaction').toLowerCase().replace(/[^a-z0-9]+/g, '');
     return SAFE_SOURCE_LABELS[key] ? key : 'interaction';
@@ -99,11 +109,22 @@ function sourceLabel(source) {
     return SAFE_SOURCE_LABELS[canonicalSource(source)] || 'Interaction evidence';
 }
 
+function sourceDisplayLabel(source) {
+    return SOURCE_DISPLAY_LABELS[canonicalSource(source)] || null;
+}
+
 function sourceList(value) {
     if (Array.isArray(value)) return value;
     if (value instanceof Set) return [...value];
     if (typeof value === 'string') return [value];
     return [];
+}
+
+function sourceDisplayFields(sources) {
+    const labels = sourceList(sources).map(sourceDisplayLabel).filter(Boolean);
+    const unique = [...new Set(labels)];
+    if (!unique.length) return {};
+    return { answerSources: unique, sourceSummary: unique.join(', ') };
 }
 
 function collectSearchedSources(contacts, interactions, contactEvidence) {
@@ -592,7 +613,7 @@ function queryNetwork(query, opts = {}) {
             suggestedAction:   suggestAction(r, parsed.intent),
             daysSinceContact:  r.daysSinceContact ?? null,
             interactionCount:  r.interactionCount || 0,
-            ...(matchedSources ? { matchedSources } : {}),
+            ...(matchedSources ? { matchedSources, ...sourceDisplayFields(matchedSources) } : {}),
         };
     });
 
