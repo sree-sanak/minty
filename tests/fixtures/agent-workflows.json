@@ -7,6 +7,9 @@
         "requireEvidenceKinds": ["keyword", "topic"],
         "disallowFallback": true,
         "requirePaths": ["safety.readOnly", "results.0.evidenceBacked"],
+        "requirePathValues": {
+            "safety.readOnly": true
+        },
         "forbidPaths": ["results.0.email", "results.0.phone"],
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
@@ -20,6 +23,9 @@
         "requireEvidenceKinds": ["keyword", "topic"],
         "disallowFallback": true,
         "requirePaths": ["safety.readOnly", "results.0.evidence.0.kind"],
+        "requirePathValues": {
+            "safety.readOnly": true
+        },
         "forbidPaths": ["results.0.email", "results.0.phone"],
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
@@ -36,6 +42,10 @@
             "sources.telegram.status",
             "sources.telegram.freshness"
         ],
+        "requirePathValues": {
+            "safety.readOnly": true,
+            "safety.contactDetailsOmitted": true
+        },
         "forbidPaths": ["results.0.name", "results.0.email", "results.0.phone"],
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
@@ -53,6 +63,9 @@
             "answerability.status",
             "diagnostics.answerability.status"
         ],
+        "requirePathValues": {
+            "safety.readOnly": true
+        },
         "forbidPaths": ["results.0.name", "results.0.email", "results.0.phone"],
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
@@ -64,6 +77,9 @@
         "requireEvidenceKinds": ["keyword", "topic"],
         "disallowFallback": true,
         "requirePaths": ["safety.readOnly", "results.0.evidenceBacked"],
+        "requirePathValues": {
+            "safety.readOnly": true
+        },
         "forbidPaths": ["results.0.email", "results.0.phone"],
         "forbidSubstrings": ["raw-phone-555-0101"]
     },
