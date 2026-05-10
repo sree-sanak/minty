@@ -73,7 +73,7 @@ function enrichAttendees(attendees, emailIndex, insights) {
             name:              contact.name || a.displayName,
             relationshipScore: contact.relationshipScore || 0,
             lastContactedAt:   contact.lastContactedAt || null,
-            daysSinceContact:  contact.daysSinceContact || null,
+            daysSinceContact:  contact.daysSinceContact ?? null,
             topics:            ins ? (ins.topics || []) : [],
             openLoops:         ins ? (ins.openLoops || []) : [],
             meetingBrief:      ins ? (ins.meetingBrief || null) : null,
