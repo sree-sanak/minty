@@ -18,6 +18,8 @@ This makes source transparency inconsistent: source-filtered answers are easy to
 
 ## Current-state evidence
 
+2026-05-11 strategist verification: recent source-quality commits preserved citations/freshness and improved insight-derived evidence counting, but the broad unfiltered agent path still lacks machine-readable source labels. `crm/agent-retrieval.js#matchedSourcesForResult()` currently returns `undefined` when no explicit `source`/`sources` filter is active, so Hermes can see `"Telegram evidence"` only as prose, not as `matchedSources` / `answerSources` / `sourceSummary`.
+
 On current `main`, this synthetic query returns Telegram evidence but no source fields:
 
 ```bash
