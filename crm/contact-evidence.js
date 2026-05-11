@@ -245,6 +245,7 @@ function buildContactEvidence({ contacts = [], interactions = [], insights = {} 
         const ts = validTimestamp(insight.analyzedAt || insight.updatedAt || insight.createdAt);
         for (const topic of Array.isArray(insight.topics) ? insight.topics : []) {
             acc.sources.add(source);
+            acc.sourceCounts[source] = (acc.sourceCounts[source] || 0) + 1;
             addTopic(acc, topic, source, ts);
         }
         if (ts && (!acc.lastEvidenceAt || ts > acc.lastEvidenceAt)) acc.lastEvidenceAt = ts;
