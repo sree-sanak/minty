@@ -51,6 +51,8 @@ const TOOLS = [
             properties: {
                 person: { type: 'string', description: 'Person name to look up' },
                 limit: { type: 'number', description: 'Max matches to return (default 3)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
             },
             required: ['person'],
         },
@@ -348,12 +350,16 @@ function executeTool(name, args, data) {
         }
         const person = args.person.trim();
         const limit = clampLimit(args.limit, 3);
-        const result = queryNetwork(person, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, nowForTests, limit });
+        const queryOpts = { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, nowForTests, limit };
+        if (args.source) queryOpts.source = args.source;
+        if (args.sources) queryOpts.sources = args.sources;
+        const result = queryNetwork(person, queryOpts);
         const matches = result.results.map(safeResult);
         const envelope = {
             person: result.query,
             matches,
             diagnostics: result.diagnostics,
+            ...(result.answerability ? { answerability: result.answerability } : {}),
             safety: result.safety,
         };
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
