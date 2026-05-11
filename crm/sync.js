@@ -113,6 +113,53 @@ function deepMerge(target, source) {
     return result;
 }
 
+function sanitizeSyncError(error) {
+    let message = error && error.message ? String(error.message) : String(error || 'Sync failed');
+    message = message
+        .replace(/\b(?:postgres(?:ql)?|mysql|mariadb|mongodb(?:\+srv)?|redis|rediss|amqp|amqps):\/\/[^\s"'<>]+/gi, '[redacted-connection-string]')
+        .replace(/\bhttps?:\/\/[^\s"'<>]+/gi, '[redacted-url]')
+        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+        .replace(/\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s"'<>]*|\?[^\s"'<>]*)/gi, '[redacted-url]')
+        .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '[redacted-token]')
+        .replace(/\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?key|password|passwd|session|code|credentials?)\s*[=:]\s*[^\s&"']+/gi, '[redacted-token]')
+        .replace(/\b(?<!redacted-)(?:raw-)?(?:token|secret|password|api[_-]?key|session|credentials?)[A-Za-z0-9._:-]*\b/gi, '[redacted-token]')
+        .replace(/\+?\d[\d().\-\s]{7,}\d/g, '[redacted-phone]')
+        .replace(/((?:^|\s)(?:at|path|file|directory|dir|in|from)\s+)(?:[A-Za-z]:)?[\\/][^"'<>]+?(?=\s+(?:with|failed|error|because|for|url|phone|credentials?=|[A-Za-z]+:)|$)/gi, '$1[redacted-path]')
+        .replace(/(["'])(?:[A-Za-z]:)?[\\/][^"']+\1/g, '$1[redacted-path]$1')
+        .replace(/(?:^|\s)(?:[A-Za-z]:)?[\\/][^\s]+/g, match => `${match.startsWith(' ') ? ' ' : ''}[redacted-path]`)
+        .replace(/\s+/g, ' ')
+        .trim();
+    return message.slice(0, 256) || 'Sync failed';
+}
+
+function recordSourceSyncFailure(state, source, error, now = new Date().toISOString()) {
+    const previous = state[source] || {};
+    return {
+        ...state,
+        [source]: {
+            ...previous,
+            status: 'error',
+            lastError: sanitizeSyncError(error),
+            lastErrorAt: now,
+        },
+    };
+}
+
+function recordSourceSyncSuccess(state, source, updates = {}, now = new Date().toISOString()) {
+    const previous = state[source] || {};
+    const next = {
+        ...previous,
+        ...updates,
+        lastSyncAt: now,
+    };
+    delete next.lastError;
+    delete next.lastErrorAt;
+    return {
+        ...state,
+        [source]: next,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Network helpers
 // ---------------------------------------------------------------------------
@@ -319,6 +366,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
             runMerge(userDataDir, unifiedDir);
         } catch (e) {
             console.error('[sync] Gmail merge error:', e.message);
+            throw new Error('Gmail merge failed');
         }
     }
 
@@ -421,12 +469,13 @@ async function syncGoogleContacts(account, gcDataDir, userDataDir) {
 
     fs.writeFileSync(contactsPath, JSON.stringify(existing, null, 2));
 
-    // Re-run merge
+    // Re-run merge before advancing the Google Contacts sync token.
     try {
         const unifiedDir = path.join(userDataDir, 'unified');
         runMerge(userDataDir, unifiedDir);
     } catch (e) {
         console.error('[sync] Google Contacts merge error:', e.message);
+        throw new Error('Google Contacts merge failed');
     }
 
     if (newSyncToken) {
@@ -483,14 +532,13 @@ function watchSourceDir(source, sourceDir, importScript, importEnv, userDataDir,
                 const unifiedDir = path.join(userDataDir, 'unified');
                 runMerge(userDataDir, unifiedDir);
                 const s2 = loadSyncState(statePath);
-                s2[source] = { fileHash: newHash, status: 'ok', lastSyncAt: new Date().toISOString() };
-                saveSyncState(statePath, s2);
+                const next = recordSourceSyncSuccess(s2, source, { fileHash: newHash, status: 'ok' });
+                saveSyncState(statePath, next);
                 console.log(`[sync] ${source}: import + merge complete`);
             } catch (e) {
                 console.error(`[sync] ${source} import error:`, e.message);
                 const s2 = loadSyncState(statePath);
-                s2[source] = { ...(s2[source] || {}), status: 'error', lastErrorAt: new Date().toISOString() };
-                saveSyncState(statePath, s2);
+                saveSyncState(statePath, recordSourceSyncFailure(s2, source, e));
             }
         }
     }
@@ -554,19 +602,19 @@ function attachWhatsAppSync(uuid, client, userDataDir, statePath) {
 
             fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
 
-            // Update sync state
-            const state = loadSyncState(statePath);
-            state.whatsapp.messageCount = (state.whatsapp.messageCount || 0) + 1;
-            state.whatsapp.lastSyncAt = new Date().toISOString();
-            state.whatsapp.status = 'active';
-            saveSyncState(statePath, state);
-
-            // Incremental merge (async, don't block message handler)
+            // Incremental merge before advancing freshness; failed merges mean
+            // agent/source-health surfaces must not trust the new local file yet.
             try {
                 const unifiedDir = path.join(userDataDir, 'unified');
                 runMerge(userDataDir, unifiedDir);
+                const state = loadSyncState(statePath);
+                const messageCount = (state.whatsapp.messageCount || 0) + 1;
+                const next = recordSourceSyncSuccess(state, 'whatsapp', { messageCount, status: 'active' });
+                saveSyncState(statePath, next);
             } catch (e) {
                 console.error('[sync] WhatsApp merge error:', e.message);
+                const state = loadSyncState(statePath);
+                saveSyncState(statePath, recordSourceSyncFailure(state, 'whatsapp', e));
             }
         } catch (e) {
             console.error('[sync] WhatsApp message handler error:', e.message);
@@ -722,6 +770,8 @@ function startSyncDaemon(uuid, userDataDir) {
         saveSyncState(statePath, state);
 
         let totalNew = 0;
+        let failures = 0;
+        let lastError = null;
         for (const account of googleAccounts) {
             try {
                 const result = await syncGmailAccount(account, emailDataDir, userDataDir);
@@ -737,14 +787,17 @@ function startSyncDaemon(uuid, userDataDir) {
                     try { fs.chmodSync(usersPath, 0o600); } catch { /* ignore */ }
                 }
             } catch (e) {
+                failures++;
+                lastError = e;
                 console.error(`[sync] Gmail poll error for ${account.email}:`, e.message);
             }
         }
 
         const s2 = loadSyncState(statePath);
-        s2.email.lastSyncAt = new Date().toISOString();
-        s2.email.status = 'idle';
-        saveSyncState(statePath, s2);
+        const nextState = failures > 0
+            ? recordSourceSyncFailure(s2, 'email', lastError)
+            : recordSourceSyncSuccess(s2, 'email', { status: 'idle' });
+        saveSyncState(statePath, nextState);
 
         if (totalNew > 0) console.log(`[sync] Email: +${totalNew} new messages across all accounts`);
     }
@@ -781,6 +834,8 @@ function startSyncDaemon(uuid, userDataDir) {
         state.googleContacts.status = 'syncing';
         saveSyncState(statePath, state);
 
+        let failures = 0;
+        let lastError = null;
         for (const account of gcAccounts) {
             try {
                 await syncGoogleContacts(account, gcDataDir, userDataDir);
@@ -795,14 +850,17 @@ function startSyncDaemon(uuid, userDataDir) {
                     try { fs.chmodSync(usersPath, 0o600); } catch { /* ignore */ }
                 }
             } catch (e) {
+                failures++;
+                lastError = e;
                 console.error(`[sync] Google Contacts poll error for ${account.email}:`, e.message);
             }
         }
 
         const s2 = loadSyncState(statePath);
-        s2.googleContacts.lastSyncAt = new Date().toISOString();
-        s2.googleContacts.status = 'idle';
-        saveSyncState(statePath, s2);
+        const nextState = failures > 0
+            ? recordSourceSyncFailure(s2, 'googleContacts', lastError)
+            : recordSourceSyncSuccess(s2, 'googleContacts', { status: 'idle' });
+        saveSyncState(statePath, nextState);
     }
 
     const gcInterval = setInterval(() => {
@@ -1110,4 +1168,6 @@ module.exports = {
     loadSyncState,
     saveSyncState,
     deepMerge,
+    recordSourceSyncSuccess,
+    recordSourceSyncFailure,
 };

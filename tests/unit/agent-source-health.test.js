@@ -157,6 +157,29 @@ test('[AgentSourceHealth]: source answerability blocks stale explicit sources', 
     assert.match(answerability.suggestedNextStep, /refresh|source_health|service/i);
 });
 
+test('[AgentSourceHealth]: source answerability blocks fresh sources with sync errors', () => {
+    const health = buildAgentSourceHealth({
+        contacts: [{ id: 'c_private', sources: { telegram: { username: 'synthetic' } }, activeChannels: ['telegram'] }],
+        interactions: [{ contactId: 'c_private', source: 'telegram', body: 'synthetic agent infra note', at: '2026-05-08T00:00:00Z' }],
+        contactEvidence: { c_private: { sources: ['telegram'], topics: ['agent infra'], evidenceCount: 1 } },
+        sourceEvents: [{ source: 'telegram', timestamp: '2026-05-08T00:00:00Z', contactRef: 'contact:abcdefghijklmnop' }],
+        syncState: { telegram: { lastSyncAt: '2026-05-08T00:00:00Z', status: 'error', lastError: 'Sync failed' } },
+    }, { source: 'telegram', now: '2026-05-09T00:00:00Z' });
+
+    const answerability = buildSourceAnswerability(health, {
+        explicit: true,
+        queryEvidenceChecked: true,
+        queryMatchedSources: ['telegram'],
+    });
+
+    assert.equal(health.sources.telegram.status, 'error');
+    assert.ok(health.sources.telegram.warnings.includes('sync_error'));
+    assert.equal(answerability.answerable, false);
+    assert.equal(answerability.status, 'blocked');
+    assert.ok(answerability.warnings.includes('sync_error'));
+    assert.ok(answerability.warnings.includes('source_unhealthy'));
+});
+
 test('[AgentSourceHealth]: source answerability allows fresh query-matched sources', () => {
     const health = buildAgentSourceHealth({
         contacts: [{ id: 'c_private', sources: { telegram: { username: 'synthetic' } }, activeChannels: ['telegram'] }],
