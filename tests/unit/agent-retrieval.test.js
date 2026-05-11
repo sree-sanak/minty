@@ -89,6 +89,76 @@ describe('agent-retrieval: queryNetwork()', () => {
         }
     });
 
+    it('returns privacy-safe citations, confidence drivers, and freshness metadata', () => {
+        const out = queryNetwork('payments infrastructure', { contacts: CONTACTS, insights: INSIGHTS });
+        const result = out.results[0];
+
+        assert.equal(result.name, 'Dan Petrov');
+        assert.ok(result.id.startsWith('contact:'), 'agent-facing id remains privacy-safe');
+        assert.ok(Array.isArray(result.citations));
+        assert.ok(result.citations.length > 0);
+        assert.deepEqual(result.citations[0], {
+            ref: 'result:1:cite:1',
+            source: 'contact',
+            field: 'linkedin.company',
+            provenance: 'local-contact',
+            observedAt: null,
+            supports: 'keyword',
+        });
+        assert.equal(result.citations.some(c => c.subjectId || c.contactId || c.id === 'c_004'), false);
+        assert.equal(result.citations.some(c => 'email' in c || 'phone' in c), false);
+        assert.ok(Array.isArray(result.confidenceDrivers));
+        assert.deepEqual(result.confidenceDrivers, ['cited_evidence', 'warm_relationship', 'recent_or_known_contact']);
+        assert.deepEqual(result.freshness, {
+            daysSinceContact: 2,
+            stale: false,
+            oldestAllowedDays: 180,
+        });
+        assert.equal(JSON.stringify(result).includes('c_004'), false, 'citations must not leak raw contact ids');
+    });
+
+    it('sanitizes citation observedAt values to strict public dates', () => {
+        const contacts = CONTACTS.map(c => ({ ...c }));
+        contacts[3].updatedAt = '2026-02-30T00:00:00Z';
+        const insights = {
+            ...INSIGHTS,
+            c_004: { ...INSIGHTS.c_004, analyzedAt: '2026-05-10T12:34:56Z' },
+        };
+        const out = queryNetwork('payments infrastructure', { contacts, insights });
+        const result = out.results[0];
+
+        assert.equal(result.citations.find(c => c.source === 'contact').observedAt, null);
+        assert.equal(result.citations.find(c => c.source === 'insights').observedAt, '2026-05-10T12:34:56Z');
+        assert.equal(JSON.stringify(result).includes('2026-02-30'), false);
+    });
+
+    it('does not grant high confidence from warmth and recency without semantic citations', () => {
+        const contacts = [{
+            id: 'c_warm_only', name: 'Warm Only', sources: {}, relationshipScore: 100,
+            daysSinceContact: 1, interactionCount: 50, activeChannels: ['email'], emails: [], phones: [],
+        }];
+        const out = queryNetwork('warm intro trusted person', { contacts });
+
+        assert.equal(out.results[0].confidence, 'low');
+        assert.deepEqual(out.results[0].confidenceDrivers, ['warm_relationship', 'recent_or_known_contact']);
+        assert.deepEqual(out.results[0].citations.map(c => c.supports), ['warmth', 'recent']);
+    });
+
+    it('treats negative daysSinceContact as unknown freshness metadata', () => {
+        const contacts = [{
+            id: 'c_negative_recency', name: 'Negative Recency', sources: {}, relationshipScore: 80,
+            daysSinceContact: -3, interactionCount: 5, activeChannels: ['email'], emails: [], phones: [],
+        }];
+        const out = queryNetwork('negative recency warm person', { contacts });
+
+        assert.deepEqual(out.results[0].freshness, {
+            daysSinceContact: null,
+            stale: null,
+            oldestAllowedDays: 180,
+        });
+        assert.deepEqual(out.results[0].confidenceDrivers, ['warm_relationship']);
+    });
+
     it('ranks crypto+insurance+EU contacts highest for EU crypto insurance query', () => {
         const out = queryNetwork('Who can help me with EU crypto insurance distribution?', { contacts: CONTACTS, insights: INSIGHTS });
         assert.ok(out.results.length >= 1, 'returns at least 1 result');
@@ -681,6 +751,38 @@ describe('agent-retrieval: queryNetwork()', () => {
             relationshipScore: 85,
             warmth: 'strong',
             confidence: 'high',
+            citations: [
+                {
+                    ref: 'result:1:cite:1',
+                    source: 'contact',
+                    field: 'linkedin.company',
+                    provenance: 'local-contact',
+                    observedAt: null,
+                    supports: 'keyword',
+                },
+                {
+                    ref: 'result:1:cite:2',
+                    source: 'insights',
+                    field: 'topics',
+                    provenance: 'local-insight',
+                    observedAt: null,
+                    supports: 'topic',
+                },
+                {
+                    ref: 'result:1:cite:3',
+                    source: 'contact',
+                    field: 'daysSinceContact',
+                    provenance: 'derived-local',
+                    observedAt: null,
+                    supports: 'recent',
+                },
+            ],
+            confidenceDrivers: ['cited_evidence', 'warm_relationship', 'recent_or_known_contact'],
+            freshness: {
+                daysSinceContact: 2,
+                stale: false,
+                oldestAllowedDays: 180,
+            },
             evidence: [
                 { kind: 'keyword', label: 'stripe', detail: 'Company: Stripe' },
                 { kind: 'topic', label: 'Recent conversation', detail: 'Topic match from precomputed insights' },
