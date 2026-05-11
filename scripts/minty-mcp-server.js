@@ -136,6 +136,73 @@ function safeStringArray(values) {
     return safe.length ? safe : undefined;
 }
 
+const MCP_CITATION_SOURCES = new Set(['contact', 'insights']);
+const MCP_CITATION_FIELDS = new Set([
+    'title', 'location', 'company', 'linkedin.company', 'linkedin.position',
+    'apollo.headline', 'apollo.industry', 'topics', 'relationshipScore', 'daysSinceContact',
+]);
+const MCP_CITATION_PROVENANCE = new Set(['local-contact', 'local-insight', 'derived-local']);
+const MCP_CITATION_SUPPORTS = new Set(['role', 'location', 'keyword', 'topic', 'warmth', 'recent']);
+
+function safeCitationObservedAt(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+    if (calendarDate.getUTCFullYear() !== year ||
+        calendarDate.getUTCMonth() !== month - 1 ||
+        calendarDate.getUTCDate() !== day) {
+        return null;
+    }
+    return trimmed;
+}
+
+function safeCitation(citation) {
+    if (!citation || typeof citation !== 'object' || Array.isArray(citation)) return null;
+    const ref = typeof citation.ref === 'string' ? citation.ref : null;
+    if (!ref || !/^result:\d+:cite:\d+$/.test(ref)) return null;
+    if (!MCP_CITATION_SOURCES.has(citation.source)) return null;
+    if (!MCP_CITATION_FIELDS.has(citation.field)) return null;
+    if (!MCP_CITATION_PROVENANCE.has(citation.provenance)) return null;
+    if (!MCP_CITATION_SUPPORTS.has(citation.supports)) return null;
+    return {
+        ref,
+        source: citation.source,
+        field: citation.field,
+        provenance: citation.provenance,
+        observedAt: safeCitationObservedAt(citation.observedAt),
+        supports: citation.supports,
+    };
+}
+
+function safeCitations(values) {
+    if (!Array.isArray(values)) return undefined;
+    const citations = values.map(safeCitation).filter(Boolean);
+    return citations.length ? citations : undefined;
+}
+
+function safeFreshness(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+    const daysSinceContact = Number.isFinite(value.daysSinceContact) && value.daysSinceContact >= 0
+        ? value.daysSinceContact
+        : null;
+    const oldestAllowedDays = Number.isFinite(value.oldestAllowedDays) && value.oldestAllowedDays >= 0
+        ? value.oldestAllowedDays
+        : null;
+    return {
+        daysSinceContact,
+        stale: typeof value.stale === 'boolean' ? value.stale : false,
+        oldestAllowedDays,
+    };
+}
+
 function safeResult(r) {
     const safe = {
         name: redactDirectContactDetails(r.name),
@@ -156,6 +223,12 @@ function safeResult(r) {
     if (typeof r.sourceSummary === 'string' && r.sourceSummary.trim()) {
         safe.sourceSummary = redactDirectContactDetails(r.sourceSummary);
     }
+    const citations = safeCitations(r.citations);
+    if (citations) safe.citations = citations;
+    const drivers = safeStringArray(r.confidenceDrivers);
+    if (drivers) safe.confidenceDrivers = drivers;
+    const fresh = safeFreshness(r.freshness);
+    if (fresh) safe.freshness = fresh;
     return safe;
 }
 
@@ -293,7 +366,10 @@ function executeTool(name, args, data) {
             company: r.company,
             warmth: r.warmth,
             confidence: r.confidence,
+            confidenceDrivers: r.confidenceDrivers,
+            freshness: r.freshness,
             daysSinceContact: r.daysSinceContact,
+            citations: r.citations,
             matchedSources: r.matchedSources,
             answerSources: r.answerSources,
             sourceSummary: r.sourceSummary,

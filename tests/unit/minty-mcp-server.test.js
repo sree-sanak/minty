@@ -205,6 +205,53 @@ describe('search_network tool', () => {
         }
     });
 
+    it('preserves safe citations, confidence drivers, and freshness metadata', async () => {
+        const contacts = [{
+            id: 'raw_private_contact_id',
+            name: 'Citation Search Person',
+            title: 'DeFi Protocol Founder',
+            relationshipScore: 80,
+            daysSinceContact: 2,
+            interactionCount: 3,
+            emails: ['citation-search@example.com'],
+            phones: ['+155****4567'],
+            sources: { linkedin: { publicIdentifier: 'private_handle' } },
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 80, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'defi protocol founder' } },
+        }, { contacts, insights: {}, interactions: [], nowForTests: '2026-05-10T00:00:00Z' });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const result = parsed.results[0];
+        assert.deepEqual(result.citations[0], {
+            ref: 'result:1:cite:1',
+            source: 'contact',
+            field: 'title',
+            provenance: 'local-contact',
+            observedAt: null,
+            supports: 'keyword',
+        });
+        assert.deepEqual(result.confidenceDrivers, [
+            'cited_evidence',
+            'warm_relationship',
+            'recent_or_known_contact',
+        ]);
+        assert.deepEqual(result.freshness, {
+            daysSinceContact: 2,
+            stale: false,
+            oldestAllowedDays: 180,
+        });
+
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('raw_private_contact_id'), false);
+        assert.equal(serialized.includes('citation-search@example.com'), false);
+        assert.equal(serialized.includes('+155****4567'), false);
+        assert.equal(serialized.includes('private_handle'), false);
+        assert.equal(serialized.includes('subjectId'), false);
+    });
+
     it('strips all privacy-sensitive and internal fields from MCP results', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 14, method: 'tools/call',
@@ -319,6 +366,37 @@ describe('person_context tool', () => {
 
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.matches.length, 0);
+    });
+
+    it('preserves safe per-match citation metadata', async () => {
+        const contacts = [{
+            id: 'person_private_id',
+            name: 'Citation Context Person',
+            title: 'AI Founder',
+            relationshipScore: 70,
+            daysSinceContact: 5,
+            interactionCount: 4,
+            emails: ['citation-person@example.com'],
+            sources: { linkedin: { publicIdentifier: 'person_private_handle' } },
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 81, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Citation Context Person' } },
+        }, { contacts, insights: {}, interactions: [], nowForTests: '2026-05-10T00:00:00Z' });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const match = parsed.matches[0];
+        assert.equal(match.citations[0].ref, 'result:1:cite:1');
+        assert.equal(match.citations[0].field, 'daysSinceContact');
+        assert.deepEqual(match.confidenceDrivers, ['warm_relationship', 'recent_or_known_contact']);
+        assert.deepEqual(match.freshness, { daysSinceContact: 5, stale: false, oldestAllowedDays: 180 });
+
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('person_private_id'), false);
+        assert.equal(serialized.includes('citation-person@example.com'), false);
+        assert.equal(serialized.includes('person_private_handle'), false);
+        assert.equal(serialized.includes('subjectId'), false);
     });
 
     it('safety envelope includes readOnly, contactDetailsOmitted, noLlmCalls', async () => {
@@ -489,7 +567,7 @@ describe('person_context tool', () => {
         const ALLOWED = new Set([
             'name', 'title', 'company', 'city', 'warmth', 'relationshipScore',
             'confidence', 'evidence', 'suggestedAction', 'daysSinceContact',
-            'interactionCount', 'matchedSources',
+            'interactionCount', 'matchedSources', 'citations', 'confidenceDrivers', 'freshness',
         ]);
         for (const m of parsed.matches) {
             for (const key of Object.keys(m)) {
@@ -538,6 +616,37 @@ describe('workflow_brief tool', () => {
         assert.ok(parsed.dataFreshness);
         assert.ok(parsed.dataFreshness.contactCount != null);
         assert.ok(parsed.dataFreshness.generatedAt);
+    });
+
+    it('preserves safe trust metadata for top people', async () => {
+        const contacts = [{
+            id: 'workflow_private_id',
+            name: 'Citation Workflow Person',
+            title: 'Crypto Insurance Operator',
+            relationshipScore: 75,
+            daysSinceContact: 3,
+            interactionCount: 8,
+            emails: ['citation-workflow@example.com'],
+            sources: { linkedin: { publicIdentifier: 'workflow_private_handle' } },
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 82, method: 'tools/call',
+            params: { name: 'workflow_brief', arguments: { goal: 'crypto insurance operator' } },
+        }, { contacts, insights: {}, interactions: [], nowForTests: '2026-05-10T00:00:00Z' });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const person = parsed.topPeople[0];
+        assert.equal(person.citations[0].ref, 'result:1:cite:1');
+        assert.equal(person.citations[0].field, 'title');
+        assert.deepEqual(person.confidenceDrivers, ['cited_evidence', 'warm_relationship', 'recent_or_known_contact']);
+        assert.deepEqual(person.freshness, { daysSinceContact: 3, stale: false, oldestAllowedDays: 180 });
+
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('workflow_private_id'), false);
+        assert.equal(serialized.includes('citation-workflow@example.com'), false);
+        assert.equal(serialized.includes('workflow_private_handle'), false);
+        assert.equal(serialized.includes('subjectId'), false);
     });
 
     it('redacts direct contact details echoed in workflow goal', async () => {
@@ -960,6 +1069,17 @@ describe('safeResult', () => {
         matchedSources: ['telegram'],
         answerSources: ['Telegram'],
         sourceSummary: 'Telegram',
+        citations: [{
+            ref: 'result:1:cite:1',
+            source: 'contact',
+            field: 'title',
+            provenance: 'local-contact',
+            observedAt: '2026-05-10T00:00:00Z',
+            supports: 'role',
+            subjectId: 'wa_999',
+        }],
+        confidenceDrivers: ['cited_evidence', 'warm_relationship'],
+        freshness: { daysSinceContact: 5, stale: false, oldestAllowedDays: 180 },
         // Fields from queryNetwork that MUST be stripped at MCP layer:
         relevance: 42,
         evidenceBacked: true,
@@ -976,8 +1096,9 @@ describe('safeResult', () => {
         const safe = safeResult(FULL_RESULT);
         const keys = Object.keys(safe).sort();
         assert.deepEqual(keys, [
-            'answerSources', 'city', 'company', 'confidence', 'daysSinceContact',
-            'evidence', 'interactionCount', 'matchedSources', 'name',
+            'answerSources', 'citations', 'city', 'company', 'confidence',
+            'confidenceDrivers', 'daysSinceContact', 'evidence', 'freshness',
+            'interactionCount', 'matchedSources', 'name',
             'relationshipScore', 'sourceSummary', 'suggestedAction', 'title', 'warmth',
         ]);
     });
@@ -998,6 +1119,16 @@ describe('safeResult', () => {
         assert.deepEqual(safe.matchedSources, ['telegram']);
         assert.deepEqual(safe.answerSources, ['Telegram']);
         assert.equal(safe.sourceSummary, 'Telegram');
+        assert.deepEqual(safe.citations, [{
+            ref: 'result:1:cite:1',
+            source: 'contact',
+            field: 'title',
+            provenance: 'local-contact',
+            observedAt: '2026-05-10T00:00:00Z',
+            supports: 'role',
+        }]);
+        assert.deepEqual(safe.confidenceDrivers, ['cited_evidence', 'warm_relationship']);
+        assert.deepEqual(safe.freshness, { daysSinceContact: 5, stale: false, oldestAllowedDays: 180 });
     });
 
     it('strips emails, phones, rawContact, sources, id, activeChannels, relevance, evidenceBacked', () => {
@@ -1010,6 +1141,48 @@ describe('safeResult', () => {
         assert.equal(safe.activeChannels, undefined);
         assert.equal(safe.relevance, undefined, 'relevance is internal scoring detail');
         assert.equal(safe.evidenceBacked, undefined, 'evidenceBacked is internal metadata');
+        assert.equal(JSON.stringify(safe).includes('subjectId'), false, 'citation subjectId is internal metadata');
+    });
+
+    it('drops unsafe citations and normalizes unsafe observedAt/freshness values', () => {
+        const safe = safeResult({
+            name: 'Trust Metadata Person',
+            citations: [
+                {
+                    ref: 'result:1:cite:1',
+                    source: 'contact',
+                    field: 'company',
+                    provenance: 'local-contact',
+                    observedAt: 'not-a-date',
+                    supports: 'keyword',
+                    subjectId: 'private-contact-id',
+                },
+                {
+                    ref: 'result:1:cite:2',
+                    source: 'raw-message',
+                    field: 'body',
+                    provenance: 'private-export',
+                    observedAt: '2026-05-10T00:00:00Z',
+                    supports: 'message_body',
+                },
+            ],
+            freshness: { daysSinceContact: 'soon', stale: 'no', oldestAllowedDays: -10 },
+        });
+
+        assert.deepEqual(safe.citations, [{
+            ref: 'result:1:cite:1',
+            source: 'contact',
+            field: 'company',
+            provenance: 'local-contact',
+            observedAt: null,
+            supports: 'keyword',
+        }]);
+        assert.deepEqual(safe.freshness, { daysSinceContact: null, stale: false, oldestAllowedDays: null });
+        const serialized = JSON.stringify(safe);
+        assert.equal(serialized.includes('private-contact-id'), false);
+        assert.equal(serialized.includes('raw-message'), false);
+        assert.equal(serialized.includes('body'), false);
+        assert.equal(serialized.includes('private-export'), false);
     });
 
     it('redacts direct contact details from source display fields at the MCP boundary', () => {
