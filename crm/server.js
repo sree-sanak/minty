@@ -2474,19 +2474,24 @@ async function handleSyncGoogleContacts(req, res, params, paths, uuid) {
                 refresh_token: googleAcc.refreshToken,
                 grant_type: 'refresh_token' }).toString());
     } catch (e) {
-        return json(res, { error: 'Token refresh failed: ' + e.message }, 500);
+        logOAuthFailure('google contacts token refresh failed', e);
+        return json(res, { error: 'Token refresh failed. Please retry from Sources.' }, 500);
     }
-    if (tokens.error) return json(res, { error: tokens.error_description || tokens.error, needs_reauth: true }, 400);
+    if (tokens.error) {
+        logOAuthFailure('google contacts token refresh rejected', tokens.error_description || tokens.error);
+        return json(res, { error: 'Google authorization failed. Please reconnect Gmail.', needs_reauth: true }, 400);
+    }
 
     // Fetch contacts from People API
     let contacts;
     try {
         contacts = await fetchContactsFromPeopleAPI(tokens.access_token);
     } catch (e) {
+        logOAuthFailure('google contacts fetch failed', e);
         if (e.message.includes('403') || e.message.toLowerCase().includes('scope') || e.message.includes('401')) {
             return json(res, { error: 'Contacts permission not granted. Re-connect Gmail to enable.', needs_reauth: true }, 403);
         }
-        return json(res, { error: e.message }, 500);
+        return json(res, { error: 'Google Contacts sync failed. Please retry from Sources.' }, 500);
     }
 
     const dataDir = getUserDataDir(uuid);

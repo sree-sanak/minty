@@ -70,3 +70,25 @@ test('[ServerOAuthErrors]: OAuth provider failures retain diagnostic details in 
         'redirect OAuth provider errors should log provider diagnostics server-side'
     );
 });
+
+test('[ServerOAuthErrors]: Google Contacts manual sync does not return raw provider or exception messages', () => {
+    assert.doesNotMatch(
+        serverSource,
+        /Token refresh failed:\s*['"]?\s*\+\s*(?:e|err|error)\.message/,
+        'manual Google Contacts sync must not concatenate raw token-refresh errors into JSON responses'
+    );
+    assert.doesNotMatch(
+        serverSource,
+        /return json\(res, \{ error:\s*(?:e|err|error)\.message \}, 500\)/,
+        'manual Google Contacts sync must not return raw People API exception messages'
+    );
+    assert.doesNotMatch(
+        serverSource,
+        /tokens\.error_description \|\| tokens\.error, needs_reauth: true/,
+        'manual Google Contacts sync must not return raw provider token error descriptions'
+    );
+    assert.match(serverSource, /logOAuthFailure\('google contacts token refresh failed',\s*e\)/);
+    assert.match(serverSource, /logOAuthFailure\('google contacts token refresh rejected',\s*tokens\.error_description \|\| tokens\.error\)/);
+    assert.match(serverSource, /logOAuthFailure\('google contacts fetch failed',\s*e\)/);
+    assert.match(serverSource, /error:\s*'Google Contacts sync failed\. Please retry from Sources\.'/);
+});
