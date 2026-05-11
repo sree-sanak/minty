@@ -41,6 +41,105 @@ function confidenceLevel(matchScore, relationshipScore) {
     return 'low';
 }
 
+const SEMANTIC_CITATION_KINDS = new Set(['role', 'location', 'keyword', 'topic']);
+const PUBLIC_CITATION_SOURCES = new Set(['contact', 'insights']);
+const PUBLIC_CITATION_FIELDS = new Set([
+    'title', 'location', 'company', 'linkedin.company', 'linkedin.position',
+    'apollo.headline', 'apollo.industry', 'topics', 'relationshipScore', 'daysSinceContact',
+]);
+const PUBLIC_CITATION_PROVENANCE = new Set(['local-contact', 'local-insight', 'derived-local']);
+const PUBLIC_CITATION_SUPPORTS = new Set(['role', 'location', 'keyword', 'topic', 'warmth', 'recent']);
+
+function hasConcreteCitation(reason) {
+    const c = reason && reason.citation;
+    return !!(c && c.source && c.field && c.subjectId && c.provenance);
+}
+
+function safeObservedAt(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2}))?$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(trimmed);
+    if (Number.isNaN(parsed.getTime())) return null;
+    const calendarDate = new Date(Date.UTC(year, month - 1, day));
+    if (calendarDate.getUTCFullYear() !== year ||
+        calendarDate.getUTCMonth() !== month - 1 ||
+        calendarDate.getUTCDate() !== day) {
+        return null;
+    }
+    return trimmed;
+}
+
+function publicCitation(reason, index, resultIndex) {
+    if (!hasConcreteCitation(reason)) return null;
+    const c = reason.citation;
+    if (!PUBLIC_CITATION_SOURCES.has(c.source)) return null;
+    if (!PUBLIC_CITATION_FIELDS.has(c.field)) return null;
+    if (!PUBLIC_CITATION_PROVENANCE.has(c.provenance)) return null;
+    if (!PUBLIC_CITATION_SUPPORTS.has(reason.kind)) return null;
+    return {
+        ref: `result:${resultIndex + 1}:cite:${index + 1}`,
+        source: c.source,
+        field: c.field,
+        provenance: c.provenance,
+        observedAt: safeObservedAt(c.observedAt),
+        supports: reason.kind,
+    };
+}
+
+function isPublicCitation(reason) {
+    if (!hasConcreteCitation(reason)) return false;
+    const c = reason.citation;
+    return PUBLIC_CITATION_SOURCES.has(c.source)
+        && PUBLIC_CITATION_FIELDS.has(c.field)
+        && PUBLIC_CITATION_PROVENANCE.has(c.provenance)
+        && PUBLIC_CITATION_SUPPORTS.has(reason.kind);
+}
+
+function publicCitations(reasons, resultIndex) {
+    const out = [];
+    for (const reason of reasons || []) {
+        const mapped = publicCitation(reason, out.length, resultIndex);
+        if (mapped) out.push(mapped);
+    }
+    return out;
+}
+
+function hasPublicSemanticCitation(reason) {
+    return SEMANTIC_CITATION_KINDS.has(reason && reason.kind) && isPublicCitation(reason);
+}
+
+function freshness(daysSinceContact, oldestAllowedDays = 180) {
+    const days = daysSinceContact == null ? null : Number(daysSinceContact);
+    const publicDays = Number.isFinite(days) && days >= 0 ? days : null;
+    return {
+        daysSinceContact: publicDays,
+        stale: publicDays == null ? null : publicDays > oldestAllowedDays,
+        oldestAllowedDays,
+    };
+}
+
+function confidenceDrivers(reasons, relationshipScore, fresh) {
+    const drivers = [];
+    if ((reasons || []).some(hasPublicSemanticCitation)) drivers.push('cited_evidence');
+    if ((relationshipScore || 0) >= 50) drivers.push('warm_relationship');
+    if (fresh && fresh.stale === false) drivers.push('recent_or_known_contact');
+    if (fresh && fresh.stale === true) drivers.push('stale_contact_penalty');
+    return drivers;
+}
+
+function agentConfidence(matchScore, relationshipScore, reasons, fresh) {
+    const cited = (reasons || []).some(hasPublicSemanticCitation);
+    if (!cited) return 'low';
+    const base = confidenceLevel(matchScore, relationshipScore);
+    if (fresh && fresh.stale === true && base === 'high') return 'medium';
+    return base;
+}
+
 // ---------------------------------------------------------------------------
 // Suggested next action — contextual, safe, read-only
 // ---------------------------------------------------------------------------
@@ -592,8 +691,9 @@ function queryNetwork(query, opts = {}) {
     const safeLimit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 50) : 10;
     const page = filtered.slice(0, safeLimit);
     const matchingContactIds = page.map(r => r.id);
-    const results = page.map(r => {
+    const results = page.map((r, resultIndex) => {
         const matchedSources = matchedSourcesForResult(r);
+        const fresh = freshness(r.daysSinceContact);
         return {
             id:                safeContactRef(r.id),
             name:              redactDirectContactDetails(r.name),
@@ -603,7 +703,10 @@ function queryNetwork(query, opts = {}) {
             relevance:         r.matchScore || 0,
             relationshipScore: r.relationshipScore || 0,
             warmth:            warmthLabel(r.relationshipScore || 0),
-            confidence:        confidenceLevel(r.matchScore, r.relationshipScore),
+            confidence:        agentConfidence(r.matchScore, r.relationshipScore, r.reasons, fresh),
+            citations:         publicCitations(r.reasons, resultIndex),
+            confidenceDrivers: confidenceDrivers(r.reasons, r.relationshipScore, fresh),
+            freshness:         fresh,
             evidence:          (r.reasons || []).map(reason => ({
                 kind:   reason.kind,
                 label:  redactDirectContactDetails(reason.label),
