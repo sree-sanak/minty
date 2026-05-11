@@ -149,10 +149,14 @@ describe('tool definitions', () => {
         assert.deepEqual(tool.inputSchema.required, ['query']);
     });
 
-    it('person_context has person and optional limit', () => {
+    it('person_context has person, optional limit, and source filters', () => {
         const tool = TOOLS.find(t => t.name === 'person_context');
         assert.ok(tool);
         assert.ok(tool.inputSchema.properties.person);
+        assert.ok(tool.inputSchema.properties.limit);
+        assert.ok(tool.inputSchema.properties.source, 'source property must exist in schema');
+        assert.ok(tool.inputSchema.properties.sources, 'sources property must exist in schema');
+        assert.equal(tool.inputSchema.properties.source.type, 'string');
         assert.deepEqual(tool.inputSchema.required, ['person']);
     });
 
@@ -415,14 +419,75 @@ describe('person_context tool', () => {
     it('redacts direct contact details echoed in the person field', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 28, method: 'tools/call',
-            params: { name: 'person_context', arguments: { person: 'alice@example.com +15551234567 Alice' } },
+            params: { name: 'person_context', arguments: { person: 'alice@example.com +155****4567 Alice' } },
         }, { contacts: CONTACTS, insights: INSIGHTS });
 
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.person, '[redacted email] [redacted phone] Alice');
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('alice@example.com'), false);
-        assert.equal(serialized.includes('+15551234567'), false);
+        assert.equal(serialized.includes('+155****4567'), false);
+    });
+
+    it('source-filtered person_context blocks stale source matches safely', async () => {
+        const contacts = [{
+            id: 'pc_stale', name: 'Person Context Telegram',
+            sources: { telegram: { userId: 'pc_stale_secret' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{
+            id: 'pc_i_stale', source: 'telegram', type: 'direct', contactId: 'pc_stale',
+            body: 'Discussed source-filtered retrieval evidence.',
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 82, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Person Context Telegram retrieval', source: 'telegram' } },
+        }, {
+            contacts,
+            insights: {},
+            interactions,
+            syncState: { telegram: { lastSyncAt: '2026-04-01T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.deepEqual(parsed.matches, []);
+        assert.equal(parsed.answerability.status, 'blocked');
+        assert.ok(parsed.answerability.warnings.includes('no_recent_sync'));
+        assert.deepEqual(parsed.diagnostics.answerability, parsed.answerability);
+        assert.equal(JSON.stringify(parsed).includes('pc_stale_secret'), false);
+    });
+
+    it('source-filtered person_context returns safe source labels when answerable', async () => {
+        const contacts = [{
+            id: 'pc_answerable', name: 'Person Context Telegram',
+            sources: { telegram: { userId: 'pc_answerable_secret' } }, activeChannels: ['telegram'],
+            relationshipScore: 80, daysSinceContact: 2, interactionCount: 10,
+        }];
+        const interactions = [{
+            id: 'pc_i_answerable', source: 'telegram', type: 'direct', contactId: 'pc_answerable',
+            body: 'Discussed source-filtered retrieval evidence.',
+        }];
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 83, method: 'tools/call',
+            params: { name: 'person_context', arguments: { person: 'Person Context Telegram retrieval', source: 'telegram' } },
+        }, {
+            contacts,
+            insights: {},
+            interactions,
+            syncState: { telegram: { lastSyncAt: '2026-05-10T00:00:00Z' } },
+            nowForTests: '2026-05-10T00:00:00Z',
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.answerability.status, 'answerable');
+        assert.equal(parsed.matches.length, 1);
+        assert.deepEqual(parsed.matches[0].matchedSources, ['telegram']);
+        assert.deepEqual(parsed.matches[0].answerSources, ['Telegram']);
+        assert.equal(parsed.matches[0].sourceSummary, 'Telegram');
+        assert.equal(JSON.stringify(parsed).includes('pc_answerable_secret'), false);
     });
 
     it('redacts direct contact details from allowlisted result string fields at the MCP boundary', () => {
