@@ -1166,6 +1166,7 @@ describe('safeResult', () => {
                     supports: 'message_body',
                 },
             ],
+            confidenceDrivers: ['cited_evidence', 'raw_private_detail', 'warm_relationship'],
             freshness: { daysSinceContact: 'soon', stale: 'no', oldestAllowedDays: -10 },
         });
 
@@ -1177,12 +1178,23 @@ describe('safeResult', () => {
             observedAt: null,
             supports: 'keyword',
         }]);
-        assert.deepEqual(safe.freshness, { daysSinceContact: null, stale: false, oldestAllowedDays: null });
+        assert.deepEqual(safe.confidenceDrivers, ['cited_evidence', 'warm_relationship']);
+        assert.deepEqual(safe.freshness, { daysSinceContact: null, stale: null, oldestAllowedDays: null });
         const serialized = JSON.stringify(safe);
         assert.equal(serialized.includes('private-contact-id'), false);
         assert.equal(serialized.includes('raw-message'), false);
         assert.equal(serialized.includes('body'), false);
         assert.equal(serialized.includes('private-export'), false);
+        assert.equal(serialized.includes('raw_private_detail'), false);
+    });
+
+    it('preserves unknown freshness semantics instead of converting unknown to fresh', () => {
+        const safe = safeResult({
+            name: 'Unknown Freshness Person',
+            freshness: { daysSinceContact: null, stale: null, oldestAllowedDays: 180 },
+        });
+
+        assert.deepEqual(safe.freshness, { daysSinceContact: null, stale: null, oldestAllowedDays: 180 });
     });
 
     it('redacts direct contact details from source display fields at the MCP boundary', () => {

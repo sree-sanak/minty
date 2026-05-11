@@ -143,6 +143,9 @@ const MCP_CITATION_FIELDS = new Set([
 ]);
 const MCP_CITATION_PROVENANCE = new Set(['local-contact', 'local-insight', 'derived-local']);
 const MCP_CITATION_SUPPORTS = new Set(['role', 'location', 'keyword', 'topic', 'warmth', 'recent']);
+const MCP_CONFIDENCE_DRIVERS = new Set([
+    'cited_evidence', 'warm_relationship', 'recent_or_known_contact', 'stale_contact_penalty',
+]);
 
 function safeCitationObservedAt(value) {
     if (value === null || value === undefined) return null;
@@ -198,9 +201,15 @@ function safeFreshness(value) {
         : null;
     return {
         daysSinceContact,
-        stale: typeof value.stale === 'boolean' ? value.stale : false,
+        stale: typeof value.stale === 'boolean' ? value.stale : null,
         oldestAllowedDays,
     };
+}
+
+function safeConfidenceDrivers(values) {
+    if (!Array.isArray(values)) return undefined;
+    const drivers = values.filter(v => typeof v === 'string' && MCP_CONFIDENCE_DRIVERS.has(v));
+    return drivers.length ? drivers : undefined;
 }
 
 function safeResult(r) {
@@ -225,7 +234,7 @@ function safeResult(r) {
     }
     const citations = safeCitations(r.citations);
     if (citations) safe.citations = citations;
-    const drivers = safeStringArray(r.confidenceDrivers);
+    const drivers = safeConfidenceDrivers(r.confidenceDrivers);
     if (drivers) safe.confidenceDrivers = drivers;
     const fresh = safeFreshness(r.freshness);
     if (fresh) safe.freshness = fresh;
