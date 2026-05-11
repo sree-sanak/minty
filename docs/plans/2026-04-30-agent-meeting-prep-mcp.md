@@ -21,9 +21,11 @@ Minty's pivot is agent-native private network memory. The existing MCP surface i
 
 **2026-05-10 update:** This plan predates the newer `source_health`, source answerability gate, opaque contact refs, and GBrain export trust-contract work. Implement the updated snippets below, not the older raw-id shape. Meeting prep must be at least as strict as `search_network`/`person_context`: no raw calendar event ids, raw contact ids, attendee emails, phones, URLs, descriptions, source handles, private paths, or raw invalid input in the agent envelope.
 
-The missing agent workflow is meeting prep. Calendar data already exists and is refreshed by the daemon, but Hermes cannot ask: **“I have a call soon — who is it with, what do I know, what should I remember, and how fresh is this context?”** That is a sharper wedge than another CRM screen because it lands inside Sree's existing assistant workflow right before a high-value interaction.
+**2026-05-11 current-state update:** PR #202 landed the pure privacy-safe meeting-prep envelope (`crm/meeting-prep.js`) and unit coverage (`tests/unit/meeting-prep.test.js`). Do not recreate that module. The next builder should start at the MCP/docs/smoke handoff: wire `buildMeetingPrep()` into `scripts/minty-mcp-server.js`, update `tests/unit/minty-mcp-server.test.js` from the current exact tool list `['person_context', 'search_network', 'source_health', 'workflow_brief']` to include `meeting_prep`, then update `docs/HERMES_INTEGRATION.md`, `hermes/minty-network-memory/SKILL.md`, and `tests/unit/agent-surface-docs.test.js`. Preserve the existing `person_context` source-filter behavior and the source-health/answerability contract; meeting prep should be additive, not a second retrieval implementation.
 
-This plan is intentionally narrow: one read-only MCP tool, one pure formatter, source-backed evidence, redacted contact fields. It does not schedule meetings, send messages, or create generic “stay in touch” nagging.
+The missing agent workflow is now the protocol boundary, not the formatter. Calendar prep envelopes exist locally, but Hermes still cannot ask through MCP: **“I have a call soon — who is it with, what do I know, what should I remember, and how fresh is this context?”** That is a sharper wedge than another CRM screen because it lands inside Sree's existing assistant workflow right before a high-value interaction.
+
+The remaining work is intentionally narrow: one read-only MCP tool wired to the existing pure meeting-prep envelope, plus source-backed evidence preservation, redacted contact fields, docs, and smoke coverage. It does not schedule meetings, send messages, or create generic “stay in touch” nagging.
 
 Success criteria:
 
