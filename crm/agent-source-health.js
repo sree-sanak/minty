@@ -193,13 +193,14 @@ function buildAgentSourceHealth(data = {}, options = {}) {
         const lastSyncAt = rawState.lastSyncAt || rawState.lastSyncedAt || rawState.updatedAt || rawState.lastSync || null;
         const fresh = freshness(lastSyncAt, options.now);
         const warnings = [];
+        if (rawState.status === 'error' || rawState.lastError) warnings.push('sync_error');
         if (!lastSyncAt) warnings.push('not_configured');
         if (!contactCount) warnings.push('no_contacts');
         if (!evidenceContactCount && !interactionCount && !sourceEventCount) warnings.push('no_query_evidence');
         if (fresh === 'stale' || fresh === 'unknown') warnings.push('no_recent_sync');
         const ready = warnings.length === 0 && fresh === 'fresh';
         rows[source] = {
-            status: ready ? 'ready' : fresh === 'stale' ? 'stale' : warnings.length ? 'limited' : 'ready',
+            status: warnings.includes('sync_error') ? 'error' : ready ? 'ready' : fresh === 'stale' ? 'stale' : warnings.length ? 'limited' : 'ready',
             freshness: fresh,
             contactCount,
             interactionCount,

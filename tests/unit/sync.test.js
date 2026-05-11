@@ -17,6 +17,8 @@ const {
     loadSyncState,
     saveSyncState,
     deepMerge,
+    recordSourceSyncSuccess,
+    recordSourceSyncFailure,
 } = require('../../crm/sync');
 
 // ---------------------------------------------------------------------------
@@ -210,4 +212,89 @@ test('[Sync]: deepMerge does not mutate target', () => {
 test('[Sync]: deepMerge handles null source', () => {
     const result = deepMerge({ a: 1 }, null);
     assert.deepEqual(result, { a: 1 });
+});
+
+// ---------------------------------------------------------------------------
+// Source sync freshness state helpers
+// ---------------------------------------------------------------------------
+
+test('[Sync]: recordSourceSyncFailure preserves previous freshness and stores sanitized error', () => {
+    const previous = '2026-05-01T10:00:00.000Z';
+    const state = {
+        email: {
+            lastSyncAt: previous,
+            status: 'idle',
+            historyId: 'history-1',
+        },
+    };
+
+    const next = recordSourceSyncFailure(state, 'email', new Error(
+        'Provider stack raw-token-12345 path /tmp/private/minty/source-data.json failed'
+    ), '2026-05-11T10:00:00.000Z');
+
+    assert.equal(next.email.lastSyncAt, previous);
+    assert.equal(next.email.status, 'error');
+    assert.equal(next.email.historyId, 'history-1');
+    assert.equal(next.email.lastErrorAt, '2026-05-11T10:00:00.000Z');
+    assert.equal(next.email.lastError, 'Provider stack [redacted-token] path [redacted-path] failed');
+    assert.equal(JSON.stringify(next).includes('raw-token-12345'), false);
+    assert.equal(JSON.stringify(next).includes('/tmp/private/minty/source-data.json'), false);
+
+    const spacedPath = recordSourceSyncFailure(state, 'email', new Error(
+        'Provider failed at "/tmp/private folder/source data.json" with Bearer abc123secret'
+    ), '2026-05-11T10:00:00.000Z');
+    assert.equal(spacedPath.email.lastError, 'Provider failed at "[redacted-path]" with [redacted-token]');
+    assert.equal(JSON.stringify(spacedPath).includes('/tmp/private folder/source data.json'), false);
+
+    const unquotedSpacedPath = recordSourceSyncFailure(state, 'email', new Error(
+        'Provider failed at /tmp/private folder/source data.json with retry pending'
+    ), '2026-05-11T10:00:00.000Z');
+    assert.equal(unquotedSpacedPath.email.lastError, 'Provider failed at [redacted-path] with retry pending');
+    assert.equal(JSON.stringify(unquotedSpacedPath).includes('folder/source data.json'), false);
+
+    const providerDetails = recordSourceSyncFailure(state, 'email', new Error(
+        'OAuth failed for alice@example.com phone +44 7700 900123 url https://oauth.example.test/cb?access_token=private-value&code=abc'
+    ), '2026-05-11T10:00:00.000Z');
+    assert.equal(providerDetails.email.lastError, 'OAuth failed for [redacted-email] phone [redacted-phone] url [redacted-url]');
+    assert.equal(JSON.stringify(providerDetails).includes('alice@example.com'), false);
+    assert.equal(JSON.stringify(providerDetails).includes('+44 7700 900123'), false);
+    assert.equal(JSON.stringify(providerDetails).includes('private-value'), false);
+
+    const schemelessProvider = recordSourceSyncFailure(state, 'email', new Error(
+        'OAuth callback oauth.example.test/cb?code=private-code&state=private-state failed'
+    ), '2026-05-11T10:00:00.000Z');
+    assert.equal(schemelessProvider.email.lastError, 'OAuth callback [redacted-url] failed');
+    assert.equal(JSON.stringify(schemelessProvider).includes('oauth.example.test'), false);
+    assert.equal(JSON.stringify(schemelessProvider).includes('private-code'), false);
+
+    const connectionDetails = recordSourceSyncFailure(state, 'email', new Error(
+        'Database unavailable at postgres://user:pass@db.internal/minty credentials=private-value'
+    ), '2026-05-11T10:00:00.000Z');
+    assert.equal(connectionDetails.email.lastError, 'Database unavailable at [redacted-connection-string] [redacted-token]');
+    assert.equal(JSON.stringify(connectionDetails).includes('postgres://'), false);
+    assert.equal(JSON.stringify(connectionDetails).includes('private-value'), false);
+});
+
+test('[Sync]: recordSourceSyncSuccess advances freshness and clears stale error metadata', () => {
+    const state = {
+        googleContacts: {
+            lastSyncAt: '2026-05-01T10:00:00.000Z',
+            status: 'error',
+            syncToken: 'sync-token-1',
+            lastError: 'old failure',
+            lastErrorAt: '2026-05-10T10:00:00.000Z',
+        },
+    };
+
+    const next = recordSourceSyncSuccess(state, 'googleContacts', {
+        status: 'idle',
+        changed: 3,
+    }, '2026-05-11T10:00:00.000Z');
+
+    assert.equal(next.googleContacts.lastSyncAt, '2026-05-11T10:00:00.000Z');
+    assert.equal(next.googleContacts.status, 'idle');
+    assert.equal(next.googleContacts.syncToken, 'sync-token-1');
+    assert.equal(next.googleContacts.changed, 3);
+    assert.equal(next.googleContacts.lastError, undefined);
+    assert.equal(next.googleContacts.lastErrorAt, undefined);
 });
