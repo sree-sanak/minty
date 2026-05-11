@@ -14,8 +14,9 @@ Minty is the missing relationship-memory layer for personal AI agents. It turns 
 [![OpenClaw/Hermes](https://img.shields.io/badge/OpenClaw%20%2B%20Hermes-ready-6366f1.svg)](./docs/OPENCLAW_HERMES.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
-<!-- TODO: replace with a real screenshot/GIF once v0.2 UI is recorded -->
-<!-- <img src="./docs/hero.png" alt="Minty contact list and detail view" width="800"> -->
+<img src="./docs/hero.svg" alt="Minty privacy-safe demo showing local network-memory search and an agent-safe answer" width="800">
+
+<sub>Privacy-safe synthetic demo visual: Minty turns local relationship evidence into source-backed network memory for humans and agents, without exposing direct contact details or raw messages.</sub>
 
 </div>
 
