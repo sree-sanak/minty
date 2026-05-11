@@ -1,0 +1,44 @@
+<svg width="960" height="540" viewBox="0 0 960 540" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Minty privacy-safe demo</title>
+  <desc id="desc">Synthetic dashboard mockup showing private local network memory for humans and agents.</desc>
+  <rect width="960" height="540" rx="32" fill="#0a0d14"/>
+  <rect x="34" y="34" width="892" height="472" rx="28" fill="#111827" stroke="#1e2d45"/>
+  <rect x="64" y="64" width="252" height="412" rx="22" fill="#0d1320" stroke="#1e2d45"/>
+  <text x="84" y="103" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="700">Minty</text>
+  <text x="84" y="127" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="13">Private network memory</text>
+
+  <g transform="translate(84 166)">
+    <circle cx="16" cy="16" r="16" fill="#6366f1"/>
+    <text x="44" y="13" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="600">Demo Founder</text>
+    <text x="44" y="34" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="12">Seed investors · warm</text>
+  </g>
+  <g transform="translate(84 226)">
+    <circle cx="16" cy="16" r="16" fill="#22c55e"/>
+    <text x="44" y="13" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="600">Synthetic Operator</text>
+    <text x="44" y="34" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="12">EU fintech · fresh</text>
+  </g>
+  <g transform="translate(84 286)">
+    <circle cx="16" cy="16" r="16" fill="#f59e0b"/>
+    <text x="44" y="13" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="600">Example Engineer</text>
+    <text x="44" y="34" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="12">AI infra · source-backed</text>
+  </g>
+
+  <rect x="348" y="64" width="548" height="190" rx="22" fill="#0d1320" stroke="#1e2d45"/>
+  <text x="378" y="101" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" letter-spacing="1.2">ASK YOUR NETWORK</text>
+  <rect x="378" y="122" width="488" height="48" rx="16" fill="#111827" stroke="#6366f1"/>
+  <text x="398" y="153" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="16">Who can help with EU crypto insurance?</text>
+  <rect x="378" y="192" width="122" height="34" rx="17" fill="#1a2235"/>
+  <text x="400" y="214" fill="#84cc16" font-family="Inter, system-ui, sans-serif" font-size="13">Telegram</text>
+  <rect x="514" y="192" width="116" height="34" rx="17" fill="#1a2235"/>
+  <text x="536" y="214" fill="#818cf8" font-family="Inter, system-ui, sans-serif" font-size="13">LinkedIn</text>
+  <rect x="644" y="192" width="96" height="34" rx="17" fill="#1a2235"/>
+  <text x="668" y="214" fill="#f59e0b" font-family="Inter, system-ui, sans-serif" font-size="13">Email</text>
+
+  <rect x="348" y="276" width="548" height="200" rx="22" fill="#0d1320" stroke="#1e2d45"/>
+  <text x="378" y="313" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700" letter-spacing="1.2">AGENT-SAFE ANSWER</text>
+  <text x="378" y="348" fill="#f0f4ff" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700">3 source-backed people found</text>
+  <text x="378" y="382" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="14">Evidence, confidence, freshness, and citations are preserved.</text>
+  <text x="378" y="414" fill="#8892a4" font-family="Inter, system-ui, sans-serif" font-size="14">Direct contact details and raw messages are omitted by default.</text>
+  <rect x="378" y="438" width="196" height="20" rx="10" fill="#22c55e" opacity="0.18"/>
+  <text x="392" y="453" fill="#22c55e" font-family="Inter, system-ui, sans-serif" font-size="12" font-weight="700">READ-ONLY · LOCAL-FIRST</text>
+</svg>
