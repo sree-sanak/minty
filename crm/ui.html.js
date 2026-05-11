@@ -5445,13 +5445,15 @@ function renderSourceForm(key, status, connected) {
         </button>\`
       : '';
 
-    const noBtns = !sourceStatuses._googleOAuthEnabled && !sourceStatuses._microsoftOAuthEnabled
-      ? \`<div style="font-size:0.74rem;color:#4b5563">Set GOOGLE_CLIENT_ID or MICROSOFT_CLIENT_ID in .env to enable OAuth</div>\`
+    const noOAuthProviders = !sourceStatuses._googleOAuthEnabled && !sourceStatuses._microsoftOAuthEnabled;
+    const noBtns = noOAuthProviders
+      ? \`<div style="font-size:0.74rem;color:#4b5563">OAuth sign-in is not available in this Minty install. Use IMAP below to connect another inbox.</div>\`
       : '';
 
     const syncNow = hasAccounts
       ? \`<button class="source-btn secondary sync-now-btn" style="width:100%;margin-top:6px" onclick="triggerSync('email')">Sync inbox now</button>\`
       : '';
+    const imapSummary = noOAuthProviders ? 'Connect via IMAP' : 'Use IMAP instead';
 
     el.innerHTML = \`
       \${accountList}
@@ -5461,7 +5463,7 @@ function renderSourceForm(key, status, connected) {
       <div id="email-device-ui" style="margin-top:8px"></div>
       <details style="margin-top:12px">
         <summary style="font-size:0.72rem;color:#4b5563;cursor:pointer;list-style:none;display:flex;align-items:center;gap:5px;user-select:none;-webkit-user-select:none">
-          <span style="font-size:0.5rem;opacity:0.5">▶</span> Use IMAP instead
+          <span style="font-size:0.5rem;opacity:0.5">▶</span> \${imapSummary}
         </summary>
         <div class="source-form" style="margin-top:10px">
           <input id="email-user" placeholder="Email address" oninput="emailAutoHost(this.value)" />

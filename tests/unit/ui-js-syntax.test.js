@@ -89,6 +89,14 @@ test('[UI]: inline <script> blocks are syntactically valid JS', async () => {
     }
 });
 
+test('[UI]: Sources email setup copy stays user-facing', () => {
+    const uiSource = fs.readFileSync(path.join(__dirname, '../../crm/ui.html.js'), 'utf8');
+    assert.doesNotMatch(uiSource, /Set GOOGLE_CLIENT_ID or MICROSOFT_CLIENT_ID in \.env to enable OAuth/);
+    assert.match(uiSource, /OAuth sign-in is not available in this Minty install/);
+    assert.match(uiSource, /Connect via IMAP/);
+    assert.match(uiSource, /Use IMAP instead/);
+});
+
 test('[UI]: error messages are escaped before innerHTML', () => {
     const uiSource = fs.readFileSync(path.join(__dirname, '../../crm/ui.html.js'), 'utf8');
     assert.match(
