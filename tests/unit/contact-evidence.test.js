@@ -180,6 +180,26 @@ describe('contact-evidence: buildContactEvidence()', () => {
         assert.equal(JSON.stringify(match).includes('collateral risk'), false, 'match output must not leak raw text');
     });
 
+    it('keeps insight-derived source counts consistent with sources', () => {
+        const evidence = buildContactEvidence({
+            contacts: [{ id: 'c_insight', name: 'Insight Person' }],
+            interactions: [],
+            insights: {
+                c_insight: {
+                    topics: ['AI', 'DeFi'],
+                    analyzedAt: '2026-05-01T00:00:00Z',
+                },
+            },
+        });
+
+        const row = evidence[safeContactRef('c_insight')];
+        assert.ok(row);
+        assert.deepEqual(row.sources, ['interaction']);
+        assert.equal(row.sourceCounts.interaction, 2);
+        assert.equal(row.interactionCount, 0);
+        assert.equal(row.lastEvidenceAt, '2026-05-01T00:00:00.000Z');
+    });
+
     it('ignores non-allowlisted topics in malformed precomputed evidence', () => {
         const match = matchContactEvidence({
             contactId: 'c_bad',
