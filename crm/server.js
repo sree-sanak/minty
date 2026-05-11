@@ -635,7 +635,7 @@ async function handleExport(req, res, _params, _paths, uuid) {
     } catch (e) {
         console.error('[export]', e);
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(JSON.stringify({ error: 'export failed' }));
     }
 }
 // Cache the mention index — rebuilds only when contacts.json changes.

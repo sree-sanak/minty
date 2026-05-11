@@ -142,6 +142,25 @@ test('malformed interactions.json does not expose raw parser errors on read-only
     });
 });
 
+test('GET /api/export uses stable public error when bundle generation fails', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-export-bad-json-'));
+    seedDataDir(dir, []);
+    const sentinel = path.basename(dir);
+    fs.writeFileSync(path.join(dir, 'unified/contacts.json'), '{bad json');
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/export`);
+        assert.equal(res.status, 500);
+        const text = await res.text();
+        const payload = JSON.parse(text);
+        assert.deepEqual(payload, { error: 'export failed' });
+        assert.doesNotMatch(text, /Expected property name|JSON at position|SyntaxError|Unexpected token/i);
+        assert.doesNotMatch(text, /stack|at JSON\.parse/i);
+        assert.equal(text.includes(dir), false, 'response leaked temp directory path');
+        assert.equal(text.includes(sentinel), false, 'response leaked temp directory basename');
+    });
+});
+
 test('identity review API rejects prototype decisions and preserves zero score', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-identity-review-'));
     seedDataDir(dir, []);

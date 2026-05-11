@@ -45,6 +45,11 @@ function readBundle(dataDir) {
         try { return JSON.parse(fs.readFileSync(path.join(unified, name), 'utf8')); }
         catch { return null; }
     };
+    const loadRequired = (name, fallback) => {
+        const file = path.join(unified, name);
+        if (!fs.existsSync(file)) return fallback;
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+    };
     const loadMtime = (name) => {
         try { return new Date(fs.statSync(path.join(unified, name)).mtimeMs).toISOString(); }
         catch { return null; }
@@ -53,8 +58,8 @@ function readBundle(dataDir) {
     const bundle = {
         version: 1,
         exportedAt: new Date().toISOString(),
-        contacts:         load('contacts.json')         || [],
-        interactions:     load('interactions.json')     || [],
+        contacts:         loadRequired('contacts.json', []),
+        interactions:     loadRequired('interactions.json', []),
         insights:         load('insights.json')         || null,
         goals:            load('goals.json')            || null,
         groupMemberships: load('group-memberships.json') || null,
