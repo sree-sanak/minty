@@ -2081,10 +2081,16 @@ async function handleConnectEmail(req, res, params, paths, uuid) {
 
 const deviceFlows = {}; // uuid+provider -> { device_code, interval, expiresAt }
 const pendingOAuth = {}; // state -> { uuid, expiresAt }
-
 function oauthCallbackUrl(req) {
     const host = req.headers.host || `localhost:${PORT}`;
     return `http://${host}/oauth/callback`;
+}
+
+function logOAuthFailure(context, err) {
+    const detail = err && typeof err === 'object'
+        ? (err.message || err.error || JSON.stringify(err))
+        : String(err || 'unknown error');
+    console.error(`[oauth] ${context}:`, detail);
 }
 
 function httpsPost(hostname, path, bodyStr) {
@@ -2112,8 +2118,16 @@ function httpsGet(hostname, path, token) {
     });
 }
 
+function parseOAuthProvider(value) {
+    if (value === 'google') return 'google';
+    if (value === 'microsoft') return 'microsoft';
+    return null;
+}
+
 async function handleEmailDeviceStart(req, res, params, paths, uuid) {
-    const { provider } = await body(req);
+    const { provider: rawProvider } = await body(req);
+    const provider = parseOAuthProvider(rawProvider);
+    if (!provider) return json(res, { error: 'unknown provider' }, 400);
     if (provider === 'google') {
         if (!userConfig.getGoogleClient(DATA).id) return json(res, { error: 'Google OAuth client ID not set — open Settings to configure' }, 400);
         const state = crypto.randomBytes(16).toString('hex');
@@ -2135,17 +2149,21 @@ async function handleEmailDeviceStart(req, res, params, paths, uuid) {
         const r = await httpsPost('login.microsoftonline.com', '/common/oauth2/v2.0/devicecode',
             new URLSearchParams({ client_id: process.env.MICROSOFT_CLIENT_ID,
                 scope: 'https://graph.microsoft.com/Mail.Read https://graph.microsoft.com/User.Read offline_access' }).toString());
-        if (r.error) return json(res, { error: r.error_description || r.error }, 400);
+        if (r.error) {
+            logOAuthFailure('microsoft device start rejected', r.error_description || r.error);
+            return json(res, { error: 'Microsoft authorization failed. Please restart sign-in from the app.' }, 400);
+        }
         deviceFlows[uuid + ':microsoft'] = { device_code: r.device_code, interval: r.interval || 5,
             expiresAt: Date.now() + r.expires_in * 1000 };
         return json(res, { user_code: r.user_code, verification_url: r.verification_uri });
     }
-    json(res, { error: 'unknown provider' }, 400);
 }
 
 async function handleEmailDevicePoll(req, res, params, paths, uuid) {
     const url = new URL(req.url, 'http://localhost');
-    const provider = url.searchParams.get('provider');
+    const rawProvider = url.searchParams.get('provider');
+    const provider = parseOAuthProvider(rawProvider);
+    if (!provider) return json(res, { status: 'error', message: 'Unknown OAuth provider. Please restart sign-in from the app.' }, 400);
     const key = uuid + ':' + provider;
     const flow = deviceFlows[key];
     if (!flow) return json(res, { status: 'error', message: 'No pending flow. Click the button again.' });
@@ -2165,14 +2183,18 @@ async function handleEmailDevicePoll(req, res, params, paths, uuid) {
                     device_code: flow.device_code,
                     grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }).toString());
         }
-    } catch (e) { return json(res, { status: 'error', message: e.message }); }
+    } catch (e) {
+        logOAuthFailure(`${provider || 'unknown'} device token exchange failed`, e);
+        return json(res, { status: 'error', message: 'Token exchange failed. Please restart sign-in from the app.' });
+    }
 
     if (tokens.error === 'authorization_pending' || tokens.error === 'slow_down') {
         return json(res, { status: 'pending' });
     }
     if (tokens.error) {
         delete deviceFlows[key];
-        return json(res, { status: 'error', message: tokens.error_description || tokens.error });
+        logOAuthFailure(`${provider || 'unknown'} device authorization rejected`, tokens.error_description || tokens.error);
+        return json(res, { status: 'error', message: 'Authorization failed. Please restart sign-in from the app.' });
     }
 
     // Got tokens — save and import
@@ -2335,13 +2357,15 @@ async function handleOAuthCallback(req, res) {
                 grant_type: 'authorization_code',
             }).toString());
     } catch (e) {
+        logOAuthFailure('redirect token exchange failed', e);
         res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Token exchange failed: ' + e.message); return;
+        res.end('Token exchange failed. Please retry from the app.'); return;
     }
 
     if (tokens.error) {
+        logOAuthFailure('redirect authorization rejected', tokens.error_description || tokens.error);
         res.writeHead(400, { 'Content-Type': 'text/plain' });
-        res.end('Google error: ' + (tokens.error_description || tokens.error)); return;
+        res.end('Google authorization failed. Please retry from the app.'); return;
     }
 
     // Get email address
