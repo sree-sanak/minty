@@ -89,7 +89,7 @@
     "hermes:doctor": "node scripts/hermes-doctor.js"
   },
   "dependencies": {
-    "@sentry/node": "^10.51.0",
+    "@sentry/node": "^10.52.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "telegram": "^2.26.22",
