@@ -9,6 +9,7 @@
 'use strict';
 
 const { canonicalSafeSource, parseSafeTimestamp } = require('./source-events');
+const { isNonPersonRecord, isPersonContact } = require('./person-contact');
 
 const TOPIC_PATTERNS = Object.freeze([
     { topic: 'defi', regex: /\b(defi|decentralized finance)\b/i },
@@ -57,7 +58,7 @@ function validateEvidencePatch(patch) {
 }
 
 function extractEvidencePatchesFromEvent(event) {
-    if (!event || typeof event !== 'object' || !event.contactId) return [];
+    if (!event || typeof event !== 'object' || !event.contactId || isNonPersonRecord(event)) return [];
     const source = canonicalSafeSource(event.source);
     const raw = [event.text, event.body, event.subject, event.summary, event.topic, event.topics]
         .flat()
@@ -76,7 +77,7 @@ function extractEvidencePatchesFromEvent(event) {
 
 function applyEvidencePatches({ contacts = [], patches = [] } = {}) {
     const allowedContacts = new Set((Array.isArray(contacts) ? contacts : [])
-        .filter(c => c && c.id && !c.isGroup)
+        .filter(isPersonContact)
         .map(c => c.id));
     const out = Object.create(null);
     for (const patch of Array.isArray(patches) ? patches : []) {

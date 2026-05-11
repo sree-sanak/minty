@@ -46,6 +46,26 @@ test('rejects invalid, orphan, group, and arbitrary-topic evidence patches', () 
     assert.deepEqual(Object.keys(applied), []);
 });
 
+test('rejects channel, broadcast, and mailing-list evidence targets and events', () => {
+    const contacts = [
+        { id: 'person' },
+        { id: 'channel', isChannel: true },
+        { id: 'broadcast', isBroadcast: true },
+        { id: 'list', type: 'distribution_list' },
+        { id: 'nested', sources: { whatsapp: { chatType: 'channel', id: 'team@newsletter' } } },
+        { id: 'jid', jid: 'team@g.us' },
+        { id: 'slack-channel', sources: { slack: { source: 'slack', channelId: 'C123TEAM' } } },
+    ];
+    const patches = contacts.slice(1).map(c => ({ contactId: c.id, topic: 'defi', source: 'telegram' }));
+
+    const applied = applyEvidencePatches({ contacts, patches });
+
+    assert.deepEqual(Object.keys(applied), []);
+    assert.deepEqual(extractEvidencePatchesFromEvent({ contactId: 'person', isChannel: true, text: 'DeFi custody' }), []);
+    assert.deepEqual(extractEvidencePatchesFromEvent({ contactId: 'person', threadType: 'mailing_list', text: 'DeFi custody' }), []);
+    assert.deepEqual(extractEvidencePatchesFromEvent({ contactId: 'person', source: 'slack', channelId: 'C123TEAM', text: 'DeFi custody' }), []);
+});
+
 test('applies structured patches into compact contact evidence summaries', () => {
     const contacts = [{ id: 'c1' }];
     const patches = [
