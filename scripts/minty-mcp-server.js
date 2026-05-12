@@ -15,6 +15,7 @@
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { canonicalSafeSource } = require('../crm/source-events');
 const { buildAgentSourceHealth, canonicalSource } = require('../crm/agent-source-health');
+const { buildMeetingPrep } = require('../crm/meeting-prep');
 const { redactDirectContactDetails, agentSafetyEnvelope } = require('../crm/privacy-envelope');
 const { resolveDataDir, loadData } = require('./agent-query');
 
@@ -88,6 +89,20 @@ const TOOLS = [
             },
         },
     },
+    {
+        name: 'meeting_prep',
+        description:
+            'Prepare a privacy-safe brief for an upcoming calendar meeting. ' +
+            'Returns opaque refs, attendee relationship context, citations, freshness, and safety metadata. ' +
+            'Read-only — no calendar changes, messages, or outreach.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                horizonHours: { type: 'number', description: 'Look ahead this many hours for an upcoming meeting (default 48, max 168)' },
+                person: { type: 'string', description: 'Optional attendee/person name selector' },
+            },
+        },
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -98,6 +113,13 @@ function clampLimit(value, fallback = 10) {
     const n = Number(value);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(1, Math.min(50, Math.floor(n)));
+}
+
+function clampHorizonHours(value, fallback = 48) {
+    if (value == null) return fallback;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(168, Math.floor(n)));
 }
 
 function inferSourcesFromQuery(query) {
@@ -419,6 +441,29 @@ function executeTool(name, args, data) {
                 now: data.nowForTests,
             },
         );
+        return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
+    }
+
+    if (name === 'meeting_prep') {
+        const calendarState = syncState.calendar && typeof syncState.calendar === 'object' && !Array.isArray(syncState.calendar)
+            ? syncState.calendar
+            : {};
+        const meetings = Array.isArray(calendarState.upcomingMeetings) ? calendarState.upcomingMeetings : [];
+        const calendarLastSyncAt = calendarState.lastSyncAt || calendarState.lastSyncedAt || calendarState.updatedAt || calendarState.lastSync || null;
+        const envelope = buildMeetingPrep(meetings, {
+            now: nowForTests,
+            horizonHours: clampHorizonHours(args.horizonHours, 48),
+            person: typeof args.person === 'string' ? args.person.trim() : undefined,
+            calendarLastSyncAt,
+            calendarStatus: calendarState.status || 'unknown',
+            sourceHealth: {
+                status: calendarState.status || 'unknown',
+                stale: typeof calendarState.stale === 'boolean' ? calendarState.stale : true,
+                lastSyncAt: calendarLastSyncAt,
+                evidenceBearing: typeof calendarState.evidenceBearing === 'boolean' ? calendarState.evidenceBearing : false,
+                answerable: typeof calendarState.answerable === 'boolean' ? calendarState.answerable : false,
+            },
+        });
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
     }
 

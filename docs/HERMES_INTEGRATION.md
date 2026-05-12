@@ -132,6 +132,10 @@ Returns top people, why each matters, next steps, and data freshness metadata.
 Source readiness preflight. Input: `{ source?, sources?, query? }`.
 Returns redacted source rows with freshness, counts, evidence coverage, warnings, and safe next-step commands. Use it before source-specific questions like "who did I talk to on Telegram?" and when a query returns low evidence. Never answer source-specific relationship questions from vibes.
 
+### meeting_prep
+Upcoming-meeting prep. Input: `{ horizonHours?, person? }`.
+Returns the next matched calendar meeting with opaque `eventRef`, redacted attendee relationship context, citations, freshness, and safety metadata. It requires fresh Calendar sync state plus `MINTY_REF_SECRET` or `MINTY_MCP_REF_SECRET` for opaque refs. It never exposes raw event ids, attendee emails, join links, descriptions, locations, or contact ids, and it never mutates Calendar or sends outreach.
+
 ## Agent surface maintenance contract
 
 `scripts/minty-mcp-server.js` is the source of truth for MCP tools. Any PR that adds, removes, or renames a tool must update all four places in the same change:

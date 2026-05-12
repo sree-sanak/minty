@@ -29,7 +29,7 @@ function assertDocContainsAll(docText, relPath, requiredTerms) {
 
 test('[AgentSurfaceDocs]: Hermes docs and skill mention every MCP tool', () => {
     const toolNames = TOOLS.map(tool => tool.name).sort();
-    assert.deepEqual(toolNames, ['person_context', 'search_network', 'source_health', 'workflow_brief']);
+    assert.deepEqual(toolNames, ['meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
 
     for (const relPath of DOC_PATHS) {
         const doc = readDoc(relPath);

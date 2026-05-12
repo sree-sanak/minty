@@ -80,6 +80,41 @@ function loadData(dataDir) {
             for (const key of ['lastSyncAt', 'lastSyncedAt', 'updatedAt', 'lastSync', 'status']) {
                 if (typeof state[key] === 'string' && state[key].length <= 128) row[key] = state[key];
             }
+            if (source === 'calendar') {
+                for (const key of ['stale', 'evidenceBearing', 'answerable']) {
+                    if (typeof state[key] === 'boolean') row[key] = state[key];
+                }
+                for (const key of ['lastError', 'reason']) {
+                    if (typeof state[key] === 'string' && state[key].length <= 256) row[key] = state[key];
+                }
+            }
+            if (source === 'calendar' && Array.isArray(state.upcomingMeetings)) {
+                row.upcomingMeetings = state.upcomingMeetings
+                    .filter(m => m && typeof m === 'object' && !Array.isArray(m))
+                    .slice(0, 50)
+                    .map(m => ({
+                        id: typeof m.id === 'string' ? m.id : null,
+                        title: typeof m.title === 'string' ? m.title : null,
+                        startAt: typeof m.startAt === 'string' ? m.startAt : null,
+                        endAt: typeof m.endAt === 'string' ? m.endAt : null,
+                        location: typeof m.location === 'string' ? m.location : null,
+                        attendees: Array.isArray(m.attendees) ? m.attendees.slice(0, 25).map(a => ({
+                            email: typeof a?.email === 'string' ? a.email : null,
+                            displayName: typeof a?.displayName === 'string' ? a.displayName : null,
+                            name: typeof a?.name === 'string' ? a.name : null,
+                            contactId: typeof a?.contactId === 'string' ? a.contactId : null,
+                            relationshipScore: Number.isFinite(Number(a?.relationshipScore)) ? Number(a.relationshipScore) : null,
+                            daysSinceContact: Number.isFinite(Number(a?.daysSinceContact)) ? Number(a.daysSinceContact) : null,
+                            topics: Array.isArray(a?.topics) ? a.topics.filter(t => typeof t === 'string').slice(0, 5) : [],
+                            openLoops: Array.isArray(a?.openLoops) ? a.openLoops.filter(t => typeof t === 'string').slice(0, 5) : [],
+                            meetingBrief: typeof a?.meetingBrief === 'string' ? a.meetingBrief : null,
+                            responseStatus: typeof a?.responseStatus === 'string' ? a.responseStatus : null,
+                            lastInteractionAt: typeof a?.lastInteractionAt === 'string' ? a.lastInteractionAt : null,
+                            updatedAt: typeof a?.updatedAt === 'string' ? a.updatedAt : null,
+                            analyzedAt: typeof a?.analyzedAt === 'string' ? a.analyzedAt : null,
+                        })) : [],
+                    }));
+            }
             if (Object.keys(row).length) out[source] = row;
         }
         return out;
