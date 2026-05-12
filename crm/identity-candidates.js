@@ -7,6 +7,8 @@
 
 'use strict';
 
+const { isPersonContact } = require('./person-contact');
+
 const GENERIC_ORG_TOKENS = new Set(['labs', 'lab', 'inc', 'ltd', 'llc', 'limited', 'company', 'group', 'capital', 'ventures', 'founder', 'ceo', 'cto']);
 
 function normalize(value) {
@@ -113,7 +115,7 @@ function fuzzyCandidates(contacts, out) {
 }
 
 function proposeIdentityCandidates(contacts = []) {
-    const safe = (Array.isArray(contacts) ? contacts : []).filter(c => c && c.id && !c.isGroup);
+    const safe = (Array.isArray(contacts) ? contacts : []).filter(isPersonContact);
     const out = new Map();
     exactCandidates(safe, out);
     fuzzyCandidates(safe, out);

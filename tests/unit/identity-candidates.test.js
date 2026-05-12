@@ -43,3 +43,17 @@ test('does not propose group contacts or first-name-only weak guesses', () => {
 
     assert.deepEqual(proposeIdentityCandidates(contacts), []);
 });
+
+test('does not propose channel, broadcast, or mailing-list contacts as people', () => {
+    const contacts = [
+        { id: 'person', name: 'Morgan Founder', emails: ['morgan@example.test'], company: 'Mintara Labs' },
+        { id: 'channel', name: 'Morgan Founder', emails: ['morgan@example.test'], company: 'Mintara Labs', isChannel: true },
+        { id: 'broadcast', name: 'Morgan Founder', phone: '+15550001111', isBroadcast: true },
+        { id: 'list', name: 'Morgan Founder', sources: { email: { email: 'morgan@example.test' } }, type: 'mailing_list' },
+        { id: 'nested', name: 'Morgan Founder', sources: { whatsapp: { chatType: 'channel', id: 'minty-newsletter@newsletter' } } },
+        { id: 'jid', name: 'Morgan Founder', company: 'Mintara Labs', jid: 'minty@g.us' },
+        { id: 'slack-channel', name: 'Morgan Founder', company: 'Mintara Labs', sources: { slack: { source: 'slack', channelId: 'C123TEAM' } } },
+    ];
+
+    assert.deepEqual(proposeIdentityCandidates(contacts), []);
+});
