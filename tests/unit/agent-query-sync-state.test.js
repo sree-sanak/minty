@@ -36,3 +36,70 @@ test('[AgentQuery]: loadData falls back to empty sync state when missing or malf
     fs.writeFileSync(path.join(dir, 'sync-state.json'), '{not-json');
     assert.deepEqual(loadData(dir).syncState, {});
 });
+
+test('[AgentQuery]: loadData preserves bounded calendar meeting prep input', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-calendar-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), []);
+    writeJson(path.join(dir, 'sync-state.json'), {
+        calendar: {
+            lastSyncAt: '2026-04-30T08:55:00Z',
+            status: 'ok',
+            stale: false,
+            evidenceBearing: true,
+            answerable: true,
+            tokenPath: '/secret/google-token.json',
+            upcomingMeetings: [{
+                id: 'raw-event-id-loader-001',
+                title: 'Coffee with Alice',
+                startAt: '2026-04-30T11:00:00Z',
+                endAt: '2026-04-30T11:30:00Z',
+                location: 'Zoom https://meet.private.example/raw',
+                description: 'must-not-load-description',
+                attendees: [{
+                    email: 'alice-private@example.com',
+                    displayName: 'Alice',
+                    contactId: 'raw-contact-id-alice-001',
+                    relationshipScore: 82,
+                    daysSinceContact: 5,
+                    topics: ['EU insurance'],
+                    openLoops: ['Send deck'],
+                    meetingBrief: 'Warm investor contact',
+                    responseStatus: 'accepted',
+                    secretField: 'must-not-load-attendee-secret',
+                }],
+            }],
+        },
+    });
+
+    const calendar = loadData(dir).syncState.calendar;
+
+    assert.equal(calendar.lastSyncAt, '2026-04-30T08:55:00Z');
+    assert.equal(calendar.status, 'ok');
+    assert.equal(calendar.stale, false);
+    assert.equal(calendar.evidenceBearing, true);
+    assert.equal(calendar.answerable, true);
+    assert.equal(Object.hasOwn(calendar, 'tokenPath'), false);
+    assert.equal(calendar.upcomingMeetings.length, 1);
+    assert.deepEqual(calendar.upcomingMeetings[0], {
+        id: 'raw-event-id-loader-001',
+        title: 'Coffee with Alice',
+        startAt: '2026-04-30T11:00:00Z',
+        endAt: '2026-04-30T11:30:00Z',
+        location: 'Zoom https://meet.private.example/raw',
+        attendees: [{
+            email: 'alice-private@example.com',
+            displayName: 'Alice',
+            name: null,
+            contactId: 'raw-contact-id-alice-001',
+            relationshipScore: 82,
+            daysSinceContact: 5,
+            topics: ['EU insurance'],
+            openLoops: ['Send deck'],
+            meetingBrief: 'Warm investor contact',
+            responseStatus: 'accepted',
+            lastInteractionAt: null,
+            updatedAt: null,
+            analyzedAt: null,
+        }],
+    });
+});

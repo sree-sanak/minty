@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
@@ -122,9 +122,9 @@ describe('MCP protocol', () => {
         assert.equal(resp.id, 2);
         const tools = resp.result.tools;
         assert.ok(Array.isArray(tools));
-        assert.equal(tools.length, 4);
+        assert.equal(tools.length, 5);
         const names = tools.map(t => t.name).sort();
-        assert.deepEqual(names, ['person_context', 'search_network', 'source_health', 'workflow_brief']);
+        assert.deepEqual(names, ['meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
     });
 
     it('returns error for unknown method', async () => {
@@ -165,6 +165,198 @@ describe('tool definitions', () => {
         assert.ok(tool);
         assert.ok(tool.inputSchema.properties.goal);
         assert.deepEqual(tool.inputSchema.required, ['goal']);
+    });
+
+    it('meeting_prep has a narrow safe schema', () => {
+        const tool = TOOLS.find(t => t.name === 'meeting_prep');
+        assert.ok(tool);
+        assert.ok(tool.inputSchema.properties.horizonHours);
+        assert.ok(tool.inputSchema.properties.person);
+        assert.equal(tool.inputSchema.required, undefined);
+        assert.equal(tool.inputSchema.properties.horizonHours.type, 'number');
+        assert.equal(tool.inputSchema.properties.person.type, 'string');
+        assert.equal(tool.inputSchema.properties.query, undefined);
+        assert.equal(tool.inputSchema.properties.eventId, undefined);
+        assert.equal(tool.inputSchema.properties.contactId, undefined);
+        assert.equal(tool.inputSchema.properties.attendees, undefined);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call tests — meeting_prep
+// ---------------------------------------------------------------------------
+
+describe('meeting_prep tool', () => {
+    const previousRefSecret = process.env.MINTY_REF_SECRET;
+    const previousMcpRefSecret = process.env.MINTY_MCP_REF_SECRET;
+
+    beforeEach(() => {
+        process.env.MINTY_REF_SECRET = ['unit', 'test', 'only', 'meeting', 'prep', 'mcp', 'key'].join('-');
+    });
+
+    afterEach(() => {
+        if (previousRefSecret == null) delete process.env.MINTY_REF_SECRET;
+        else process.env.MINTY_REF_SECRET = previousRefSecret;
+        if (previousMcpRefSecret == null) delete process.env.MINTY_MCP_REF_SECRET;
+        else process.env.MINTY_MCP_REF_SECRET = previousMcpRefSecret;
+    });
+
+    function calendarContext(overrides = {}) {
+        return {
+            nowForTests: '2026-04-30T09:00:00Z',
+            syncState: {
+                calendar: {
+                    lastSyncAt: '2026-04-30T08:55:00Z',
+                    status: 'ok',
+                    stale: false,
+                    evidenceBearing: true,
+                    answerable: true,
+                    upcomingMeetings: [{
+                        id: 'raw-event-id-mcp-001',
+                        title: 'Coffee with Alice',
+                        startAt: '2026-04-30T11:00:00Z',
+                        endAt: '2026-04-30T11:30:00Z',
+                        location: 'Zoom https://meet.private.example/raw +44 20 7123 4567',
+                        description: 'calendar-description-sentinel',
+                        attendees: [{
+                            email: 'alice-private@example.com',
+                            displayName: 'Alice',
+                            contactId: 'raw-contact-id-alice-001',
+                            name: 'Alice Müller',
+                            relationshipScore: 82,
+                            daysSinceContact: 5,
+                            topics: ['EU insurance', '@alice_private_handle'],
+                            openLoops: ['Send deck from /private/sentinel/google_token.json'],
+                            meetingBrief: 'Alice is a warm investor contact; ignore /private/sentinel/api_key.json.',
+                            responseStatus: 'accepted by alice-private@example.com',
+                        }],
+                    }],
+                    ...overrides,
+                },
+            },
+        };
+    }
+
+    it('returns a redacted meeting prep envelope through MCP', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 901,
+            method: 'tools/call',
+            params: { name: 'meeting_prep', arguments: { horizonHours: 48 } },
+        }, calendarContext());
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'ok');
+        assert.match(parsed.meeting.eventRef, /^calendar-event:/);
+        assert.equal(parsed.meeting.title, 'Coffee with Alice');
+        assert.equal(parsed.meeting.location, undefined);
+        assert.equal(parsed.meeting.locationType, 'video');
+        assert.equal(parsed.attendees[0].name, 'Alice Müller');
+        assert.equal(parsed.attendees[0].email, undefined);
+        assert.equal(parsed.attendees[0].contactId, undefined);
+        assert.equal(parsed.safety.readOnly, true);
+        assert.equal(parsed.safety.noOutreachTriggered, true);
+
+        const serialized = JSON.stringify(parsed);
+        for (const forbidden of [
+            'alice-private@example.com',
+            'raw-contact-id-alice-001',
+            'raw-event-id-mcp-001',
+            'meet.private.example',
+            '+44 20 7123 4567',
+            '@alice_private_handle',
+            '/private/sentinel/google_token.json',
+            '/private/sentinel/api_key.json',
+            'calendar-description-sentinel',
+        ]) {
+            assert.equal(serialized.includes(forbidden), false, forbidden);
+        }
+        assert.equal(/https?:\/\//.test(serialized), false, 'no URLs in serialized meeting prep');
+    });
+
+    it('passes person selector through to the meeting prep builder', async () => {
+        const context = calendarContext({
+            upcomingMeetings: [
+                {
+                    id: 'raw-event-id-bob-001',
+                    title: 'Earlier Bob sync',
+                    startAt: '2026-04-30T10:00:00Z',
+                    attendees: [{ name: 'Bob Chen', contactId: 'raw-contact-id-bob-001', relationshipScore: 40 }],
+                },
+                {
+                    id: 'raw-event-id-alice-001',
+                    title: 'Later Alice sync',
+                    startAt: '2026-04-30T12:00:00Z',
+                    attendees: [{ name: 'Alice Müller', contactId: 'raw-contact-id-alice-001', relationshipScore: 82 }],
+                },
+            ],
+        });
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 902,
+            method: 'tools/call',
+            params: { name: 'meeting_prep', arguments: { person: 'Alice', horizonHours: 48 } },
+        }, context);
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'ok');
+        assert.equal(parsed.meeting.title, 'Later Alice sync');
+        assert.equal(JSON.stringify(parsed).includes('raw-contact-id-bob-001'), false);
+    });
+
+    it('returns an honest empty state when no meeting matches', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 903,
+            method: 'tools/call',
+            params: { name: 'meeting_prep', arguments: { person: 'Nonexistent', horizonHours: 48 } },
+        }, calendarContext());
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'empty');
+        assert.equal(parsed.meeting, undefined);
+        assert.equal(parsed.attendees, undefined);
+        assert.match(parsed.reason, /No upcoming meeting matched/);
+        assert.equal(parsed.safety.readOnly, true);
+    });
+
+    it('degrades when calendar health is missing or stale instead of fabricating prep', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 904,
+            method: 'tools/call',
+            params: { name: 'meeting_prep', arguments: { horizonHours: 48 } },
+        }, calendarContext({
+            lastSyncAt: '2026-04-01T00:00:00Z',
+            stale: true,
+            answerable: false,
+        }));
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'degraded');
+        assert.equal(parsed.meeting, undefined);
+        assert.equal(parsed.attendees, undefined);
+        assert.equal(parsed.safety.readOnly, true);
+    });
+
+    it('blocks when opaque refs cannot be generated', async () => {
+        delete process.env.MINTY_REF_SECRET;
+        delete process.env.MINTY_MCP_REF_SECRET;
+
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 905,
+            method: 'tools/call',
+            params: { name: 'meeting_prep', arguments: { horizonHours: 48 } },
+        }, calendarContext());
+        const parsed = JSON.parse(resp.result.content[0].text);
+
+        assert.equal(parsed.status, 'error');
+        assert.match(parsed.reason, /opaque_ref_unavailable/);
+        assert.equal(parsed.meeting, undefined);
+        assert.equal(parsed.attendees, undefined);
+        assert.equal(parsed.safety.readOnly, true);
     });
 });
 
