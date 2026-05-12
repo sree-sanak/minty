@@ -4,83 +4,50 @@
 
 **Goal:** Add a read-only `intro_paths` MCP tool so Hermes/OpenClaw can answer “what is my warmest path to this person/company/goal?” with privacy-safe, source-backed network paths.
 
-**Architecture:** Reuse Minty's existing `crm/people-graph.js` `findIntroPaths()` and `crm/agent-retrieval.js` `queryNetwork()` primitives instead of adding a new graph or recommender. Extend the shared agent data loader to include `group-memberships.json`, add a pure `crm/agent-intro-paths.js` envelope builder, expose it from `scripts/minty-mcp-server.js`, and document the workflow in `docs/HERMES_INTEGRATION.md`. The tool returns person names and high-level role/company metadata only; group names, group ids, raw contact ids, emails, phones, message bodies, and source file paths stay out of the MCP envelope.
+**Architecture:** Reuse the existing `crm/people-graph.js` `findIntroPaths()` primitive and current `queryNetwork()` ranking instead of creating a new recommender. First load `group-memberships.json` through the shared agent data loader, then add a pure `crm/agent-intro-paths.js` envelope builder, expose it in `scripts/minty-mcp-server.js`, and update the exact agent-surface docs contract. The MCP envelope returns names plus high-level role/company/warmth metadata only; raw group names, group ids, raw contact ids, emails, phones, message bodies, URLs, source handles, and private paths stay out.
 
-**Tech Stack:** Plain Node.js CommonJS, Node built-in test runner, existing `data/unified/contacts.json`, `interactions.json`, `insights.json`, `contact-evidence.json`, `source-events.json`, `hybrid-index.json`, `group-memberships.json`, `crm/people-graph.js`, `crm/agent-retrieval.js`, `scripts/agent-query.js`, `scripts/minty-mcp-server.js`.
+**Tech Stack:** Plain Node.js CommonJS, Node built-in test runner, `scripts/agent-query.js`, `crm/people-graph.js`, `crm/agent-retrieval.js`, `scripts/minty-mcp-server.js`, `tests/unit/minty-mcp-server.test.js`, `tests/unit/agent-surface-docs.test.js`, `docs/HERMES_INTEGRATION.md`, `hermes/minty-network-memory/SKILL.md`.
 
 ---
 
-## Product framing
+## Current state and verified gap
 
-Minty's current agent surface can find relevant people (`search_network`), explain a known person (`person_context`), summarize a goal (`workflow_brief`), and preflight source trust (`source_health`). Recent work has also tightened privacy envelopes and source-filter behavior. The remaining activation gap is narrower and higher leverage: once Hermes finds a relevant but cold target, it still cannot ask Minty **how to reach them through the user's existing warm network**.
+As of `77edbd6`, Minty exposes five MCP tools: `search_network`, `person_context`, `workflow_brief`, `source_health`, and `meeting_prep`. Retrieval trust work has landed: source-health gating, citations, confidence drivers, freshness, source labels, GBrain export privacy hardening, and meeting-prep MCP privacy all exist. `crm/people-graph.js` already has the warm-path primitive (`findIntroPaths()` over `group-memberships.json`), but Hermes cannot call it directly.
 
-The graph primitive already exists: `crm/people-graph.js` can find warm intermediaries through `group-memberships.json`. This plan exposes that proven primitive as a small MCP workflow. It complements existing plans rather than duplicating them:
-
-- `2026-05-04-agent-goal-actions-mcp.md` can later call intro paths internally, but `intro_paths` should stand alone for ad-hoc Hermes questions like “who can intro me to Maya?” or “what is my path into Stripe?”
-- `2026-05-06-agent-source-health-mcp.md` answers whether a source is fresh and evidence-bearing before relying on it.
-- `2026-05-06-hermes-readiness-doctor.md` answers install/readiness posture.
-- `2026-05-07-memory-refresh-diagnostics.md` answers whether the refresh pipeline completed.
-
-This plan is adapted from the preserved off-branch plan in `3f13729` and updated against current `main`/branch state: `source_health` already exists, `scripts/agent-query.js` already loads sanitized `syncState`, and `tests/unit/minty-mcp-server.test.js` currently asserts exactly four tools: `person_context`, `search_network`, `source_health`, and `workflow_brief`.
+The remaining activation gap is narrow: after `workflow_brief` or `search_network` identifies a relevant but cold target, Hermes still cannot ask Minty **who can warm-intro me and why that path is trustworthy**. This plan updates the older intro-path handoff to current `main`: the MCP tool list must become six tools, the docs drift test must include `intro_paths`, and the plan must preserve the newer privacy/source-trust contract.
 
 ## Success criteria
 
-- MCP `tools/list` includes `intro_paths` beside `search_network`, `person_context`, `workflow_brief`, and `source_health`.
-- `intro_paths({ target: "Maya Target" })` returns redacted paths from warm intermediaries to matched target contacts.
-- `intro_paths({ goal: "warm intro to EU crypto insurance partners" })` first ranks goal-relevant targets, then returns best intro paths into them.
-- Empty states are explicit and honest: `no_group_graph`, `no_target_matches`, `no_goal_targets`, or `no_path` — never fabricated advice.
-- Paths include opaque citation refs, source/provenance labels, group size bucket/count, confidence drivers, and freshness metadata.
-- Serialized tool output never includes raw group names, raw group chat ids, emails, phones, raw contact ids, raw message bodies, token paths, or source file paths.
+- `loadData()` returns object-shaped `groupMemberships` from `data/unified/group-memberships.json` without exposing it in existing query outputs.
+- Pure `buildAgentIntroPaths(args, data)` supports:
+  - `target: "Maya Target"` — find warm paths to named people/company matches.
+  - `goal: "warm intro to EU crypto insurance partners"` — rank goal-relevant targets with `queryNetwork()`, then find paths.
+- MCP `tools/list` includes exactly six tools: `intro_paths`, `meeting_prep`, `person_context`, `search_network`, `source_health`, `workflow_brief`.
+- Tool output includes honest empty states: `missing_input`, `no_group_graph`, `no_target_matches`, `no_goal_targets`, or `no_path`.
+- Each path includes safe target/intermediary summaries, shared-context bucket/count, confidence, confidence drivers, freshness, and opaque citation refs.
+- Serialized output never includes raw group names, group chat ids, raw contact ids, emails, phones, source handles, message bodies, URLs, or private paths.
+- Docs and bundled Hermes skill mention `intro_paths`, and `tests/unit/agent-surface-docs.test.js` remains exact.
 
 ## Non-goals
 
-- Do not send messages, draft outreach, create tasks, mutate contacts, or mark relationship stages.
-- Do not expose exact group names or chat ids. Treat group names as private because they often contain companies, locations, events, or sensitive communities.
-- Do not add a new UI screen, database, dependency, runtime LLM call, or sync path.
-- Do not replace `search_network`, `workflow_brief`, `source_health`, or goal-actions plans; this is a focused path-finding tool.
-- Do not use real Sree data in tests or fixtures.
+- No outreach, message drafting, sending, task creation, contact mutation, Calendar mutation, or CRM stage updates.
+- No UI screen, new database, new dependency, runtime LLM call, external API call, or service scheduler change.
+- No exact group names or chat ids in agent envelopes. Group names are private because they often reveal communities, companies, events, or sensitive context.
+- No real Sree data in tests, fixtures, docs examples, or expected output.
 
 ---
 
 ### Task 1: Load group memberships in the shared agent data loader
 
-**Objective:** Make `loadData()` return object-shaped `groupMemberships` while preserving existing `syncState`, optional `sourceEvents`, and optional `hybridIndex` behavior.
+**Objective:** Make `loadData()` return sanitized object-shaped `groupMemberships` for MCP tools while preserving existing source-events, hybrid-index, and calendar sync-state behavior.
 
 **Files:**
-- Modify: `scripts/agent-query.js:48-104`
-- Modify or create: `tests/unit/agent-query.test.js`
+- Modify: `scripts/agent-query.js`
+- Create: `tests/unit/agent-query.test.js`
 
 **Step 1: Write failing test**
 
-Create `tests/unit/agent-query.test.js` if it does not exist; if it already exists, append the tests below and preserve its current imports/helpers.
-
-```js
-test('[AgentQuery]: loadData loads group memberships for intro path tools', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-'));
-    writeJson(path.join(dir, 'unified', 'contacts.json'), [{ id: 'c_1', name: 'Alice' }]);
-    writeJson(path.join(dir, 'unified', 'group-memberships.json'), {
-        g_private: { chatId: 'g_private', name: 'Private Group', size: 3, members: ['c_1'] },
-    });
-    writeJson(path.join(dir, 'sync-state.json'), { telegram: { lastSyncAt: '2026-05-06T07:00:00Z', tokenPath: '/secret/token.json' } });
-
-    const data = loadData(dir);
-
-    assert.deepEqual(Object.keys(data.groupMemberships), ['g_private']);
-    assert.equal(data.groupMemberships.g_private.size, 3);
-    assert.equal(data.syncState.telegram.lastSyncAt, '2026-05-06T07:00:00Z', 'must preserve existing syncState loader behavior');
-    assert.equal(Object.hasOwn(data.syncState.telegram, 'tokenPath'), false, 'syncState remains sanitized');
-});
-
-test('[AgentQuery]: loadData rejects malformed group memberships', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-'));
-    writeJson(path.join(dir, 'unified', 'contacts.json'), []);
-    writeJson(path.join(dir, 'unified', 'group-memberships.json'), []);
-
-    assert.deepEqual(loadData(dir).groupMemberships, {});
-});
-```
-
-If the file is new, include:
+Create `tests/unit/agent-query.test.js`:
 
 ```js
 'use strict';
@@ -97,6 +64,38 @@ function writeJson(file, value) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
+
+test('[AgentQuery]: loadData loads group memberships for intro path tools', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), [{ id: 'c_1', name: 'Alice' }]);
+    writeJson(path.join(dir, 'unified', 'group-memberships.json'), {
+        g_private: { chatId: 'g_private', name: 'Private Group', size: 3, members: ['c_1'] },
+    });
+    writeJson(path.join(dir, 'sync-state.json'), {
+        calendar: {
+            lastSyncAt: '2026-05-06T07:00:00Z',
+            stale: false,
+            upcomingMeetings: [{ id: 'event-1', title: 'Safe loader test', attendees: [] }],
+            tokenPath: '/private/token.json',
+        },
+    });
+
+    const data = loadData(dir);
+
+    assert.deepEqual(Object.keys(data.groupMemberships), ['g_private']);
+    assert.equal(data.groupMemberships.g_private.size, 3);
+    assert.equal(data.syncState.calendar.lastSyncAt, '2026-05-06T07:00:00Z');
+    assert.equal(data.syncState.calendar.upcomingMeetings[0].id, 'event-1', 'must preserve meeting_prep loader behavior');
+    assert.equal(Object.hasOwn(data.syncState.calendar, 'tokenPath'), false, 'syncState remains sanitized');
+});
+
+test('[AgentQuery]: loadData rejects malformed group memberships', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), []);
+    writeJson(path.join(dir, 'unified', 'group-memberships.json'), []);
+
+    assert.deepEqual(loadData(dir).groupMemberships, {});
+});
 ```
 
 **Step 2: Run test to verify failure**
@@ -111,7 +110,9 @@ Expected: FAIL because `groupMemberships` is not loaded yet.
 
 **Step 3: Write minimal implementation**
 
-In `scripts/agent-query.js`, update the `loadData()` return JSDoc to include `groupMemberships: object`. Then make `group-memberships.json` an object-shaped file alongside `insights.json` and `contact-evidence.json`:
+In `scripts/agent-query.js`, update the JSDoc return shape to include `groupMemberships: object`.
+
+Then update `fallbackFor()` and object-file validation:
 
 ```js
 function fallbackFor(file, missing = false) {
@@ -136,7 +137,7 @@ function loadJson(file) {
 }
 ```
 
-Add the return field without removing `syncState`:
+Add the return field without removing existing fields:
 
 ```js
 groupMemberships: loadJson('group-memberships.json'),
@@ -184,8 +185,9 @@ const { buildAgentIntroPaths } = require('../../crm/agent-intro-paths');
 const contacts = [
     {
         id: 'c_target', name: 'Maya Target', relationshipScore: 12, daysSinceContact: 400,
-        sources: { linkedin: { company: 'TargetCo', position: 'Partner' } },
+        sources: { linkedin: { company: 'TargetCo', position: 'Partner', publicIdentifier: 'raw-handle' } },
         groupMemberships: [{ chatId: 'g_seed', chatName: 'Secret Seed Group' }],
+        emails: ['maya@example.com'], phones: ['+15550001111'],
     },
     {
         id: 'c_warm', name: 'Priya Warm', relationshipScore: 86, daysSinceContact: 4,
@@ -196,6 +198,13 @@ const contacts = [
 const groupMemberships = {
     g_seed: { chatId: 'g_seed', name: 'Secret Seed Group', size: 4, members: ['c_target', 'c_warm'], updatedAt: '2026-05-01T10:00:00Z' },
 };
+
+function assertNoPrivateGraphFields(out) {
+    const serialized = JSON.stringify(out);
+    for (const forbidden of ['Secret Seed Group', 'g_seed', 'c_target', 'c_warm', 'maya@example.com', '+15550001111', 'raw-handle']) {
+        assert.equal(serialized.includes(forbidden), false, forbidden);
+    }
+}
 
 test('[AgentIntroPaths]: returns redacted path for named target', () => {
     const out = buildAgentIntroPaths({ target: 'Maya Target' }, { contacts, groupMemberships, now: '2026-05-03T12:00:00Z' });
@@ -208,26 +217,58 @@ test('[AgentIntroPaths]: returns redacted path for named target', () => {
     assert.equal(out.paths[0].sharedContext.label, 'small shared group');
     assert.equal(out.paths[0].sharedContext.groupSize, 4);
     assert.equal(out.paths[0].citations[0].source, 'group-memberships');
+    assert.deepEqual(out.paths[0].confidenceDrivers, ['warm_intermediary', 'small_shared_group']);
     assert.equal(out.safety.groupNamesOmitted, true);
-
-    const serialized = JSON.stringify(out);
-    assert.equal(serialized.includes('Secret Seed Group'), false);
-    assert.equal(serialized.includes('g_seed'), false);
-    assert.equal(serialized.includes('c_target'), false);
+    assertNoPrivateGraphFields(out);
 });
 
 test('[AgentIntroPaths]: returns honest empty state when no group graph exists', () => {
     const out = buildAgentIntroPaths({ target: 'Maya Target' }, { contacts, groupMemberships: {} });
     assert.equal(out.status, 'no_group_graph');
     assert.deepEqual(out.paths, []);
+    assert.equal(out.emptyState.reason, 'No local group co-membership graph is available.');
 });
 
 test('[AgentIntroPaths]: supports goal mode through ranked target candidates', () => {
-    const out = buildAgentIntroPaths({ goal: 'intro to TargetCo partner' }, { contacts, groupMemberships, limit: 3 });
+    const out = buildAgentIntroPaths({ goal: 'intro to TargetCo partner' }, {
+        contacts,
+        groupMemberships,
+        insights: {},
+        interactions: [],
+        contactEvidence: {},
+        sourceEvents: [],
+        hybridIndex: [],
+        limit: 3,
+    });
 
     assert.equal(out.status, 'ok');
     assert.equal(out.mode, 'goal');
     assert.equal(out.paths[0].target.company, 'TargetCo');
+    assertNoPrivateGraphFields(out);
+});
+
+test('[AgentIntroPaths]: requires target or goal', () => {
+    const out = buildAgentIntroPaths({}, { contacts, groupMemberships });
+    assert.equal(out.status, 'missing_input');
+    assert.deepEqual(out.paths, []);
+});
+
+// If callers provide both fields, the explicit target wins so Hermes can refine a
+// broad goal without accidentally switching modes.
+test('[AgentIntroPaths]: target takes precedence over goal', () => {
+    const out = buildAgentIntroPaths({ target: 'Maya Target', goal: 'unrelated goal' }, {
+        contacts,
+        groupMemberships,
+        insights: {},
+        interactions: [],
+        contactEvidence: {},
+        sourceEvents: [],
+        hybridIndex: [],
+    });
+    assert.equal(out.status, 'ok');
+    assert.equal(out.mode, 'target');
+    assert.equal(out.paths[0].target.name, 'Maya Target');
+    assertNoPrivateGraphFields(out);
 });
 ```
 
@@ -243,7 +284,7 @@ Expected: FAIL — `Cannot find module '../../crm/agent-intro-paths'`.
 
 **Step 3: Write minimal implementation**
 
-Create `crm/agent-intro-paths.js`. Keep the implementation pure and deterministic. The core shape should be:
+Create `crm/agent-intro-paths.js`:
 
 ```js
 'use strict';
@@ -253,33 +294,56 @@ const { queryNetwork, warmthLabel } = require('./agent-retrieval');
 const { findIntroPaths } = require('./people-graph');
 
 function opaqueRef(...parts) {
-    return 'ref_' + crypto.createHash('sha256').update(parts.filter(Boolean).join(':')).digest('hex').slice(0, 12);
+    return 'intro:' + crypto.createHash('sha256').update(parts.filter(Boolean).join(':')).digest('hex').slice(0, 12);
 }
-
 function titleOf(contact) {
     return contact.apollo?.headline || contact.sources?.linkedin?.position || contact.sources?.googleContacts?.title || null;
 }
-
 function companyOf(contact) {
     return contact.sources?.linkedin?.company || contact.sources?.googleContacts?.org || null;
 }
-
 function safePerson(contact) {
     return {
         name: contact.name || 'Unknown person',
         title: titleOf(contact),
         company: companyOf(contact),
-        warmth: warmthLabel(contact.relationshipScore || 0),
+        warmth: warmthLabel(Number(contact.relationshipScore) || 0),
         relationshipScore: Number(contact.relationshipScore) || 0,
         daysSinceContact: Number.isFinite(Number(contact.daysSinceContact)) ? Number(contact.daysSinceContact) : null,
     };
 }
-
 function sharedContext(group) {
     const size = Math.max(0, Number(group && group.size) || 0);
     return { label: size > 25 ? 'shared community' : 'small shared group', groupSize: size };
 }
-
+function confidenceDrivers(intermediary, group) {
+    const drivers = [];
+    if ((Number(intermediary.relationshipScore) || 0) >= 70) drivers.push('warm_intermediary');
+    if ((Number(group && group.size) || 0) > 0 && (Number(group && group.size) || 0) <= 25) drivers.push('small_shared_group');
+    return drivers.length ? drivers : ['shared_group_evidence'];
+}
+function targetMatches(target, contacts, limit) {
+    const q = String(target || '').trim().toLowerCase();
+    if (!q) return [];
+    return contacts.filter(c => {
+        const haystack = [c.name, titleOf(c), companyOf(c), c.apollo?.headline].filter(Boolean).join(' ').toLowerCase();
+        return haystack.includes(q);
+    }).slice(0, limit);
+}
+function rankedGoalTargets(goal, data, limit) {
+    const result = queryNetwork(goal, {
+        contacts: data.contacts,
+        insights: data.insights || {},
+        interactions: data.interactions || [],
+        contactEvidence: data.contactEvidence || {},
+        sourceEvents: data.sourceEvents,
+        hybridIndex: data.hybridIndex,
+        syncState: data.syncState || {},
+        limit: Math.max(limit * 3, 10),
+    });
+    const byName = new Map(data.contacts.map(c => [String(c.name || '').toLowerCase(), c]));
+    return result.results.map(r => byName.get(String(r.name || '').toLowerCase())).filter(Boolean).slice(0, limit);
+}
 function pathToEnvelope(target, path, contactById, now) {
     const intermediary = contactById.get(path.intermediaryId) || { name: path.intermediaryName, relationshipScore: path.intermediaryScore };
     const group = (path.sharedGroupsWithTarget || [])[0] || {};
@@ -289,27 +353,70 @@ function pathToEnvelope(target, path, contactById, now) {
         sharedContext: sharedContext(group),
         pathScore: path.pathScore,
         confidence: path.pathScore >= 30 ? 'high' : path.pathScore >= 10 ? 'medium' : 'low',
+        confidenceDrivers: confidenceDrivers(intermediary, group),
+        freshness: {
+            targetDaysSinceContact: Number.isFinite(Number(target.daysSinceContact)) ? Number(target.daysSinceContact) : null,
+            intermediaryDaysSinceContact: Number.isFinite(Number(intermediary.daysSinceContact)) ? Number(intermediary.daysSinceContact) : null,
+        },
         citations: [{
             ref: opaqueRef(target.name, intermediary.name, String(group.size || 0)),
             source: 'group-memberships',
             field: 'co_membership',
-            provenance: 'local_group_roster',
+            provenance: 'local-group-roster',
             groupSize: Number(group.size) || 0,
-            generatedAt: now,
+            observedAt: now || null,
         }],
     };
 }
-```
+function empty(status, reason) {
+    return {
+        status,
+        paths: [],
+        emptyState: { reason },
+        safety: safetyEnvelope(),
+    };
+}
+function safetyEnvelope() {
+    return {
+        readOnly: true,
+        noOutreachTriggered: true,
+        contactDetailsOmitted: true,
+        rawContactIdsOmitted: true,
+        groupNamesOmitted: true,
+        groupIdsOmitted: true,
+        rawMessagesOmitted: true,
+    };
+}
+function buildAgentIntroPaths(args = {}, data = {}) {
+    const contacts = Array.isArray(data.contacts) ? data.contacts.filter(c => c && !c.isGroup) : [];
+    const groupMemberships = data.groupMemberships && typeof data.groupMemberships === 'object' && !Array.isArray(data.groupMemberships) ? data.groupMemberships : {};
+    const limit = Math.max(1, Math.min(10, Number(args.limit || data.limit || 5)));
+    const now = data.now || new Date().toISOString();
+    if (!args.target && !args.goal) return empty('missing_input', 'Provide target or goal.');
+    if (!Object.keys(groupMemberships).length) return empty('no_group_graph', 'No local group co-membership graph is available.');
 
-Then implement:
+    const useGoal = !args.target && Boolean(args.goal);
+    const targets = useGoal ? rankedGoalTargets(String(args.goal), { ...data, contacts }, limit) : targetMatches(String(args.target), contacts, limit);
+    if (!targets.length) return empty(useGoal ? 'no_goal_targets' : 'no_target_matches', 'No source-backed target contacts matched.');
 
-- `targetMatches(target, contacts, limit)` by matching lowercased target text against name/title/company/headline fields, not raw ids.
-- `rankedGoalTargets(goal, data, limit)` by calling `queryNetwork(goal, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, limit: Math.max(limit * 3, 10) })`, mapping result names back to contacts, and keeping relevant targets. Do not require cold-only targets at first; warm paths can still be useful, and tests should not depend on hidden relationship thresholds.
-- `buildAgentIntroPaths(args, data)` with `status`, `mode`, `paths`, `emptyState` when applicable, and a `safety` object asserting read-only/no outreach/contact details omitted/group names omitted/group ids omitted/raw messages omitted.
+    const contactById = new Map(contacts.map(c => [c.id, c]));
+    const paths = [];
+    for (const target of targets) {
+        const rawPaths = findIntroPaths(target.id, contacts, groupMemberships, { maxPaths: limit, maxGroupSize: 200 });
+        for (const p of rawPaths) paths.push(pathToEnvelope(target, p, contactById, now));
+        if (paths.length >= limit) break;
+    }
+    if (!paths.length) return empty('no_path', 'No warm path was found through local group co-membership evidence.');
+    return {
+        status: 'ok',
+        mode: useGoal ? 'goal' : 'target',
+        query: useGoal ? args.goal : args.target,
+        paths: paths.slice(0, limit),
+        diagnostics: { targetsConsidered: targets.length, graphGroupsConsidered: Object.keys(groupMemberships).length },
+        safety: safetyEnvelope(),
+    };
+}
 
-Export:
-
-```js
 module.exports = { buildAgentIntroPaths };
 ```
 
@@ -334,32 +441,47 @@ git commit -m "feat: add agent intro path envelope builder"
 
 ### Task 3: Expose `intro_paths` through MCP
 
-**Objective:** Add the MCP tool definition and execution branch while preserving `source_health` and existing privacy redaction.
+**Objective:** Add the MCP tool definition and execution branch while preserving the existing `meeting_prep`, `source_health`, citations, and privacy redaction contracts.
 
 **Files:**
-- Modify: `scripts/minty-mcp-server.js:15-309`
-- Modify: `tests/unit/minty-mcp-server.test.js:118-128` and append near the tool-call tests
+- Modify: `scripts/minty-mcp-server.js`
+- Modify: `tests/unit/minty-mcp-server.test.js`
 
 **Step 1: Write failing tests**
 
-Update the existing `responds to tools/list with all tool definitions` assertion in `tests/unit/minty-mcp-server.test.js` from current four-tool exactness to five-tool exactness:
+Update the existing `responds to tools/list with all tool definitions` assertion:
 
 ```js
-assert.equal(tools.length, 5);
+assert.equal(tools.length, 6);
 const names = tools.map(t => t.name).sort();
-assert.deepEqual(names, ['intro_paths', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
+assert.deepEqual(names, ['intro_paths', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
 ```
 
-Add focused MCP execution coverage:
+Add focused tool schema coverage near the existing `tool definitions` block:
 
 ```js
-it('[MCP]: intro_paths returns redacted JSON envelope', async () => {
+it('intro_paths has target or goal inputs only', () => {
+    const tool = TOOLS.find(t => t.name === 'intro_paths');
+    assert.ok(tool);
+    assert.ok(tool.inputSchema.properties.target);
+    assert.ok(tool.inputSchema.properties.goal);
+    assert.ok(tool.inputSchema.properties.limit);
+    assert.equal(tool.inputSchema.properties.contactId, undefined);
+    assert.equal(tool.inputSchema.properties.groupId, undefined);
+    assert.equal(tool.inputSchema.required, undefined);
+});
+```
+
+Add MCP execution coverage near the tool-call tests:
+
+```js
+it('[MCP]: intro_paths returns a redacted JSON envelope', async () => {
     const resp = await handleMessage({
         jsonrpc: '2.0', id: 42, method: 'tools/call',
         params: { name: 'intro_paths', arguments: { target: 'Maya Target' } },
     }, {
         contacts: [
-            { id: 'c_target', name: 'Maya Target', relationshipScore: 12, groupMemberships: [{ chatId: 'g_seed', chatName: 'Secret Group' }] },
+            { id: 'c_target', name: 'Maya Target', relationshipScore: 12, groupMemberships: [{ chatId: 'g_seed', chatName: 'Secret Group' }], emails: ['maya@example.com'] },
             { id: 'c_warm', name: 'Priya Warm', relationshipScore: 86, groupMemberships: [{ chatId: 'g_seed', chatName: 'Secret Group' }] },
         ],
         insights: {}, interactions: [], contactEvidence: {}, sourceEvents: [], hybridIndex: [], syncState: {},
@@ -370,9 +492,9 @@ it('[MCP]: intro_paths returns redacted JSON envelope', async () => {
     const out = JSON.parse(text);
     assert.equal(out.status, 'ok');
     assert.equal(out.paths[0].intermediary.name, 'Priya Warm');
-    assert.equal(text.includes('Secret Group'), false);
-    assert.equal(text.includes('g_seed'), false);
-    assert.equal(text.includes('c_target'), false);
+    for (const forbidden of ['Secret Group', 'g_seed', 'c_target', 'c_warm', 'maya@example.com']) {
+        assert.equal(text.includes(forbidden), false, forbidden);
+    }
 });
 ```
 
@@ -406,42 +528,67 @@ Add a tool definition after `workflow_brief` and before `source_health`:
         type: 'object',
         properties: {
             target: { type: 'string', description: 'Target person or company to reach' },
-            goal: { type: 'string', description: 'Goal to rank targets before finding paths' },
+            goal: { type: 'string', description: 'Goal to rank possible targets before finding paths' },
             limit: { type: 'number', description: 'Max paths to return (1-10, default 5)' },
         },
     },
 },
 ```
 
-Inside `executeTool()`, add:
+Inside `executeTool()`, add the shared input extraction near `syncState`:
 
 ```js
 const groupMemberships = (data.groupMemberships && typeof data.groupMemberships === 'object' && !Array.isArray(data.groupMemberships)) ? data.groupMemberships : {};
 ```
 
-Then add before the unknown-tool return:
+Then add this branch before the unknown-tool return:
 
 ```js
 if (name === 'intro_paths') {
-    if ((!args.target || typeof args.target !== 'string' || !args.target.trim()) &&
-        (!args.goal || typeof args.goal !== 'string' || !args.goal.trim())) {
+    const target = typeof args.target === 'string' ? args.target.trim() : '';
+    const goal = typeof args.goal === 'string' ? args.goal.trim() : '';
+    if (!target && !goal) {
         return { isError: true, content: [{ type: 'text', text: 'Missing required argument: target or goal' }] };
     }
     const envelope = buildAgentIntroPaths({
-        target: typeof args.target === 'string' ? args.target.trim() : undefined,
-        goal: typeof args.goal === 'string' ? args.goal.trim() : undefined,
+        target: target || undefined,
+        goal: goal || undefined,
         limit: Math.max(1, Math.min(10, clampLimit(args.limit, 5))),
-    }, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, groupMemberships });
+    }, { contacts, insights, interactions, contactEvidence, sourceEvents, hybridIndex, syncState, groupMemberships, now: nowForTests });
     return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
 }
 ```
 
-**Step 4: Run test to verify pass**
+Add a regression alongside the happy-path MCP execution test proving forwarded `syncState` stays internal:
+
+```js
+it('[MCP]: intro_paths does not echo syncState internals', async () => {
+    const resp = await handleMessage({
+        jsonrpc: '2.0', id: 43, method: 'tools/call',
+        params: { name: 'intro_paths', arguments: { target: 'Maya Target' } },
+    }, {
+        contacts: [
+            { id: 'c_target', name: 'Maya Target', relationshipScore: 12, groupMemberships: [{ chatId: 'g_seed' }] },
+            { id: 'c_warm', name: 'Priya Warm', relationshipScore: 86, groupMemberships: [{ chatId: 'g_seed' }] },
+        ],
+        insights: {}, interactions: [], contactEvidence: {}, sourceEvents: [], hybridIndex: [],
+        syncState: { calendar: { lastSyncAt: '2026-05-01T00:00:00Z', upcomingMeetings: [{ id: 'private-event' }] } },
+        groupMemberships: { g_seed: { chatId: 'g_seed', name: 'Secret Group', size: 3, members: ['c_target', 'c_warm'] } },
+    });
+
+    const text = resp.result.content[0].text;
+    for (const forbidden of ['calendar', 'lastSyncAt', 'private-event', 'upcomingMeetings']) {
+        assert.equal(text.includes(forbidden), false, forbidden);
+    }
+});
+```
+
+**Step 4: Run targeted tests to verify pass**
 
 Run:
 
 ```bash
-node --test tests/unit/minty-mcp-server.test.js
+node --test tests/unit/agent-intro-paths.test.js tests/unit/minty-mcp-server.test.js
 ```
 
 Expected: PASS.
@@ -455,23 +602,101 @@ git commit -m "feat: expose intro paths over MCP"
 
 ---
 
-### Task 4: Add CLI smoke coverage for the MCP tool
+### Task 4: Update Hermes docs, skill, and docs drift contract
 
-**Objective:** Prove the tool works through the stdio MCP path on synthetic demo data.
+**Objective:** Keep the human/Hermes-facing contract exact after adding `intro_paths`.
 
 **Files:**
-- Modify: `package.json:37-89`
+- Modify: `docs/HERMES_INTEGRATION.md`
+- Modify: `hermes/minty-network-memory/SKILL.md`
+- Modify: `tests/unit/agent-surface-docs.test.js`
+
+**Step 1: Write failing docs drift test update**
+
+In `tests/unit/agent-surface-docs.test.js`, update the exact tool list:
+
+```js
+assert.deepEqual(toolNames, ['intro_paths', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
+```
+
+Run:
+
+```bash
+node --test tests/unit/agent-surface-docs.test.js
+```
+
+Expected: FAIL until docs and skill mention `intro_paths`.
+
+**Step 2: Update `docs/HERMES_INTEGRATION.md`**
+
+Add an available-tools section after `workflow_brief` or before `source_health`:
+
+```md
+### intro_paths
+Warm-intro path finder. Input: `{ target?, goal?, limit? }` with at least one of `target` or `goal`.
+Returns privacy-safe paths through local group co-membership evidence: target, intermediary, shared-context size bucket/count, confidence, citations, freshness, diagnostics, and safety metadata. It never returns raw group names, group chat ids, contact ids, emails, phones, source handles, message bodies, URLs, or private paths, and it never sends outreach.
+```
+
+Also update any readiness/tool-list prose so Hermes-native includes `intro_paths` alongside the other five tools.
+
+**Step 3: Update `hermes/minty-network-memory/SKILL.md`**
+
+Add a use-case bullet near the top:
+
+```md
+- **Intro paths** — `intro_paths` when Sree asks who can warm-intro him to a person/company/goal.
+```
+
+Add an available-tools section:
+
+````md
+### intro_paths
+Find warm intro paths to a target person/company or goal through local group co-membership evidence.
+
+```json
+{ "target": "Maya Target", "limit": 3 }
+{ "goal": "warm intro to EU crypto insurance partners", "limit": 3 }
+```
+
+Use this after `workflow_brief` or `search_network` identifies a relevant target but the direct relationship is weak. Treat output as advisory only: no messages are sent, group names/ids and contact details are omitted, and empty states mean Minty has no safe local path evidence.
+````
+
+Because that Markdown section contains a nested JSON fence, the outer example uses a four-backtick fence. Keep that structure if editing this plan.
+
+**Step 4: Run docs contract**
+
+Run:
+
+```bash
+node --test tests/unit/agent-surface-docs.test.js
+```
+
+Expected: PASS.
+
+**Step 5: Commit**
+
+```bash
+git add docs/HERMES_INTEGRATION.md hermes/minty-network-memory/SKILL.md tests/unit/agent-surface-docs.test.js
+git commit -m "docs: document intro paths agent surface"
+```
+
+---
+
+### Task 5: Add an MCP smoke script and package command
+
+**Objective:** Prove `intro_paths` works through the stdio MCP path on synthetic data without requiring real contacts.
+
+**Files:**
+- Modify: `package.json`
 - Create: `scripts/smoke-intro-paths-mcp.js`
 
 **Step 1: Add package script**
 
-In `package.json` scripts, add:
+In `package.json` scripts near `mcp`, add:
 
 ```json
 "mcp:smoke:intro-paths": "node scripts/smoke-intro-paths-mcp.js"
 ```
-
-Place it near the existing `mcp` script.
 
 **Step 2: Create smoke script**
 
@@ -481,43 +706,44 @@ Create `scripts/smoke-intro-paths-mcp.js`:
 #!/usr/bin/env node
 'use strict';
 
-const { spawnSync } = require('node:child_process');
-const path = require('node:path');
+const { handleMessage } = require('./minty-mcp-server');
 
-const root = path.join(__dirname, '..');
-const seed = spawnSync('npm', ['run', 'seed:demo'], { cwd: root, stdio: 'inherit' });
-if (seed.status !== 0) process.exit(seed.status || 1);
+async function main() {
+    const data = {
+        contacts: [
+            { id: 'c_private_alpha', name: 'Demo Target', relationshipScore: 12, groupMemberships: [{ chatId: 'demo_group' }] },
+            { id: 'c_private_beta', name: 'Demo Warm Intro', relationshipScore: 88, groupMemberships: [{ chatId: 'demo_group' }] },
+        ],
+        insights: {},
+        interactions: [],
+        contactEvidence: {},
+        sourceEvents: [],
+        hybridIndex: [],
+        syncState: {},
+        groupMemberships: { demo_group: { chatId: 'demo_group', name: 'Private Demo Group', size: 3, members: ['c_private_alpha', 'c_private_beta'] } },
+    };
+    const resp = await handleMessage({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'intro_paths', arguments: { target: 'Demo Target', limit: 1 } },
+    }, data);
+    const text = resp.result.content[0].text;
+    const parsed = JSON.parse(text);
+    if (parsed.status !== 'ok') throw new Error('intro_paths status was ' + parsed.status);
+    for (const forbidden of ['demo_group', 'Private Demo Group', 'c_private_alpha', 'c_private_beta']) {
+        if (text.includes(forbidden)) throw new Error('MCP smoke leaked private field: ' + forbidden);
+    }
+    console.log('intro_paths MCP smoke passed');
+}
 
-const msg = JSON.stringify({
-    jsonrpc: '2.0', id: 1, method: 'tools/call',
-    params: { name: 'intro_paths', arguments: { goal: 'warm intro to product leaders at Stripe and Linear', limit: 3 } },
-}) + '\n';
-
-const run = spawnSync(process.execPath, ['scripts/minty-mcp-server.js'], {
-    cwd: root,
-    input: msg,
-    encoding: 'utf8',
-    env: { ...process.env, CRM_DATA_DIR: path.join(root, 'data-demo') },
+main().catch(err => {
+    console.error(err.message);
+    process.exit(1);
 });
-if (run.status !== 0) {
-    process.stderr.write(run.stderr || 'MCP server failed');
-    process.exit(run.status || 1);
-}
-const response = JSON.parse(run.stdout.trim().split('\n').filter(Boolean).pop());
-const text = response.result && response.result.content && response.result.content[0] && response.result.content[0].text;
-const envelope = JSON.parse(text);
-if (!['ok', 'no_path', 'no_group_graph', 'no_goal_targets', 'no_target_matches'].includes(envelope.status)) {
-    throw new Error('Unexpected intro_paths status: ' + envelope.status);
-}
-const serialized = JSON.stringify(envelope);
-const leakPatterns = [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i, /\+\d{7,}/, /\b\d+@g\.us\b/i, /Secret/];
-for (const pattern of leakPatterns) {
-    if (pattern.test(serialized)) throw new Error('Potential privacy leak in intro_paths smoke: ' + pattern);
-}
-console.log('intro_paths MCP smoke passed:', envelope.status);
 ```
 
-**Step 3: Run verification**
+**Step 3: Run smoke**
 
 Run:
 
@@ -525,7 +751,7 @@ Run:
 npm run mcp:smoke:intro-paths
 ```
 
-Expected: PASS with `intro_paths MCP smoke passed: ...`.
+Expected: PASS and prints `intro_paths MCP smoke passed`.
 
 **Step 4: Commit**
 
@@ -536,49 +762,23 @@ git commit -m "test: add intro paths MCP smoke"
 
 ---
 
-### Task 5: Document Hermes usage and run final checks
+### Task 6: Full verification
 
-**Objective:** Make the new workflow discoverable without overstating readiness.
+**Objective:** Prove the feature is integrated without widening the agent privacy surface.
 
 **Files:**
-- Modify: `docs/HERMES_INTEGRATION.md:100-117`
-- Modify: `hermes/minty-network-memory/SKILL.md` if it exists and lists exact tools
+- No new files; verification only.
 
-**Step 1: Update docs**
-
-Add this near the MCP tool list:
-
-````md
-### intro_paths
-
-Warm path finder. Input: `{ target?, goal?, limit? }`. Use it when Hermes has a specific target or goal and needs to know how to reach that person/company through the user's existing local network.
-
-Examples:
-
-```json
-{ "target": "Maya Target" }
-{ "goal": "warm intro to EU crypto insurance partners", "limit": 3 }
-```
-
-The tool is read-only. It returns redacted path evidence from local group co-membership: target, intermediary, relationship warmth, group size, opaque citation refs, confidence, and honest empty states. It intentionally omits emails, phones, raw contact ids, raw group names, group chat ids, and message bodies. If the question depends on a specific source being fresh, call `source_health` first.
-````
-
-If `hermes/minty-network-memory/SKILL.md` has an exact tool list, add `intro_paths` there with the same privacy caveat.
-
-**Step 2: Run focused tests**
-
-Run:
+**Step 1: Run targeted checks**
 
 ```bash
-node --test tests/unit/agent-query.test.js tests/unit/agent-intro-paths.test.js tests/unit/minty-mcp-server.test.js
+node --test tests/unit/agent-query.test.js tests/unit/agent-intro-paths.test.js tests/unit/minty-mcp-server.test.js tests/unit/agent-surface-docs.test.js
 npm run mcp:smoke:intro-paths
 ```
 
 Expected: PASS.
 
-**Step 3: Run broad tests**
-
-Run:
+**Step 2: Run full unit suite**
 
 ```bash
 npm test
@@ -586,54 +786,32 @@ npm test
 
 Expected: PASS.
 
-**Step 4: Check markdown and whitespace**
+**Step 3: Run privacy scan over changed output snippets**
 
-Run:
+Run this quick static check against the implementation diff before opening the PR:
 
 ```bash
 git diff --check
-python3 - <<'PY'
-from pathlib import Path
-text = Path('docs/HERMES_INTEGRATION.md').read_text()
-fence = chr(96) * 3
-assert text.count(fence) % 2 == 0, 'unbalanced markdown fences'
-PY
+node -e "const fs=require('fs'); const text=fs.readFileSync('tests/unit/agent-intro-paths.test.js','utf8'); for (const s of ['Secret Seed Group','g_seed','maya@example.com']) if (!text.includes(s)) throw new Error('missing privacy sentinel '+s); console.log('privacy sentinels present')"
 ```
 
-Expected: no output and exit 0.
+Expected: PASS. The sentinels should exist only in tests as forbidden values, not in returned envelopes.
 
-**Step 5: Commit**
+**Step 4: Commit any final fixes**
 
 ```bash
-git add docs/HERMES_INTEGRATION.md hermes/minty-network-memory/SKILL.md
-git commit -m "docs: document intro paths MCP workflow"
+git add crm/agent-intro-paths.js scripts/agent-query.js scripts/minty-mcp-server.js scripts/smoke-intro-paths-mcp.js tests/unit/agent-query.test.js tests/unit/agent-intro-paths.test.js tests/unit/minty-mcp-server.test.js tests/unit/agent-surface-docs.test.js docs/HERMES_INTEGRATION.md hermes/minty-network-memory/SKILL.md package.json
+git commit -m "test: verify intro paths MCP contract"
 ```
 
-If the Hermes skill file did not change, omit it from `git add`.
+Only make this final commit if previous tasks left verification-only fixes. Otherwise skip it and open the PR from the task commits.
 
 ---
 
-## Final verification for the implementer
+## Builder handoff notes
 
-Run after all tasks:
-
-```bash
-git status --short --branch
-node --test tests/unit/agent-query.test.js tests/unit/agent-intro-paths.test.js tests/unit/minty-mcp-server.test.js
-npm run mcp:smoke:intro-paths
-npm test
-git log --oneline -5
-```
-
-Expected: clean worktree except intentional unrelated local work, all tests pass, and commits appear in task order.
-
-## Implementation notes / pitfalls
-
-- `scripts/agent-query.js` currently treats only `insights.json` and `contact-evidence.json` as object files. Add `group-memberships.json` to that object set; do not accidentally force `source-events.json` or `hybrid-index.json` into object shape.
-- Preserve current `syncState` loading and sanitization. This plan must be additive to `source_health`, not a regression.
-- `tests/unit/minty-mcp-server.test.js` currently asserts `tools.length === 4` and exact sorted names. Update it to exactly five names including both `intro_paths` and `source_health`.
-- `findIntroPaths()` returns raw `chatId` and group `name` in `sharedGroupsWithTarget`. The MCP envelope must transform that into `sharedContext` plus opaque citations before serialization.
-- Target matching by raw contact id is intentionally not part of this plan; MCP callers should use names/goals, and the tool should not expose or require raw ids.
-- Goal mode should reuse `queryNetwork()` so it benefits from source filters, contact evidence, source freshness diagnostics, and future citation improvements.
-- If both `target` and `goal` are provided, prefer explicit `target` mode and add a deterministic test documenting that precedence.
-- If another task lands first and adds loader fields, preserve those fields and only add missing behavior.
+- Start from current `main`; do not resurrect older four-tool assertions from preserved branches.
+- Keep the `meeting_prep` tool untouched except for exact tool-list counts.
+- `scripts/agent-query.js` may carry sensitive internal calendar fields for `meeting_prep`; do not expose `syncState` wholesale in `intro_paths` output.
+- `findIntroPaths()` returns group names/ids internally. The new envelope builder must treat those as private implementation evidence and convert them to safe group-size context plus opaque refs.
+- If implementation discovers `group-memberships.json` is not generated in demo data, keep the MCP unit/smoke test synthetic and open a separate source-data issue; do not couple this tool to real WhatsApp data in the first PR.
