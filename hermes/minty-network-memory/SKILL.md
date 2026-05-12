@@ -13,6 +13,7 @@ Call Minty when a Hermes workflow needs private, read-only relationship memory:
 - **Search the network** — `search_network` for people by role, company, source, location, topic, or goal.
 - **Person context** — `person_context` before meetings, follow-ups, introductions, or relationship-sensitive decisions.
 - **Workflow brief** — `workflow_brief` when Sree has a goal and needs the highest-leverage people plus safe next steps.
+- **Goal next actions** — `goal_next_actions` when Sree has active goal pipeline work and needs the next safe follow-up or warm-intro ask without triggering outreach.
 - **Source readiness** — `source_health` before source-specific questions, after low-evidence results, or when freshness matters.
 - **Meeting prep** — `meeting_prep` for source-backed upcoming calendar briefs without exposing raw event, attendee, location, or join-link data.
 
@@ -60,6 +61,13 @@ Generate a goal-first brief. Returns top people, why each matters, data freshnes
 { "goal": "Find EU crypto insurance distribution partners", "limit": 5 }
 ```
 
+### goal_next_actions
+Recommend goal-based next actions. Returns read-only action briefs that prioritize active pipeline follow-ups before new asks, may suggest warm-intro requests from shared group context, and explicitly reports `noOutreachTriggered`.
+
+```json
+{ "goal": "raise seed", "limit": 5 }
+```
+
 ### source_health
 Check which Minty sources are fresh, evidence-bearing, stale, empty, or unsafe before relying on source-specific answers.
 
@@ -81,7 +89,7 @@ Prepare for an upcoming calendar meeting. Returns opaque event/contact refs, red
 
 - **Demo-ready:** `npm run seed:demo`, `npm run mcp`, and `npm run agent -- "investors in London"` work against synthetic data.
 - **Dogfood-ready:** `npm run memory:refresh` succeeds against real local data, `source_health` reports fresh/evidence-bearing sources, and outputs omit direct contact details.
-- **Hermes-native:** this skill is installed and the Minty MCP server is registered, so Hermes can call `search_network`, `person_context`, `workflow_brief`, `source_health`, and `meeting_prep` without shelling into the repo.
+- **Hermes-native:** this skill is installed and the Minty MCP server is registered, so Hermes can call `search_network`, `person_context`, `workflow_brief`, `goal_next_actions`, `source_health`, and `meeting_prep` without shelling into the repo.
 
 Use `npm run hermes:doctor` to inspect readiness before claiming Minty is usable in a Hermes workflow. Use `npm run gbrain:export` only for privacy-safe durable-memory export, not raw contact/message dumps.
 

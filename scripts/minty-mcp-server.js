@@ -16,6 +16,7 @@ const { queryNetwork } = require('../crm/agent-retrieval');
 const { canonicalSafeSource } = require('../crm/source-events');
 const { buildAgentSourceHealth, canonicalSource } = require('../crm/agent-source-health');
 const { buildMeetingPrep } = require('../crm/meeting-prep');
+const { buildAgentGoalActions } = require('../crm/agent-goal-actions');
 const { redactDirectContactDetails, agentSafetyEnvelope } = require('../crm/privacy-envelope');
 const { resolveDataDir, loadData } = require('./agent-query');
 
@@ -86,6 +87,20 @@ const TOOLS = [
                 source: { type: 'string', description: 'Optional source filter, e.g. telegram, email, linkedin, whatsapp, sms, googlecontacts, slack' },
                 sources: { type: 'array', items: { type: 'string' }, description: 'Optional list of source filters.' },
                 query: { type: 'string', description: 'Optional query to infer source filters from diagnostics without returning people.' },
+            },
+        },
+    },
+    {
+        name: 'goal_next_actions',
+        description:
+            'Recommend privacy-safe next actions for active relationship goals. ' +
+            'Prioritizes active pipeline follow-ups before new asks and warm-intro paths. ' +
+            'Read-only — no messages sent, no outreach triggered, no contacts mutated.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                goal: { type: 'string', description: 'Optional goal selector, e.g. "seed"' },
+                limit: { type: 'number', description: 'Max action briefs to return (default 5)' },
             },
         },
     },
@@ -334,6 +349,8 @@ function executeTool(name, args, data) {
     const sourceEvents = Array.isArray(data.sourceEvents) ? data.sourceEvents : undefined;
     const hybridIndex = Array.isArray(data.hybridIndex) ? data.hybridIndex : undefined;
     const syncState = (data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)) ? data.syncState : {};
+    const goals = Array.isArray(data.goals) ? data.goals : [];
+    const groupMemberships = (data.groupMemberships && typeof data.groupMemberships === 'object' && !Array.isArray(data.groupMemberships)) ? data.groupMemberships : {};
     const nowForTests = typeof data.nowForTests === 'string' ? data.nowForTests : undefined;
 
     if (name === 'search_network') {
@@ -439,6 +456,18 @@ function executeTool(name, args, data) {
                 sources: args.sources || inferredSources,
                 querySourceFilter,
                 now: data.nowForTests,
+            },
+        );
+        return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
+    }
+
+    if (name === 'goal_next_actions') {
+        const envelope = buildAgentGoalActions(
+            { goals, contacts, interactions, groupMemberships },
+            {
+                goal: typeof args.goal === 'string' ? args.goal.trim() : undefined,
+                limit: clampLimit(args.limit, 5),
+                now: nowForTests,
             },
         );
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
