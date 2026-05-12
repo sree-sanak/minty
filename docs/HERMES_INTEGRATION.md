@@ -128,6 +128,10 @@ Returns matching contacts with context — no emails/phones.
 Goal-oriented brief. Input: `{ goal, limit? }`.
 Returns top people, why each matters, next steps, and data freshness metadata.
 
+### goal_next_actions
+Goal-action planner. Input: `{ goal?, limit? }`.
+Returns privacy-safe read-only action briefs that prioritize active pipeline follow-ups before new asks, may suggest warm-intro requests from group context, and explicitly reports that no outreach was triggered. It never exposes raw goal ids, contact ids, emails, phones, private message bodies, or side-effect arguments.
+
 ### source_health
 Source readiness preflight. Input: `{ source?, sources?, query? }`.
 Returns redacted source rows with freshness, counts, evidence coverage, warnings, and safe next-step commands. Use it before source-specific questions like "who did I talk to on Telegram?" and when a query returns low evidence. Never answer source-specific relationship questions from vibes.

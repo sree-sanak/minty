@@ -2146,6 +2146,32 @@ describe('agent-query: loadData()', () => {
         assert.deepEqual(data.contactEvidence, contactEvidence);
     });
 
+    it('loads goals and group memberships for agent goal tools', () => {
+        const goals = [{ id: 'raw-goal-id-1', text: 'raise seed', active: true }];
+        const groupMemberships = {
+            'raw-group-id-1@g.us': { name: 'Seed Founders', size: 3, members: ['c1', 'c2'] },
+        };
+        writeUnified('goals.json', goals);
+        writeUnified('group-memberships.json', groupMemberships);
+
+        const data = loadData(tmpDataDir);
+
+        assert.deepEqual(data.goals, goals);
+        assert.deepEqual(data.groupMemberships, groupMemberships);
+    });
+
+    it('falls back safely for missing or malformed agent goal tool data', () => {
+        const unified = path.join(tmpDataDir, 'unified');
+        fs.mkdirSync(unified, { recursive: true });
+        fs.writeFileSync(path.join(unified, 'goals.json'), '{bad');
+        fs.writeFileSync(path.join(unified, 'group-memberships.json'), JSON.stringify([]));
+
+        const data = loadData(tmpDataDir);
+
+        assert.deepEqual(data.goals, []);
+        assert.deepEqual(data.groupMemberships, {});
+    });
+
     it('returns empty array for contacts when file is missing', () => {
         // No unified dir at all
         const data = loadData(tmpDataDir);

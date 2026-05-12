@@ -122,9 +122,9 @@ describe('MCP protocol', () => {
         assert.equal(resp.id, 2);
         const tools = resp.result.tools;
         assert.ok(Array.isArray(tools));
-        assert.equal(tools.length, 5);
+        assert.equal(tools.length, 6);
         const names = tools.map(t => t.name).sort();
-        assert.deepEqual(names, ['meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
+        assert.deepEqual(names, ['goal_next_actions', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
     });
 
     it('returns error for unknown method', async () => {
@@ -179,6 +179,63 @@ describe('tool definitions', () => {
         assert.equal(tool.inputSchema.properties.eventId, undefined);
         assert.equal(tool.inputSchema.properties.contactId, undefined);
         assert.equal(tool.inputSchema.properties.attendees, undefined);
+    });
+
+    it('goal_next_actions has optional goal and limit only', () => {
+        const tool = TOOLS.find(t => t.name === 'goal_next_actions');
+        assert.ok(tool);
+        assert.equal(tool.inputSchema.properties.goal.type, 'string');
+        assert.equal(tool.inputSchema.properties.limit.type, 'number');
+        assert.equal(tool.inputSchema.required, undefined);
+        assert.equal(tool.inputSchema.properties.contactId, undefined);
+        assert.equal(tool.inputSchema.properties.send, undefined);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call tests — goal_next_actions
+// ---------------------------------------------------------------------------
+
+describe('goal_next_actions tool', () => {
+    it('returns redacted read-only goal action briefs through MCP', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 1201,
+            method: 'tools/call',
+            params: { name: 'goal_next_actions', arguments: { goal: 'seed', limit: 2 } },
+        }, {
+            nowForTests: '2026-05-04T09:00:00Z',
+            goals: [{
+                id: 'raw-goal-id-mcp',
+                text: 'raise seed',
+                active: true,
+                assignments: { raw_contact_id_maya: { stage: 'contacted', updatedAt: '2026-04-01T00:00:00Z' } },
+            }],
+            contacts: [{
+                id: 'raw_contact_id_maya',
+                name: 'Maya Partner',
+                emails: ['maya-secret@example.com'],
+                phones: ['raw-phone-555-0101'],
+                relationshipScore: 88,
+                interactionCount: 4,
+                sources: { linkedin: { company: 'Example Capital', position: 'Partner' } },
+            }],
+            interactions: [{ id: 'raw-message-id', contactId: 'raw_contact_id_maya', body: 'raw private body sentinel' }],
+            groupMemberships: {},
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.status, 'ok');
+        assert.equal(parsed.briefs[0].nextAction.type, 'pipeline_follow_up');
+        assert.equal(parsed.safety.readOnly, true);
+        assert.equal(parsed.safety.noOutreachTriggered, true);
+
+        const serialized = JSON.stringify(parsed);
+        assert.equal(serialized.includes('raw-goal-id-mcp'), false);
+        assert.equal(serialized.includes('raw_contact_id_maya'), false);
+        assert.equal(serialized.includes('maya-secret@example.com'), false);
+        assert.equal(serialized.includes('raw-phone-555-0101'), false);
+        assert.equal(serialized.includes('raw private body sentinel'), false);
     });
 });
 

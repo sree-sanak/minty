@@ -52,7 +52,7 @@ function hasContacts(dir) {
  */
 function loadData(dataDir) {
     function fallbackFor(file, missing = false) {
-        if (file === 'insights.json' || file === 'contact-evidence.json') return {};
+        if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'group-memberships.json') return {};
         if (missing && (file === 'source-events.json' || file === 'hybrid-index.json')) return undefined;
         return [];
     }
@@ -61,7 +61,7 @@ function loadData(dataDir) {
         if (!fs.existsSync(p)) return fallbackFor(file, true);
         try {
             const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
-            if (file === 'insights.json' || file === 'contact-evidence.json') {
+            if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'group-memberships.json') {
                 if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallbackFor(file, false);
             } else {
                 if (!Array.isArray(parsed)) return fallbackFor(file, false);
@@ -135,6 +135,8 @@ function loadData(dataDir) {
         contactEvidence: loadJson('contact-evidence.json'),
         sourceEvents: loadJson('source-events.json'),
         hybridIndex: loadJson('hybrid-index.json'),
+        goals: loadJson('goals.json'),
+        groupMemberships: loadJson('group-memberships.json'),
         syncState: loadRootSyncState('sync-state.json'),
     };
 }
