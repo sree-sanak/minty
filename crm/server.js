@@ -24,6 +24,7 @@ const notifications = require('./notifications');
 const userConfig = require('./config');
 const observability = require('./observability');
 const { atomicWriteJsonSync } = require('./utils');
+const { redactPath } = require('./hermes-readiness');
 const { acquireLock } = require('../sources/linkedin/lock');
 
 observability.init();
@@ -1460,10 +1461,10 @@ function handleGetSettings(_req, res) {
     };
     json(res, {
         currentMode: IS_DEMO ? 'demo' : 'real',
-        dataDir: DATA,
+        dataDir: redactPath(DATA),
         persistedMode: readPersistedMode(),
-        demo: { dir: demoDir, ...stat(demoDir) },
-        real: { dir: realDir, ...stat(realDir) },
+        demo: { dir: redactPath(demoDir), ...stat(demoDir) },
+        real: { dir: redactPath(realDir), ...stat(realDir) },
         envOverride: !!(process.env.CRM_DATA_DIR || process.env.MINTY_DEMO),
         runtimeConfig: userConfig.getRedactedConfig(DATA),
         playwrightAvailable: linkedInPlaywrightAvailable(),
@@ -3828,7 +3829,7 @@ const ROUTES = [
     ['POST', /^\/api\/self\/whatsapp$/,                  handleCaptureSelfWhatsapp],
     ['GET',  /^\/api\/meta$/,                            (req, res) => json(res, {
         demo: IS_DEMO,
-        dataDir: DATA,
+        dataDir: redactPath(DATA),
         persistedMode: readPersistedMode(),
         version: require('../package.json').version,
     })],

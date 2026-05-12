@@ -142,6 +142,29 @@ test('malformed interactions.json does not expose raw parser errors on read-only
     });
 });
 
+test('GET /api/meta and /api/settings do not expose absolute local data paths', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-meta-paths-'));
+    seedDataDir(dir, []);
+
+    await withServer(dir, async (base) => {
+        for (const route of ['/api/meta', '/api/settings']) {
+            const res = await fetch(`${base}${route}`);
+            assert.equal(res.status, 200, `${route} should load`);
+            const payload = await res.json();
+            const text = JSON.stringify(payload);
+            assert.equal(text.includes(dir), false, `${route} leaked full temp data dir`);
+            assert.equal(text.includes(path.dirname(dir)), false, `${route} leaked parent data dir`);
+            assert.equal(text.includes('/root/'), false, `${route} leaked root path`);
+            assert.equal(text.includes('/home/'), false, `${route} leaked home path`);
+            assert.match(payload.dataDir, /^…\//, `${route} should expose only redacted basename`);
+            if (route === '/api/settings') {
+                assert.match(payload.demo.dir, /^…\//, 'demo dir should expose only a redacted basename');
+                assert.match(payload.real.dir, /^…\//, 'real dir should expose only a redacted basename');
+            }
+        }
+    });
+});
+
 test('GET /api/export uses stable public error when bundle generation fails', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-export-bad-json-'));
     seedDataDir(dir, []);
