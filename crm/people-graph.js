@@ -139,7 +139,7 @@ function findIntroPaths(targetId, contacts, memberships, opts = {}) {
     for (const [id, entry] of candidates.entries()) {
         const c = contactById.get(id);
         if (!c || !c.name) continue; // skip unnamed anonymous contacts as intro candidates
-        if (c.isGroup) continue;
+        if (c.isGroup || c.isChannel || c.isBroadcast || c.isList || c.isMailingList) continue;
         const rel = Number(c.relationshipScore) || 0;
         const pathScore = (rel + 1) * entry.sharedGroupScore;
         ranked.push({

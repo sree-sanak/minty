@@ -143,6 +143,51 @@ test('[PeopleGraph]: findIntroPaths — excludes group contacts', () => {
     assert.ok(paths.every(p => p.intermediaryId !== 'c_group'));
 });
 
+test('[PeopleGraph]: findIntroPaths — excludes isChannel contacts', () => {
+    const contacts = [
+        { id: 'c_you', name: 'You', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_target', name: 'Target Person', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_channel', name: 'TG News', isChannel: true, groupMemberships: [{ chatId: 'a@g.us' }] },
+    ];
+    const memberships = { 'a@g.us': { name: 'Group', size: 3, members: ['c_you', 'c_target', 'c_channel'] } };
+    const paths = findIntroPaths('c_target', contacts, memberships, { excludeIds: ['c_you'] });
+    assert.ok(paths.every(p => p.intermediaryId !== 'c_channel'));
+    assert.equal(paths.length, 0); // no valid intermediary remains
+});
+
+test('[PeopleGraph]: findIntroPaths — excludes isBroadcast contacts', () => {
+    const contacts = [
+        { id: 'c_you', name: 'You', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_target', name: 'Target Person', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_broadcast', name: 'Broadcast List', isBroadcast: true, groupMemberships: [{ chatId: 'a@g.us' }] },
+    ];
+    const memberships = { 'a@g.us': { name: 'Group', size: 3, members: ['c_you', 'c_target', 'c_broadcast'] } };
+    const paths = findIntroPaths('c_target', contacts, memberships, { excludeIds: ['c_you'] });
+    assert.ok(paths.every(p => p.intermediaryId !== 'c_broadcast'));
+});
+
+test('[PeopleGraph]: findIntroPaths — excludes isList contacts', () => {
+    const contacts = [
+        { id: 'c_you', name: 'You', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_target', name: 'Target Person', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_list', name: 'Mailing List', isList: true, groupMemberships: [{ chatId: 'a@g.us' }] },
+    ];
+    const memberships = { 'a@g.us': { name: 'Group', size: 3, members: ['c_you', 'c_target', 'c_list'] } };
+    const paths = findIntroPaths('c_target', contacts, memberships, { excludeIds: ['c_you'] });
+    assert.ok(paths.every(p => p.intermediaryId !== 'c_list'));
+});
+
+test('[PeopleGraph]: findIntroPaths — excludes isMailingList contacts', () => {
+    const contacts = [
+        { id: 'c_you', name: 'You', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_target', name: 'Target Person', relationshipScore: 0, groupMemberships: [{ chatId: 'a@g.us' }] },
+        { id: 'c_ml', name: 'Announce List', isMailingList: true, groupMemberships: [{ chatId: 'a@g.us' }] },
+    ];
+    const memberships = { 'a@g.us': { name: 'Group', size: 3, members: ['c_you', 'c_target', 'c_ml'] } };
+    const paths = findIntroPaths('c_target', contacts, memberships, { excludeIds: ['c_you'] });
+    assert.ok(paths.every(p => p.intermediaryId !== 'c_ml'));
+});
+
 test('[PeopleGraph]: findIntroPaths — filters out mega-groups above maxGroupSize', () => {
     const { contacts, memberships } = fixture();
     // Only bob shares with target exclusively through the 500-person mega-group.

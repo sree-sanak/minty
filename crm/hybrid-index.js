@@ -38,7 +38,7 @@ function collectEvidenceTopics(ev) {
 }
 
 function buildHybridIndex({ contacts = [], contactEvidence = {}, sourceEvents = [] } = {}) {
-    const safeContacts = Array.isArray(contacts) ? contacts.filter(c => c && c.id && !c.isGroup) : [];
+    const safeContacts = Array.isArray(contacts) ? contacts.filter(c => c && c.id && !c.isGroup && !c.isChannel && !c.isBroadcast && !c.isList && !c.isMailingList) : [];
     const eventsByContact = new Map();
     for (const e of Array.isArray(sourceEvents) ? sourceEvents : []) {
         const ref = e && (e.contactRef || (e.contactId ? safeContactRef(e.contactId) : null));

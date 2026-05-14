@@ -74,3 +74,44 @@ test('hybrid query returns empty for unsupported arbitrary private phrase', () =
     const results = queryHybridIndex('secret codename from private chat', { index });
     assert.deepEqual(results, []);
 });
+
+// RED tests: buildHybridIndex must exclude isChannel/isBroadcast/isList/isMailingList contacts
+test('buildHybridIndex excludes isChannel contacts', () => {
+    const contacts = [
+        { id: 'c_person', name: 'Alice', relationshipScore: 80 },
+        { id: 'c_channel', name: 'Telegram Channel', isChannel: true },
+    ];
+    const index = buildHybridIndex({ contacts, contactEvidence: {}, sourceEvents: [] });
+    assert.equal(index.length, 1);
+    assert.equal(index[0].contactRef, safeContactRef('c_person'));
+});
+
+test('buildHybridIndex excludes isBroadcast contacts', () => {
+    const contacts = [
+        { id: 'c_person', name: 'Bob', relationshipScore: 80 },
+        { id: 'c_broadcast', name: 'Broadcast List', isBroadcast: true },
+    ];
+    const index = buildHybridIndex({ contacts, contactEvidence: {}, sourceEvents: [] });
+    assert.equal(index.length, 1);
+    assert.equal(index[0].contactRef, safeContactRef('c_person'));
+});
+
+test('buildHybridIndex excludes isList contacts', () => {
+    const contacts = [
+        { id: 'c_person', name: 'Carol', relationshipScore: 80 },
+        { id: 'c_list', name: 'Mailing List', isList: true },
+    ];
+    const index = buildHybridIndex({ contacts, contactEvidence: {}, sourceEvents: [] });
+    assert.equal(index.length, 1);
+    assert.equal(index[0].contactRef, safeContactRef('c_person'));
+});
+
+test('buildHybridIndex excludes isMailingList contacts', () => {
+    const contacts = [
+        { id: 'c_person', name: 'Dave', relationshipScore: 80 },
+        { id: 'c_mailinglist', name: 'Announcements', isMailingList: true },
+    ];
+    const index = buildHybridIndex({ contacts, contactEvidence: {}, sourceEvents: [] });
+    assert.equal(index.length, 1);
+    assert.equal(index[0].contactRef, safeContactRef('c_person'));
+});
