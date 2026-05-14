@@ -4077,7 +4077,7 @@ function createServer(opts = {}) {
             res.end(`Forbidden: host "${hostHeader}" not in allowlist. Set MINTY_ALLOWED_HOSTS to include it.`);
             return;
         }
-        const url = new URL(req.url, `http://localhost:${actualPort}`);
+        const url = new URL(req.url, `http://localhost:${boundPort}`);
         const p = url.pathname;
         if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
         if (p === '/oauth/callback' && req.method === 'GET') { /* OAuth not exercised in tests */ res.writeHead(501); res.end(); return; }
