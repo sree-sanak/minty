@@ -4062,15 +4062,10 @@ function createServer(opts = {}) {
     }
 
     // Allow the chosen test port so host-header checks pass in tests.
-    // MINTY_ALLOWED_HOSTS is read once at module level; reset it here so
-    // dynamically-allocated ports work without requiring a fixed port.
-    // When port 0 is used we must start the server first to learn the assigned
-    // port before we can add it to the allowlist.
-    let actualPort = (requestedPort !== undefined && requestedPort !== 0)
-        ? requestedPort
-        : 3456;
+    // MINTY_ALLOWED_HOSTS is read once at module level; set it here
+    // so dynamically-allocated ports (port 0) work without hardcoding.
     if (requestedPort !== undefined) {
-        process.env.MINTY_ALLOWED_HOSTS = `localhost:${actualPort}`;
+        process.env.MINTY_ALLOWED_HOSTS = `localhost:${requestedPort === 0 ? 0 : requestedPort}`;
     }
 
     // Bind DATA to the temp directory for this server instance
@@ -4128,18 +4123,14 @@ function createServer(opts = {}) {
     });
 
     // Start listening now so we can synchronously read the assigned port.
-    // When port=0 the OS picks an available port; we add it to ALLOWED_HOSTS
-    // before any request can arrive, making the host-header check pass.
     server.listen(requestedPort !== undefined ? requestedPort : 0);
-    if (requestedPort !== undefined) {
-        process.env.MINTY_ALLOWED_HOSTS = `localhost:${requestedPort}`;
-    }
-    // Now add the ACTUAL assigned port (may differ when port=0 was requested).
+    // Track dynamically allocated ports so host-header checks pass.
+    // ALLOWED_HOSTS is a mutable Set — adding to it here updates the module
+    // state in-place without needing to rebuild the allowlist.
     const { port: boundPort } = server.address();
     const boundHost = `localhost:${boundPort}`;
     ALLOWED_HOSTS.add(boundHost);
     ALLOWED_HOSTS.add(`127.0.0.1:${boundPort}`);
-    process.env.MINTY_ALLOWED_HOSTS = boundHost;
 
     return server;
 }
