@@ -3982,47 +3982,174 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404); res.end('not found');
 });
 
-server.listen(PORT, HOST, () => {
-    console.log('');
-    console.log('  🌿 Minty is running' + (IS_DEMO ? '  ✨ DEMO mode' : ''));
-    console.log(`     Local:  http://localhost:${PORT}`);
-    console.log(`     Data:   ${DATA}`);
-    if (HOST === '0.0.0.0') {
-        const nets = os.networkInterfaces();
-        for (const name of Object.keys(nets)) {
-            for (const ni of nets[name]) {
-                if (ni.family === 'IPv4' && !ni.internal) {
-                    console.log(`     LAN:    http://${ni.address}:${PORT}`);
+// Starts the server. Call this directly (npm run crm) or via createServer() from tests.
+// Exported so createServer() can start a test server from the same module.
+function startServer(httpServer) {
+    httpServer.listen(PORT, HOST, () => {
+        console.log('');
+        console.log('  🌿 Minty is running' + (IS_DEMO ? '  ✨ DEMO mode' : ''));
+        console.log(`     Local:  http://localhost:${PORT}`);
+        console.log(`     Data:   ${DATA}`);
+        if (HOST === '0.0.0.0') {
+            const nets = os.networkInterfaces();
+            for (const name of Object.keys(nets)) {
+                for (const ni of nets[name]) {
+                    if (ni.family === 'IPv4' && !ni.internal) {
+                        console.log(`     LAN:    http://${ni.address}:${PORT}`);
+                    }
                 }
             }
         }
-    }
-    console.log('');
-    console.log('  Press Ctrl+C to stop.');
-    console.log('');
+        console.log('');
+        console.log('  Press Ctrl+C to stop.');
+        console.log('');
 
-    // Start background sync daemon for the single user
-    try {
-        ensureSyncDaemon(SINGLE_USER_UUID);
-    } catch (e) {
-        console.error('[sync] Failed to start sync daemon:', e.message);
+        // Start background sync daemon for the single user
+        try {
+            ensureSyncDaemon(SINGLE_USER_UUID);
+        } catch (e) {
+            console.error('[sync] Failed to start sync daemon:', e.message);
+        }
+
+        // Auto-resume WhatsApp on boot — opt-in only. The earlier always-on
+        // behaviour combined with deep message-history backfill triggered
+        // WhatsApp's spam detection and got the maintainer temporarily banned.
+        // Now: gated on userConfig.whatsappAutoResume (default false). Users
+        // who want it can flip the toggle in Settings; default users get
+        // explicit-click behaviour from Sources → WhatsApp.
+        if (userConfig.getConfig(DATA).whatsappAutoResume === true) {
+            setTimeout(() => {
+                try { autoResumeWhatsapp(SINGLE_USER_UUID); }
+                catch (e) { console.error('[autosync] WhatsApp boot resume failed:', e.message); }
+            }, 5 * 1000);
+        } else {
+            console.log('[autosync] WhatsApp boot resume disabled (set whatsappAutoResume=true in Settings to enable)');
+        }
+    });
+}
+
+/**
+ * createServer(opts)
+ *
+ * Factory for creating a test-friendly HTTP server backed by this module.
+ * Unlike requiring this file directly (which is side-effect-free), running
+ * it as a script (`node crm/server.js`) starts the real server on PORT 3456.
+ *
+ * opts.dataDir  — use a temp directory instead of the default data/.
+ *                 The server will write a minimal data/ dir structure here.
+ * opts.port     — port to listen on; omit to auto-select a random free port.
+ *                 Pass 0 to ask the OS for a free port.
+ *
+ * Returns the http.Server instance (not yet listening). Call server.close()
+ * in your test after assertions.
+ */
+function createServer(opts = {}) {
+    const { dataDir: dataDirOverride, port: requestedPort } = opts;
+    const targetDataDir = dataDirOverride
+        || (process.env.MINTY_DEMO === '1'
+            ? path.join(__dirname, '../data-demo')
+            : path.join(__dirname, '../data'));
+
+    // Mirror the real server's data-dir bootstrap
+    const unifiedDir = path.join(targetDataDir, 'unified');
+    fs.mkdirSync(unifiedDir, { recursive: true });
+    for (const [f, contents] of [
+        ['contacts.json', '[]'],
+        ['interactions.json', '[]'],
+    ]) {
+        const p = path.join(unifiedDir, f);
+        try { fs.writeFileSync(p, contents, { flag: 'wx' }); } catch (e) { if (e.code !== 'EEXIST') throw e; }
     }
 
-    // Auto-resume WhatsApp on boot — opt-in only. The earlier always-on
-    // behaviour combined with deep message-history backfill triggered
-    // WhatsApp's spam detection and got the maintainer temporarily banned.
-    // Now: gated on userConfig.whatsappAutoResume (default false). Users
-    // who want it can flip the toggle in Settings; default users get
-    // explicit-click behaviour from Sources → WhatsApp.
-    if (userConfig.getConfig(DATA).whatsappAutoResume === true) {
-        setTimeout(() => {
-            try { autoResumeWhatsapp(SINGLE_USER_UUID); }
-            catch (e) { console.error('[autosync] WhatsApp boot resume failed:', e.message); }
-        }, 5 * 1000);
-    } else {
-        console.log('[autosync] WhatsApp boot resume disabled (set whatsappAutoResume=true in Settings to enable)');
+    // Allow the chosen test port so host-header checks pass in tests.
+    // MINTY_ALLOWED_HOSTS is read once at module level; reset it here so
+    // dynamically-allocated ports work without requiring a fixed port.
+    // When port 0 is used we must start the server first to learn the assigned
+    // port before we can add it to the allowlist.
+    let actualPort = (requestedPort !== undefined && requestedPort !== 0)
+        ? requestedPort
+        : 3456;
+    if (requestedPort !== undefined) {
+        process.env.MINTY_ALLOWED_HOSTS = `localhost:${actualPort}`;
     }
-});
+
+    // Bind DATA to the temp directory for this server instance
+    const server = http.createServer(async (req, res) => {
+        // Inline the minimal route dispatcher
+        const hostHeader = (req.headers.host || '').toLowerCase();
+        if (!ALLOWED_HOSTS.has(hostHeader)) {
+            res.writeHead(403, { 'Content-Type': 'text/plain' });
+            res.end(`Forbidden: host "${hostHeader}" not in allowlist. Set MINTY_ALLOWED_HOSTS to include it.`);
+            return;
+        }
+        const url = new URL(req.url, `http://localhost:${actualPort}`);
+        const p = url.pathname;
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+        if (p === '/oauth/callback' && req.method === 'GET') { /* OAuth not exercised in tests */ res.writeHead(501); res.end(); return; }
+        const uuid = SINGLE_USER_UUID;
+        const paths = getUserPaths(uuid);
+        if (req.method === 'GET' && (p === '/' || p === '/identity-review' || p === '/merge-review')) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end('{}');
+            return;
+        }
+        if (p.startsWith('/api/')) {
+            const isSourceRoute = p.startsWith('/api/sources');
+            if (!isSourceRoute && !fs.existsSync(paths.contacts)) {
+                if (p === '/api/contacts') { json(res, []); return; }
+                if (p === '/api/pending') { json(res, []); return; }
+                if (p === '/api/goals') { json(res, []); return; }
+                if (p === '/api/today') { json(res, { goals: [], goalSections: [], pulse: [], upcomingMeetings: [], generatedAt: new Date().toISOString() }); return; }
+                if (p === '/api/calendar/upcoming') { json(res, { meetings: [], lastSyncAt: null, status: 'idle' }); return; }
+                if (p === '/api/network/query') { await handleEmptyNetworkQuery(req, res, paths); return; }
+                res.writeHead(404); res.end('data not found'); return;
+            }
+            for (const [method, pattern, handler] of ROUTES) {
+                if (req.method !== method) continue;
+                const m = p.match(pattern);
+                if (!m) continue;
+                try {
+                    await handler(req, res, m.slice(1).map(decodeURIComponent), paths, uuid);
+                } catch (e) {
+                    console.error(e);
+                    if (p.startsWith('/api/')) {
+                        const payload = e.code === 'EMALFORMED_DATA'
+                            ? { error: 'data file is malformed', file: e.file || 'unknown' }
+                            : { error: 'internal server error' };
+                        json(res, payload, e.code === 'EMALFORMED_DATA' ? 503 : 500);
+                    } else {
+                        res.writeHead(500); res.end('internal server error');
+                    }
+                }
+                return;
+            }
+        }
+        res.writeHead(404); res.end('not found');
+    });
+
+    // Start listening now so we can synchronously read the assigned port.
+    // When port=0 the OS picks an available port; we add it to ALLOWED_HOSTS
+    // before any request can arrive, making the host-header check pass.
+    server.listen(requestedPort !== undefined ? requestedPort : 0);
+    if (requestedPort !== undefined) {
+        process.env.MINTY_ALLOWED_HOSTS = `localhost:${requestedPort}`;
+    }
+    // Now add the ACTUAL assigned port (may differ when port=0 was requested).
+    const { port: boundPort } = server.address();
+    const boundHost = `localhost:${boundPort}`;
+    ALLOWED_HOSTS.add(boundHost);
+    ALLOWED_HOSTS.add(`127.0.0.1:${boundPort}`);
+    process.env.MINTY_ALLOWED_HOSTS = boundHost;
+
+    return server;
+}
+
+module.exports = { createServer };
+
+// Start the server when run as a script (not required as a module).
+if (require.main === module) {
+    startServer(server);
+}
 
 // ---------------------------------------------------------------------------
 // HTML / CSS / JS (single-page app)
