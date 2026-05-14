@@ -197,8 +197,7 @@ test('[LinkedInAPI/C]: requiring server.js does NOT bind port 3456 as a side-eff
 });
 
 /**
- * Verify createServer() returns an http.Server that is not yet listening.
- * The caller must call server.close() when done.
+ * Verify createServer() returns a listening net.Server on the requested port.
  */
 test('[LinkedInAPI/C]: createServer() returns a server that starts on the given port', { timeout: TEST_TIMEOUT }, async () => {
     const { createServer } = require('../../crm/server.js');
@@ -207,8 +206,8 @@ test('[LinkedInAPI/C]: createServer() returns a server that starts on the given 
     fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
     fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
 
-    const srv = createServer({ dataDir: tmp, port: 0 });
-    assert.ok(srv instanceof net.Server, 'createServer should return an http.Server');
+    const srv = await createServer({ dataDir: tmp, port: 0 });
+    assert.ok(srv instanceof net.Server, 'createServer should resolve to an http.Server');
 
     await withTimeout(new Promise((resolve, reject) => {
         srv.on('listening', resolve);

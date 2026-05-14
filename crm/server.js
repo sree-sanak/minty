@@ -4040,10 +4040,10 @@ function startServer(httpServer) {
  * opts.port     — port to listen on; omit to auto-select a random free port.
  *                 Pass 0 to ask the OS for a free port.
  *
- * Returns the http.Server instance (not yet listening). Call server.close()
- * in your test after assertions.
+ * Returns the http.Server instance (listening on the chosen port).
+ * await createServer(...) in tests, then call server.close() after assertions.
  */
-function createServer(opts = {}) {
+async function createServer(opts = {}) {
     const { dataDir: dataDirOverride, port: requestedPort } = opts;
     const targetDataDir = dataDirOverride
         || (process.env.MINTY_DEMO === '1'
@@ -4122,8 +4122,14 @@ function createServer(opts = {}) {
         res.writeHead(404); res.end('not found');
     });
 
-    // Start listening now so we can synchronously read the assigned port.
-    server.listen(requestedPort !== undefined ? requestedPort : 0);
+    // Start listening and wait for the port to be bound before reading address.
+    // listen() is async — calling server.address() synchronously after it returns null.
+    await new Promise((resolve, reject) => {
+        server.listen(requestedPort !== undefined ? requestedPort : 0, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
     // Track dynamically allocated ports so host-header checks pass.
     // ALLOWED_HOSTS is a mutable Set — adding to it here updates the module
     // state in-place without needing to rebuild the allowlist.
