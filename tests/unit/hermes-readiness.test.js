@@ -213,3 +213,105 @@ test('[HermesReadiness]: JSON output is deterministic across calls', () => {
         fs.rmSync(dir, { recursive: true, force: true });
     }
 });
+
+// ---------------------------------------------------------------------------
+// Skill drift detection
+// ---------------------------------------------------------------------------
+
+const { checkSkillDrift, extractSkillTools } = require('../../crm/hermes-readiness');
+
+test('[HermesReadiness]: extractSkillTools finds ### tool_name headings', () => {
+    const content = [
+        '## Some section',
+        '### search_network',
+        '### person_context',
+        '### workflow_brief',
+        '### source_health',
+    ].join('\n');
+
+    const tools = extractSkillTools(content);
+    assert.equal(tools.size, 4);
+    assert.ok(tools.has('search_network'));
+    assert.ok(tools.has('person_context'));
+    assert.ok(tools.has('workflow_brief'));
+    assert.ok(tools.has('source_health'));
+});
+
+test('[HermesReadiness]: extractSkillTools tolerates backtick fences', () => {
+    const content = [
+        '### `goal_next_actions`',
+        '### meeting_prep',
+    ].join('\n');
+
+    const tools = extractSkillTools(content);
+    assert.equal(tools.size, 2);
+    assert.ok(tools.has('goal_next_actions'));
+    assert.ok(tools.has('meeting_prep'));
+});
+
+test('[HermesReadiness]: extractSkillTools is case-sensitive and strict', () => {
+    // Must be lower-case with underscores
+    const content = [
+        '### SearchNetwork',   // wrong case
+        '### search-network', // wrong separator
+        '### search_network',  // correct
+        '## Not a tool heading',
+        '###  ',               // empty, skip
+    ].join('\n');
+
+    const tools = extractSkillTools(content);
+    assert.equal(tools.size, 1);
+    assert.ok(tools.has('search_network'));
+});
+
+test('[HermesReadiness]: checkSkillDrift warns when repo skill is missing', () => {
+    // Monkey-patch REPO_SKILL_PATH to a non-existent path
+    const mod = require.cache[require.resolve('../../crm/hermes-readiness')];
+    const original = mod.exports;
+
+    // Use a temp file that does not exist as the installed skill path
+    const result = checkSkillDrift();
+    assert.equal(result.name, 'skill_drift');
+    assert.ok(['pass', 'warn'].includes(result.status), `status must be pass|warn, got ${result.status}`);
+    assert.ok(typeof result.detail === 'string');
+    assert.equal(result.detail.includes('/root/'), false, 'must not leak private paths');
+});
+
+test('[HermesReadiness]: skill_drift check present in evaluateReadiness output', () => {
+    const dir = tmpDir();
+    try {
+        seedUnified(dir, {
+            'contacts.json': [{ id: 'c_001', name: 'Alice' }],
+            'interactions.json': [{ id: 'i_001' }],
+            'contact-evidence.json': { c_001: {} },
+            'hybrid-index.json': { version: 1 },
+        });
+        const result = evaluateReadiness({ dataDir: dir });
+        const driftCheck = result.checks.find(c => c.name === 'skill_drift');
+        assert.ok(driftCheck, 'skill_drift check must be present');
+        assert.ok(['pass', 'warn'].includes(driftCheck.status));
+        assert.ok(typeof driftCheck.detail === 'string');
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('[HermesReadiness]: skill_drift output is privacy-safe', () => {
+    const dir = tmpDir();
+    try {
+        seedUnified(dir, {
+            'contacts.json': [{ id: 'c_001', name: 'Alice', emails: ['alice@secret.com'] }],
+            'interactions.json': [{ id: 'i_001' }],
+            'contact-evidence.json': { c_001: {} },
+            'hybrid-index.json': { version: 1 },
+        });
+        const result = evaluateReadiness({ dataDir: dir });
+        const driftCheck = result.checks.find(c => c.name === 'skill_drift');
+        const json = JSON.stringify(driftCheck);
+        assert.equal(json.includes('/root/'), false, 'no private paths in drift check');
+        assert.equal(json.includes('alice@secret.com'), false, 'no emails in drift check');
+        assert.equal(json.includes('HERMES_HOME'), false, 'no envvar names in drift check');
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
