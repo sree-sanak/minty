@@ -3,6 +3,9 @@
 const { rankContactsForGoal } = require('./utils');
 const { findIntroPaths } = require('./people-graph');
 const { agentSafetyEnvelope, redactDirectContactDetails } = require('./privacy-envelope');
+const { parseSafeTimestamp } = require('./source-events');
+
+const GOAL_ACTION_SAFE_SOURCES = new Set(['contact', 'interaction', 'group', 'insights']);
 
 function buildAgentGoalActions(data = {}, opts = {}) {
     const goals = Array.isArray(data.goals) ? data.goals.filter(isUsableGoal) : [];
@@ -42,13 +45,14 @@ function buildAgentGoalActions(data = {}, opts = {}) {
         if (deduped.length >= limit) break;
     }
 
-    return {
+    const response = {
         status: deduped.length ? 'ok' : 'empty',
         confidence: deduped.length ? 'medium' : 'low',
-        briefs: deduped,
-        ...(deduped.length ? {} : { reason: 'No safe goal actions found.' }),
+        briefs: addTrustMetadata(deduped),
         safety,
     };
+    if (!deduped.length) response.reason = 'No active goals or safe candidate actions found.';
+    return response;
 }
 
 function isUsableGoal(goal) {
@@ -161,6 +165,86 @@ function newAskActions(goal, goalRef, contacts) {
             reason: 'Contact appears relevant to the active goal based on local profile evidence.',
         },
     }));
+}
+
+function addTrustMetadata(briefs) {
+    return briefs.map((brief, index) => {
+        const citations = buildCitations(brief, index);
+        const matchedSources = matchedSourceCodes(brief);
+        const answerSources = [...matchedSources];
+        return {
+            ...brief,
+            citations,
+            confidenceDrivers: confidenceDriverCodes(brief),
+            freshness: freshnessSummary(brief),
+            matchedSources,
+            answerSources,
+            sourceSummary: sourceSummary(brief, citations),
+        };
+    });
+}
+
+function buildCitations(brief, briefIndex) {
+    const citations = [];
+    const add = (field, matchType, provenance = 'local-contact', source = 'contact') => {
+        citations.push({
+            ref: `result:${briefIndex + 1}:cite:${citations.length + 1}`,
+            source,
+            field,
+            matchType,
+            provenance,
+        });
+    };
+
+    if (brief.person?.title) add('role', 'role');
+    if (brief.person?.company) add('company', 'keyword');
+    if (brief.pipelineFollowUps?.length) add('daysSinceContact', 'recent', 'derived-local', 'interaction');
+    if (brief.introPaths?.length) add('relationshipScore', 'warmth', 'derived-local', 'group');
+    if (!citations.length) add('profile', 'keyword');
+
+    return citations;
+}
+
+function confidenceDriverCodes(brief) {
+    const drivers = ['cited_evidence'];
+    if (brief.person?.warmth === 'strong' || brief.person?.warmth === 'warm' || brief.introPaths?.length) drivers.push('warm_relationship');
+    if (brief.pipelineFollowUps?.length) drivers.push('recent_or_known_contact');
+    const ageDays = brief.pipelineFollowUps?.[0]?.ageDays;
+    if (Number.isFinite(ageDays) && ageDays > 30) drivers.push('stale_contact_penalty');
+    return [...new Set(drivers)];
+}
+
+function freshnessSummary(brief) {
+    const followUp = brief.pipelineFollowUps?.[0];
+    const rawUpdatedAt = parseSafeTimestamp(followUp?.updatedAt);
+    const parsedUpdatedAt = typeof rawUpdatedAt === 'string' ? rawUpdatedAt : null;
+    const ageDays = Number.isFinite(followUp?.ageDays) ? followUp.ageDays : null;
+    const stale = ageDays == null ? false : ageDays > 30;
+    const label = parsedUpdatedAt && ageDays != null
+        ? `${ageDays} days since pipeline update`
+        : 'freshness inferred from local profile evidence';
+    return {
+        label,
+        ...(parsedUpdatedAt ? { latestEvidenceAt: parsedUpdatedAt } : {}),
+        ...(ageDays == null ? {} : { daysSinceContact: ageDays }),
+        stale,
+        oldestAllowedDays: 30,
+    };
+}
+
+function matchedSourceCodes(brief) {
+    const sources = ['contact'];
+    if (brief.pipelineFollowUps?.length) sources.push('interaction');
+    if (brief.introPaths?.length) sources.push('group');
+    return [...new Set(sources.filter(source => GOAL_ACTION_SAFE_SOURCES.has(source)))];
+}
+
+function sourceSummary(brief, citations) {
+    const parts = [`${citations.length} local citation${citations.length === 1 ? '' : 's'}`];
+    if (brief.pipelineFollowUps?.length) parts.push('active pipeline state');
+    if (brief.introPaths?.length) parts.push('warm intro evidence');
+    if (brief.nextAction?.type === 'new_ask') parts.push('profile relevance');
+    return parts.join('; ');
 }
 
 function safePerson(contact) {
