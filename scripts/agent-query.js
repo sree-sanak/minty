@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const { queryNetwork } = require('../crm/agent-retrieval');
+const { applyEvidenceOverrides, applyEvidenceOverridesToHybridIndex } = require('../crm/evidence-review');
 
 /**
  * Resolve the CRM data directory:
@@ -52,7 +53,7 @@ function hasContacts(dir) {
  */
 function loadData(dataDir) {
     function fallbackFor(file, missing = false) {
-        if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'group-memberships.json') return {};
+        if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'evidence-overrides.json' || file === 'group-memberships.json') return {};
         if (missing && (file === 'source-events.json' || file === 'hybrid-index.json')) return undefined;
         return [];
     }
@@ -61,7 +62,7 @@ function loadData(dataDir) {
         if (!fs.existsSync(p)) return fallbackFor(file, true);
         try {
             const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
-            if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'group-memberships.json') {
+            if (file === 'insights.json' || file === 'contact-evidence.json' || file === 'evidence-overrides.json' || file === 'group-memberships.json') {
                 if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return fallbackFor(file, false);
             } else {
                 if (!Array.isArray(parsed)) return fallbackFor(file, false);
@@ -128,13 +129,17 @@ function loadData(dataDir) {
             return {};
         }
     }
+    const contactEvidence = loadJson('contact-evidence.json');
+    const evidenceOverrides = loadJson('evidence-overrides.json');
+    const filteredContactEvidence = applyEvidenceOverrides({ contactEvidence, overrides: evidenceOverrides });
+    const hybridIndex = loadJson('hybrid-index.json');
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
         interactions: loadJson('interactions.json'),
-        contactEvidence: loadJson('contact-evidence.json'),
+        contactEvidence: filteredContactEvidence,
         sourceEvents: loadJson('source-events.json'),
-        hybridIndex: loadJson('hybrid-index.json'),
+        hybridIndex: Array.isArray(hybridIndex) ? applyEvidenceOverridesToHybridIndex({ index: hybridIndex, overrides: evidenceOverrides }) : hybridIndex,
         goals: loadJson('goals.json'),
         groupMemberships: loadJson('group-memberships.json'),
         syncState: loadRootSyncState('sync-state.json'),

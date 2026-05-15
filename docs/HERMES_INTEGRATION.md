@@ -184,6 +184,16 @@ Stable step ids: `google_contacts`, `telegram`, `merge`, `contact_evidence`,
 `source_events`, `hybrid_index`, `query_index`, `gbrain_export`,
 `gbrain_import`, `mcp_smoke`.
 
+## Evidence review workbench
+
+Minty includes a local evidence review workbench in the Review screen and API:
+
+- `GET /api/evidence/review` returns redacted topic-evidence rows only: contact label, opaque `contactRef`, allowlisted topic, confidence/count/freshness, and safe source labels.
+- `POST /api/evidence/review/:contactRef/:topic` accepts `{ "decision": "suppress" }` or `{ "decision": "restore" }` and writes only `data/unified/evidence-overrides.json`.
+- Suppressed topics are filtered before agent retrieval (`scripts/agent-query.js`) and hybrid index generation (`scripts/build-hybrid-index.js`).
+
+The workbench is a trust/debug surface for Hermes/OpenClaw memory, not a CRM workflow. It never exposes raw contact ids, emails, phones, message bodies, source event ids, group names, URLs, or arbitrary user-authored topics.
+
 ## Architecture
 
 ```

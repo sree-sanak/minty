@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { buildHybridIndex } = require('../crm/hybrid-index');
 const { buildSourceEvents } = require('../crm/source-events');
+const { applyEvidenceOverrides } = require('../crm/evidence-review');
 
 function parseArgs(argv) {
     const out = { dataDir: process.env.CRM_DATA_DIR || './data' };
@@ -28,8 +29,10 @@ function main() {
     const interactions = readJson(path.join(unified, 'interactions.json'), []);
     const insights = readJson(path.join(unified, 'insights.json'), {});
     const contactEvidence = readJson(path.join(unified, 'contact-evidence.json'), {});
+    const evidenceOverrides = readJson(path.join(unified, 'evidence-overrides.json'), {});
     const sourceEvents = readJson(path.join(unified, 'source-events.json'), buildSourceEvents({ contacts, interactions, insights }));
-    const hybridIndex = buildHybridIndex({ contacts, contactEvidence, sourceEvents });
+    const filteredContactEvidence = applyEvidenceOverrides({ contactEvidence, overrides: evidenceOverrides });
+    const hybridIndex = buildHybridIndex({ contacts, contactEvidence: filteredContactEvidence, sourceEvents });
     const outputPath = path.join(unified, 'hybrid-index.json');
     if (!args.dryRun) {
         fs.mkdirSync(unified, { recursive: true });

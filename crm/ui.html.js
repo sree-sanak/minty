@@ -1735,6 +1735,7 @@ let vsScrollHandler = null; // current scroll listener fn (or null)
 let reviewItems = [];
 let reviewCurrent = 0;
 let reviewDecisions = {};
+let evidenceReviewRows = [];
 
 // Today / Goals state
 let todayGoals = [];
@@ -4324,8 +4325,12 @@ function renderNetworkList(companies) {
 // Review queue
 // ============================================================
 async function loadReview() {
-  const d = await fetch(BASE + '/api/pending').then(r => r.json());
-  reviewItems = d.items;
+  const [pending, evidence] = await Promise.all([
+    fetch(BASE + '/api/pending').then(r => r.json()).catch(() => ({ items: [] })),
+    fetch(BASE + '/api/evidence/review').then(r => r.json()).catch(() => ({ rows: [] })),
+  ]);
+  reviewItems = pending.items || [];
+  evidenceReviewRows = evidence.rows || [];
   renderReview();
 }
 
@@ -4336,6 +4341,61 @@ async function loadReviewCount() {
   else badge.style.display = 'none';
 }
 
+function renderEvidenceWorkbench() {
+  const rows = Array.isArray(evidenceReviewRows) ? evidenceReviewRows.slice(0, 12) : [];
+  const rowHtml = rows.length ? rows.map(row => {
+    const suppressed = row.decision === 'suppressed';
+    const btnText = suppressed ? 'Restore' : 'Suppress';
+    const nextDecision = suppressed ? 'restore' : 'suppress';
+    const sources = (row.sources || []).map(s => '<span style="font-size:11px;color:var(--text-secondary);border:1px solid var(--border);border-radius:999px;padding:2px 7px">' + esc(s) + '</span>').join('');
+    const latest = formatRelativeEvidenceTime(row.latestAt ? new Date(row.latestAt) : null);
+    return '<div style="display:grid;grid-template-columns:minmax(120px,1fr) 100px 90px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">'
+      + '<div style="font-size:13px;color:var(--text-primary);font-weight:500">' + esc(row.contactName || 'Unknown person') + '</div>'
+      + '<div style="font-size:12px;color:var(--accent);font-weight:600">' + esc(row.topic) + '</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">' + esc(String(row.evidenceCount || 0)) + ' signals · ' + esc(latest) + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap">' + sources + '</div>'
+      + '<button class="merge-btn evidence-decision-btn" style="padding:6px 10px;font-size:12px;opacity:' + (suppressed ? '0.8' : '1') + '" data-contact-ref="' + esc(row.contactRef) + '" data-topic="' + esc(row.topic) + '" data-decision="' + esc(nextDecision) + '">' + btnText + '</button>'
+      + '</div>';
+  }).join('') : '<div style="padding:12px 0;color:var(--text-muted);font-size:13px;border-top:1px solid var(--border)">No agent-topic evidence to review yet.</div>';
+  return '<div class="card" style="margin-bottom:18px">'
+    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">'
+    + '<div>'
+    + '<div style="font-size:15px;color:var(--text-primary);font-weight:700;letter-spacing:-0.02em">Agent evidence workbench</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-top:3px">Audit topic claims before Hermes/OpenClaw retrieval uses them. No messages, emails, phones, group names, or raw IDs are shown.</div>'
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">' + rows.length + ' rows</div>'
+    + '</div>'
+    + rowHtml
+    + '</div>';
+}
+
+async function setEvidenceDecision(contactRef, topic, decision) {
+  try {
+    const response = await fetch(BASE + '/api/evidence/review/' + encodeURIComponent(contactRef) + '/' + encodeURIComponent(topic), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision }),
+    });
+    if (!response.ok) {
+      let body = '';
+      try { body = JSON.stringify(await response.json()); }
+      catch { body = await response.text().catch(() => ''); }
+      throw new Error('evidence decision failed: HTTP ' + response.status + (body ? ' ' + body : ''));
+    }
+    const evidence = await fetch(BASE + '/api/evidence/review').then(r => r.json());
+    evidenceReviewRows = evidence.rows || [];
+    renderReview();
+  } catch (e) {
+    console.error('evidence decision failed', e);
+  }
+}
+
+function bindEvidenceDecisionButtons() {
+  document.querySelectorAll('.evidence-decision-btn').forEach(btn => {
+    btn.addEventListener('click', () => setEvidenceDecision(btn.dataset.contactRef, btn.dataset.topic, btn.dataset.decision));
+  });
+}
+
 function renderReview() {
   const done = Object.keys(reviewDecisions).length;
   const total = reviewItems.length;
@@ -4344,10 +4404,12 @@ function renderReview() {
   document.getElementById('r-progress-text').textContent = total === 0 ? 'All reviewed' : \`\${done} / \${total}\`;
 
   const body = document.getElementById('review-body');
+  const evidenceWorkbench = renderEvidenceWorkbench();
 
   if (reviewCurrent >= reviewItems.length) {
-    body.innerHTML = \`<div class="review-empty"><h2>All done!</h2><p>Click Apply confirmed to rebuild contacts using only the identities you marked Same.</p></div>
+    body.innerHTML = \`\${evidenceWorkbench}<div class="review-empty"><h2>All done!</h2><p>Click Apply confirmed to rebuild contacts using only the identities you marked Same.</p></div>
       <div class="merge-output" id="merge-output"></div>\`;
+    bindEvidenceDecisionButtons();
     return;
   }
 
@@ -4403,6 +4465,7 @@ function renderReview() {
     : '';
 
   body.innerHTML = \`
+    \${evidenceWorkbench}
     <div class="card">
       <div class="reason-bar">
         <span class="tag \${tagClass}">\${prev || 'needs review'}</span>
@@ -4432,6 +4495,7 @@ function renderReview() {
     </div>
     <div class="merge-output" id="merge-output"></div>
   \`;
+  bindEvidenceDecisionButtons();
 }
 
 async function reviewDecide(decision) {
@@ -4739,6 +4803,23 @@ function fmtDaysAgo(days) {
   if (days < 30) return Math.floor(days / 7) + 'w';
   if (days < 365) return Math.floor(days / 30) + 'mo';
   return Math.floor(days / 365) + 'yr';
+}
+
+function formatRelativeEvidenceTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'unknown freshness';
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return 'today';
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days === 0) return 'today';
+  if (days < 7) return days + 'd ago';
+  if (days < 30) return Math.floor(days / 7) + 'w ago';
+  if (days < 365) return Math.floor(days / 30) + 'mo ago';
+  return Math.floor(days / 365) + 'yr ago';
 }
 
 function getInitials(name) {
