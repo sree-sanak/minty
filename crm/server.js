@@ -46,12 +46,12 @@ function writePersistedMode(mode) {
     fs.writeFileSync(MODE_FILE, JSON.stringify({ mode, updatedAt: new Date().toISOString() }, null, 2));
 }
 const PERSISTED_MODE = readPersistedMode();
-const DATA = process.env.CRM_DATA_DIR
+let DATA = process.env.CRM_DATA_DIR
     ? path.resolve(process.env.CRM_DATA_DIR)
     : (process.env.MINTY_DEMO === '1' || PERSISTED_MODE === 'demo'
         ? path.join(__dirname, '../data-demo')
         : path.join(__dirname, '../data'));
-const IS_DEMO = process.env.MINTY_DEMO === '1' || PERSISTED_MODE === 'demo'
+let IS_DEMO = process.env.MINTY_DEMO === '1' || PERSISTED_MODE === 'demo'
     || /(^|\/)data-demo($|\/)/.test(DATA);
 
 // Request body size caps (defense against memory DoS)
@@ -4045,10 +4045,19 @@ function startServer(httpServer) {
  */
 async function createServer(opts = {}) {
     const { dataDir: dataDirOverride, port: requestedPort } = opts;
-    const targetDataDir = dataDirOverride
+    const targetDataDir = path.resolve(dataDirOverride
         || (process.env.MINTY_DEMO === '1'
             ? path.join(__dirname, '../data-demo')
-            : path.join(__dirname, '../data'));
+            : path.join(__dirname, '../data')));
+    const previousDataDir = DATA;
+    const previousIsDemo = IS_DEMO;
+
+    // Most route helpers read the module-level DATA path. Test servers must
+    // point those helpers at their isolated temp dir, not at the user's real
+    // data directory.
+    DATA = targetDataDir;
+    IS_DEMO = process.env.MINTY_DEMO === '1' || /(^|\/)data-demo($|\/)/.test(DATA);
+    userConfig.invalidate();
 
     // Mirror the real server's data-dir bootstrap
     const unifiedDir = path.join(targetDataDir, 'unified');
@@ -4068,7 +4077,8 @@ async function createServer(opts = {}) {
         process.env.MINTY_ALLOWED_HOSTS = `localhost:${requestedPort === 0 ? 0 : requestedPort}`;
     }
 
-    // Bind DATA to the temp directory for this server instance
+    let boundPort = requestedPort || PORT;
+
     const server = http.createServer(async (req, res) => {
         // Inline the minimal route dispatcher
         const hostHeader = (req.headers.host || '').toLowerCase();
@@ -4121,22 +4131,27 @@ async function createServer(opts = {}) {
         }
         res.writeHead(404); res.end('not found');
     });
+    server.once('close', () => {
+        DATA = previousDataDir;
+        IS_DEMO = previousIsDemo;
+        userConfig.invalidate();
+    });
 
     // Start listening and wait for the port to be bound before reading address.
-    // listen() is async — calling server.address() synchronously after it returns null.
     await new Promise((resolve, reject) => {
-        server.listen(requestedPort !== undefined ? requestedPort : 0, (err) => {
-            if (err) reject(err);
-            else resolve();
-        });
+        server.once('error', reject);
+        server.listen(requestedPort !== undefined ? requestedPort : 0, () => resolve());
     });
     // Track dynamically allocated ports so host-header checks pass.
     // ALLOWED_HOSTS is a mutable Set — adding to it here updates the module
     // state in-place without needing to rebuild the allowlist.
-    const { port: boundPort } = server.address();
-    const boundHost = `localhost:${boundPort}`;
-    ALLOWED_HOSTS.add(boundHost);
-    ALLOWED_HOSTS.add(`127.0.0.1:${boundPort}`);
+    const address = server.address();
+    if (address && typeof address === 'object') {
+        boundPort = address.port;
+        const boundHost = `localhost:${boundPort}`;
+        ALLOWED_HOSTS.add(boundHost);
+        ALLOWED_HOSTS.add(`127.0.0.1:${boundPort}`);
+    }
 
     return server;
 }
