@@ -56,3 +56,34 @@ test('[EmailImport] Gmail API counts skipped message diagnostics while preservin
   assert.equal(serialized.includes('Secret Fundraise'), false);
   assert.equal(serialized.includes('Private Body'), false);
 });
+
+test('[EmailImport] Gmail API ignores malformed headers without dropping the whole message', async () => {
+  const gmailGet = async (_token, endpoint) => {
+    if (endpoint.startsWith('messages?')) return { messages: [{ id: 'messy-1' }] };
+    return {
+      id: 'messy-1',
+      payload: {
+        headers: [
+          { value: 'missing name should be ignored' },
+          { name: 123, value: 'non-string name should be ignored' },
+          { name: 'From', value: 'Sender <sender@example.test>' },
+          { name: 'To', value: 'Recipient <recipient@example.test>' },
+          { name: 'Date', value: 'not a real date' },
+          { name: 'Subject', value: 'Still imported' },
+        ],
+      },
+    };
+  };
+
+  const result = await fetchEmailsViaGmailAPI('access-token-sentinel', {
+    gmailGet,
+    logger: { warn: () => assert.fail('malformed non-critical headers should not warn as skipped messages') },
+  });
+
+  assert.equal(result.messages.length, 1);
+  assert.equal(result.messages[0].messageId, 'messy-1');
+  assert.equal(result.messages[0].timestamp, null);
+  assert.equal(result.messages[0].subject, 'Still imported');
+  assert.deepEqual(result.contacts.map(c => c.email).sort(), ['recipient@example.test', 'sender@example.test']);
+  assert.deepEqual(result.diagnostics, { skippedMessages: 0 });
+});
