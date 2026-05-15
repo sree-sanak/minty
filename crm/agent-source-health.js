@@ -9,9 +9,17 @@
  */
 
 const { canonicalSource: canonicalEvidenceSource } = require('./contact-evidence');
+const { redactDirectContactDetails } = require('./privacy-envelope');
 
 const KNOWN_SOURCES = ['email', 'googleContacts', 'linkedin', 'sms', 'telegram', 'whatsapp', 'slack'];
 const KNOWN_SOURCE_KEYS = new Set(KNOWN_SOURCES.map(s => s.toLowerCase()));
+const UNKNOWN_REFRESH_STATUS = Object.freeze({
+    status: 'unknown',
+    failedStep: null,
+    generatedAt: null,
+    warnings: [],
+    nextActions: [],
+});
 
 function canonicalSource(value) {
     const key = String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -34,6 +42,64 @@ function normalizeSourceFilter(value) {
         else invalid.add('invalid');
     }
     return { sources: [...sources].sort(), invalid: [...invalid].sort() };
+}
+
+function sanitizeDiagnosticText(value) {
+    if (typeof value !== 'string') return null;
+    let text = redactDirectContactDetails(value).slice(0, 500);
+    text = text
+        .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '[REDACTED_TOKEN]')
+        .replace(/\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?key|password|passwd|session|credentials?|token)\s+[A-Za-z0-9._~+/=-]+/gi, '[REDACTED_TOKEN]')
+        .replace(/\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|api[_-]?key|password|passwd|session|credentials?)\s*[=:]\s*"?[A-Za-z0-9._~+/=-][^\s"']*/gi, '[REDACTED_TOKEN]')
+        .replace(/\b(?:raw-)?(?:token|secret|password|api[_-]?key|session|credentials?)[A-Za-z0-9._:-]*\b/gi, '[REDACTED_TOKEN]')
+        .replace(/\braw-phone-[A-Za-z0-9._:-]+\b/gi, '[redacted phone]')
+        .replace(/(?:^|\s)(?:~|\/|[A-Za-z]:\\)[^\n\r,;]*?(?:\.json|\.ya?ml|\.env|\.log|\.txt|\/[^\s,;]*)/g, match => {
+            const prefix = /^\s/.test(match) ? ' ' : '';
+            return `${prefix}[REDACTED_PATH]`;
+        });
+    text = text.replace(/\s+/g, ' ').trim();
+    return text || null;
+}
+
+function safeString(value, max = 128) {
+    return typeof value === 'string' && value.length <= max ? value : null;
+}
+
+function safeIsoTimestamp(value) {
+    if (typeof value !== 'string' || value.length > 128) return null;
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString() === value || parsed.toISOString().replace('.000Z', 'Z') === value ? value : null;
+}
+
+function buildRefreshNextActions(status) {
+    const failedStep = canonicalSource(status.failedStep) || safeString(status.failedStep, 64);
+    if (failedStep === 'telegram') return ['Check Telegram importer credentials and recent export freshness.'];
+    if (failedStep === 'email') return ['Check Gmail/email importer credentials and recent export freshness.'];
+    if (failedStep === 'googleContacts') return ['Check Google Contacts importer credentials and recent export freshness.'];
+    if (failedStep === 'linkedin') return ['Check LinkedIn export/session freshness, then rerun memory refresh.'];
+    if (status.status === 'failed') return ['Inspect the local memory refresh job and rerun npm run memory:refresh after fixing the failed source.'];
+    return [];
+}
+
+function sanitizeMemoryRefreshStatus(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...UNKNOWN_REFRESH_STATUS, warnings: [], nextActions: [] };
+    const rawStatus = safeString(value.status, 32);
+    const allowedStatus = new Set(['ok', 'success', 'warning', 'failed', 'error', 'unknown']);
+    const status = allowedStatus.has(rawStatus) ? rawStatus : 'unknown';
+    const rawFailedStep = safeString(value.failedStep, 64);
+    const failedStep = rawFailedStep ? canonicalSource(rawFailedStep) : null;
+    const warnings = Array.isArray(value.warnings)
+        ? value.warnings.map(sanitizeDiagnosticText).filter(Boolean).slice(0, 5)
+        : [];
+    return {
+        status,
+        failedStep,
+        generatedAt: safeIsoTimestamp(value.generatedAt),
+        warnings,
+        nextActions: buildRefreshNextActions({ status, failedStep }),
+    };
 }
 
 function parseTime(value) {
@@ -160,6 +226,7 @@ function buildAgentSourceHealth(data = {}, options = {}) {
         ? data.contactEvidence : {};
     const syncState = data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)
         ? data.syncState : {};
+    const refresh = sanitizeMemoryRefreshStatus(data.memoryRefreshStatus);
     const rawFilters = [];
     if (options.source !== undefined) rawFilters.push(options.source);
     if (options.sources !== undefined) {
@@ -212,14 +279,16 @@ function buildAgentSourceHealth(data = {}, options = {}) {
         };
     }
 
-    const hasWarning = Object.values(rows).some(r => r.warnings.length || r.status !== 'ready');
+    const hasRefreshWarning = refresh.status === 'failed' || refresh.status === 'error' || refresh.status === 'warning';
+    const hasWarning = hasRefreshWarning || Object.values(rows).some(r => r.warnings.length || r.status !== 'ready');
     return {
         status: hasWarning ? 'warning' : 'ok',
         sources: rows,
+        refresh,
         invalidSourceFilters: [],
         querySourceFilter: Array.isArray(options.querySourceFilter) ? options.querySourceFilter : undefined,
         safety: { readOnly: true, contactDetailsOmitted: true, rawRowsOmitted: true, tokenPathsOmitted: true },
     };
 }
 
-module.exports = { buildAgentSourceHealth, buildSourceAnswerability, canonicalSource, normalizeSourceFilter };
+module.exports = { buildAgentSourceHealth, buildSourceAnswerability, canonicalSource, normalizeSourceFilter, sanitizeMemoryRefreshStatus };

@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { queryNetwork } = require('../crm/agent-retrieval');
 const { applyEvidenceOverrides, applyEvidenceOverridesToHybridIndex } = require('../crm/evidence-review');
+const { sanitizeMemoryRefreshStatus } = require('../crm/agent-source-health');
 
 /**
  * Resolve the CRM data directory:
@@ -129,6 +130,15 @@ function loadData(dataDir) {
             return {};
         }
     }
+    function loadMemoryRefreshStatus() {
+        const p = path.join(dataDir, 'unified', 'memory-refresh-status.json');
+        if (!fs.existsSync(p)) return sanitizeMemoryRefreshStatus(null);
+        try {
+            return sanitizeMemoryRefreshStatus(JSON.parse(fs.readFileSync(p, 'utf8')));
+        } catch {
+            return sanitizeMemoryRefreshStatus(null);
+        }
+    }
     const contactEvidence = loadJson('contact-evidence.json');
     const evidenceOverrides = loadJson('evidence-overrides.json');
     const filteredContactEvidence = applyEvidenceOverrides({ contactEvidence, overrides: evidenceOverrides });
@@ -143,6 +153,7 @@ function loadData(dataDir) {
         goals: loadJson('goals.json'),
         groupMemberships: loadJson('group-memberships.json'),
         syncState: loadRootSyncState('sync-state.json'),
+        memoryRefreshStatus: loadMemoryRefreshStatus(),
     };
 }
 

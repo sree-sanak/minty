@@ -37,6 +37,63 @@ test('[AgentQuery]: loadData falls back to empty sync state when missing or malf
     assert.deepEqual(loadData(dir).syncState, {});
 });
 
+test('[AgentQuery]: loadData loads privacy-safe memory refresh status for source health tools', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-refresh-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), []);
+    writeJson(path.join(dir, 'unified', 'memory-refresh-status.json'), {
+        generatedAt: '2026-05-07T09:30:00Z',
+        status: 'failed',
+        failedStep: 'telegram',
+        steps: [{
+            id: 'telegram',
+            status: 'failed',
+            message: 'failed for alice-private@example.com using /root/.hermes/google_token.json api_key=super-secret',
+        }],
+        warnings: [
+            'raw-phone-555-0101 in /root/private/source.log token abc123',
+            'safe aggregate warning',
+        ],
+        nextActions: ['manual unsafe action should be ignored'],
+        artifacts: {
+            contacts: { status: 'ok', path: '/root/private/contacts.json' },
+        },
+    });
+
+    const refresh = loadData(dir).memoryRefreshStatus;
+    const serialized = JSON.stringify(refresh);
+
+    assert.equal(refresh.status, 'failed');
+    assert.equal(refresh.failedStep, 'telegram');
+    assert.equal(refresh.generatedAt, '2026-05-07T09:30:00Z');
+    assert.deepEqual(refresh.nextActions, ['Check Telegram importer credentials and recent export freshness.']);
+    assert.equal(serialized.includes('alice-private@example.com'), false);
+    assert.equal(serialized.includes('raw-phone-555-0101'), false);
+    assert.equal(serialized.includes('/root/.hermes'), false);
+    assert.equal(serialized.includes('super-secret'), false);
+});
+
+test('[AgentQuery]: loadData returns unknown refresh status when memory refresh status is missing or malformed', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-refresh-missing-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), []);
+
+    assert.deepEqual(loadData(dir).memoryRefreshStatus, {
+        status: 'unknown',
+        failedStep: null,
+        generatedAt: null,
+        warnings: [],
+        nextActions: [],
+    });
+
+    fs.writeFileSync(path.join(dir, 'unified', 'memory-refresh-status.json'), '{not-json');
+    assert.deepEqual(loadData(dir).memoryRefreshStatus, {
+        status: 'unknown',
+        failedStep: null,
+        generatedAt: null,
+        warnings: [],
+        nextActions: [],
+    });
+});
+
 test('[AgentQuery]: loadData preserves bounded calendar meeting prep input', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-agent-query-calendar-'));
     writeJson(path.join(dir, 'unified', 'contacts.json'), []);

@@ -1786,6 +1786,48 @@ describe('source_health tool', () => {
         assert.equal(serialized.includes('c_telegram'), false);
     });
 
+    it('exposes privacy-safe refresh status without leaking diagnostics', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: 105, method: 'tools/call',
+            params: { name: 'source_health', arguments: { source: 'telegram' } },
+        }, {
+            contacts: [{ id: 'c_1', name: 'Alice', emails: ['alice@example.com'], sources: { telegram: { username: 'alice' } }, activeChannels: ['telegram'] }],
+            interactions: [{ contactId: 'c_1', source: 'telegram', body: 'private body' }],
+            contactEvidence: { c_1: { sources: ['telegram'] } },
+            syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z' } },
+            memoryRefreshStatus: {
+                generatedAt: '2026-05-07T09:30:00Z',
+                status: 'failed',
+                failedStep: 'telegram',
+                steps: {
+                    telegram: {
+                        status: 'failed',
+                        detail: 'failed for alice@example.com at /root/.hermes/google_token.json with api_key="private-token"',
+                        error: 'raw-phone-555-0101',
+                    },
+                },
+            },
+            nowForTests: '2026-05-06T08:00:00Z',
+        });
+        const parsed = JSON.parse(resp.result.content[0].text);
+        const serialized = JSON.stringify(parsed);
+
+        assert.equal(parsed.status, 'warning');
+        assert.deepEqual(parsed.refresh, {
+            status: 'failed',
+            failedStep: 'telegram',
+            generatedAt: '2026-05-07T09:30:00Z',
+            warnings: [],
+            nextActions: ['Check Telegram importer credentials and recent export freshness.'],
+        });
+        assert.equal(serialized.includes('alice@example.com'), false);
+        assert.equal(serialized.includes('private body'), false);
+        assert.equal(serialized.includes('c_1'), false);
+        assert.equal(serialized.includes('/root/.hermes/google_token.json'), false);
+        assert.equal(serialized.includes('private-token'), false);
+        assert.equal(serialized.includes('raw-phone-555-0101'), false);
+    });
+
     it('does not crash with malformed data', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 103, method: 'tools/call',
