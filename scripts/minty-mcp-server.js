@@ -17,6 +17,7 @@ const { canonicalSafeSource } = require('../crm/source-events');
 const { buildAgentSourceHealth, canonicalSource } = require('../crm/agent-source-health');
 const { buildMeetingPrep } = require('../crm/meeting-prep');
 const { buildAgentGoalActions } = require('../crm/agent-goal-actions');
+const { buildAgentIntroPaths } = require('../crm/agent-intro-paths');
 const { redactDirectContactDetails, agentSafetyEnvelope } = require('../crm/privacy-envelope');
 const { resolveDataDir, loadData } = require('./agent-query');
 
@@ -101,6 +102,21 @@ const TOOLS = [
             properties: {
                 goal: { type: 'string', description: 'Optional goal selector, e.g. "seed"' },
                 limit: { type: 'number', description: 'Max action briefs to return (default 5)' },
+            },
+        },
+    },
+    {
+        name: 'intro_paths',
+        description:
+            'Find privacy-safe warm intro paths to a target person or goal using local group co-membership evidence. ' +
+            'Returns redacted intermediaries, shared-context counts, citations, and safety metadata. ' +
+            'Read-only — no messages sent, no outreach triggered, no contacts mutated.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                target: { type: 'string', description: 'Optional target person or company selector' },
+                goal: { type: 'string', description: 'Optional goal query when no exact target is known' },
+                limit: { type: 'number', description: 'Max intro paths to return (default 5, max 20)' },
             },
         },
     },
@@ -468,6 +484,18 @@ function executeTool(name, args, data) {
                 goal: typeof args.goal === 'string' ? args.goal.trim() : undefined,
                 limit: clampLimit(args.limit, 5),
                 now: nowForTests,
+            },
+        );
+        return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
+    }
+
+    if (name === 'intro_paths') {
+        const envelope = buildAgentIntroPaths(
+            { contacts, interactions, insights, contactEvidence, sourceEvents, hybridIndex, syncState, groupMemberships, nowForTests },
+            {
+                target: typeof args.target === 'string' ? args.target.trim() : undefined,
+                goal: typeof args.goal === 'string' ? args.goal.trim() : undefined,
+                limit: clampLimit(args.limit, 5),
             },
         );
         return { content: [{ type: 'text', text: JSON.stringify(envelope, null, 2) }] };
