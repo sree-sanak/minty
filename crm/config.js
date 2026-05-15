@@ -63,6 +63,7 @@ const ENV_OVERRIDES = {
 
 let _cache = null;
 let _cacheAt = 0;
+let _cacheDataDir = null;
 const CACHE_TTL_MS = 1000;
 
 function configPath(dataDir) {
@@ -75,7 +76,8 @@ function legacyModePath(dataDir) {
 
 function getConfig(dataDir) {
     const now = Date.now();
-    if (_cache && (now - _cacheAt) < CACHE_TTL_MS) return _cache;
+    const resolvedDataDir = path.resolve(dataDir);
+    if (_cache && _cacheDataDir === resolvedDataDir && (now - _cacheAt) < CACHE_TTL_MS) return _cache;
 
     let onDisk = {};
     try { onDisk = JSON.parse(fs.readFileSync(configPath(dataDir), 'utf8')) || {}; } catch { /* missing */ }
@@ -95,6 +97,7 @@ function getConfig(dataDir) {
 
     _cache = Object.freeze(deepFreeze(deepClone(merged)));
     _cacheAt = now;
+    _cacheDataDir = resolvedDataDir;
     return _cache;
 }
 
@@ -111,7 +114,7 @@ function updateConfig(dataDir, patch) {
     return getConfig(dataDir);
 }
 
-function invalidate() { _cache = null; _cacheAt = 0; }
+function invalidate() { _cache = null; _cacheAt = 0; _cacheDataDir = null; }
 
 function isLinkedInAutosyncEnabled(dataDir) { return !!getConfig(dataDir).linkedinAutosync; }
 function isDemoMode(dataDir)               { return !!getConfig(dataDir).demoMode; }

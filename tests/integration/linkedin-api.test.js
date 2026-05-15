@@ -154,19 +154,20 @@ test('[LinkedInAPI/B]: feature flag "true" → enabled (case-sensitive per spec)
 // npm test is run without one.
 const TEST_TIMEOUT = 10_000; // ms
 
-/** Wrap an async fn so it fails fast if it hangs. */
-function withTimeout(fn, ms = TEST_TIMEOUT) {
-    return async (...args) => {
-        let handle;
-        const timer = new Promise((_, reject) => {
-            handle = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
-        });
-        try {
-            return await Promise.race([fn(...args), timer]);
-        } finally {
-            clearTimeout(handle);
-        }
-    };
+/** Wrap a promise so it fails fast if it hangs. */
+function withTimeout(promise, ms = TEST_TIMEOUT) {
+    let handle;
+    const timer = new Promise((_, reject) => {
+        handle = setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms);
+    });
+    return Promise.race([promise, timer]).finally(() => clearTimeout(handle));
+}
+
+/** Close a test HTTP server and wait until Node releases the handle. */
+function closeServer(srv) {
+    return new Promise((resolve, reject) => {
+        srv.close((err) => (err ? reject(err) : resolve()));
+    });
 }
 
 /**
@@ -210,6 +211,7 @@ test('[LinkedInAPI/C]: createServer() returns a server that starts on the given 
     assert.ok(srv instanceof net.Server, 'createServer should resolve to an http.Server');
 
     await withTimeout(new Promise((resolve, reject) => {
+        if (srv.listening) { resolve(); return; }
         srv.on('listening', resolve);
         srv.on('error', reject);
     }));
@@ -217,48 +219,59 @@ test('[LinkedInAPI/C]: createServer() returns a server that starts on the given 
     const { port } = srv.address();
     assert.ok(port > 0, `server should be on a real port, got ${port}`);
 
-    srv.close();
+    await closeServer(srv);
     fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+/** Issue an HTTP request against a listening test server. */
+function requestFromServer(srv, requestOptions = {}) {
+    const http = require('http');
+    const { port } = srv.address();
+    const options = {
+        host: 'localhost',
+        port,
+        method: 'GET',
+        path: '/',
+        ...requestOptions,
+    };
+    return withTimeout(new Promise((resolve, reject) => {
+        const req = http.request(options, (res) => {
+            let body = '';
+            res.on('data', c => { body += c; });
+            res.on('end', () => resolve({ statusCode: res.statusCode, body }));
+        });
+        req.on('error', reject);
+        req.end();
+    }));
+}
+
+async function withTempLinkedInServer(config, fn) {
+    const { createServer } = require('../../crm/server.js');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-factory-'));
+    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
+    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
+    if (config) fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify(config));
+
+    const srv = await createServer({ dataDir: tmp, port: 0 });
+    try {
+        await fn(srv);
+    } finally {
+        await closeServer(srv);
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+}
 
 /**
  * Verify that a server started via createServer() responds to GET /api/contacts
  * (the empty-contacts guard is tested by asserting a 200 + [] response).
  */
 test('[LinkedInAPI/C]: createServer() server responds to GET /api/contacts with []', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-factory2-'));
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    // withTimeout kills the outer chain after TEST_TIMEOUT ms so the test
-    // fails closed instead of hanging the runner when the server is already up.
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            http.get(`http://localhost:${port}/api/contacts`, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${body}`);
-                        assert.deepEqual(JSON.parse(body), []);
-                        resolve();
-                    });
-                });
-            }).on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer(null, async (srv) => {
+        const res = await requestFromServer(srv, { path: '/api/contacts' });
+        assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
+        assert.deepEqual(JSON.parse(res.body), []);
+    });
 });
 
 /**
@@ -267,45 +280,17 @@ test('[LinkedInAPI/C]: createServer() server responds to GET /api/contacts with 
  * The response must include 'status' and 'playwrightAvailable'.
  */
 test('[LinkedInAPI/C]: GET /api/linkedin/status → 200 when linkedinAutosync enabled', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c2-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: true }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            http.get(`http://localhost:${port}/api/linkedin/status`, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${body}`);
-                        const data = JSON.parse(body);
-                        for (const key of ['status', 'playwrightAvailable']) {
-                            assert.ok(
-                                Object.prototype.hasOwnProperty.call(data, key),
-                                `expected key "${key}" in status response`,
-                            );
-                        }
-                        resolve();
-                    });
-                });
-            }).on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer({ linkedinAutosync: true }, async (srv) => {
+        const res = await requestFromServer(srv, { path: '/api/linkedin/status' });
+        assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
+        const data = JSON.parse(res.body);
+        for (const key of ['status', 'playwrightAvailable']) {
+            assert.ok(
+                Object.prototype.hasOwnProperty.call(data, key),
+                `expected key "${key}" in status response`,
+            );
+        }
+    });
 });
 
 /**
@@ -313,38 +298,10 @@ test('[LinkedInAPI/C]: GET /api/linkedin/status → 200 when linkedinAutosync en
  * explicitly disabled (the gate must block the request).
  */
 test('[LinkedInAPI/C]: GET /api/linkedin/status → 404 when linkedinAutosync disabled', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c1-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: false }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            http.get(`http://localhost:${port}/api/linkedin/status`, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${body}`);
-                        resolve();
-                    });
-                });
-            }).on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer({ linkedinAutosync: false }, async (srv) => {
+        const res = await requestFromServer(srv, { path: '/api/linkedin/status' });
+        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${res.body}`);
+    });
 });
 
 /**
@@ -353,45 +310,10 @@ test('[LinkedInAPI/C]: GET /api/linkedin/status → 404 when linkedinAutosync di
  * dangerous operation is attempted.
  */
 test('[LinkedInAPI/C]: POST /api/linkedin/sync → 404 when linkedinAutosync disabled', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c3-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: false }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            const req = http.request({
-                method: 'POST',
-                path: '/api/linkedin/sync',
-                host: 'localhost',
-                port, // Node sets correct Host header automatically
-            }, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${body}`);
-                        resolve();
-                    });
-                });
-            });
-            req.on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-            req.end();
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer({ linkedinAutosync: false }, async (srv) => {
+        const res = await requestFromServer(srv, { method: 'POST', path: '/api/linkedin/sync' });
+        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${res.body}`);
+    });
 });
 
 /**
@@ -400,47 +322,15 @@ test('[LinkedInAPI/C]: POST /api/linkedin/sync → 404 when linkedinAutosync dis
  * line of defence.
  */
 test('[LinkedInAPI/C]: POST /api/linkedin/sync → 403 when cross-origin (no valid CSRF token)', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c4-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: true }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            // Origin from a different host — origin-check should reject
-            const req = http.request({
-                method: 'POST',
-                path: '/api/linkedin/sync',
-                host: 'localhost',
-                port,
-                headers: { Origin: 'http://evil.example', Host: `localhost:${port}` },
-            }, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${body}`);
-                        resolve();
-                    });
-                });
-            });
-            req.on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-            req.end();
+    await withTempLinkedInServer({ linkedinAutosync: true }, async (srv) => {
+        const { port } = srv.address();
+        const res = await requestFromServer(srv, {
+            method: 'POST',
+            path: '/api/linkedin/sync',
+            headers: { Origin: 'http://evil.example', Host: `localhost:${port}` },
         });
-        srv.on('error', reject);
-    }));
+        assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${res.body}`);
+    });
 });
 
 /**
@@ -448,45 +338,10 @@ test('[LinkedInAPI/C]: POST /api/linkedin/sync → 403 when cross-origin (no val
  * is disabled (linkedinAutosync=false).
  */
 test('[LinkedInAPI/C]: POST /api/linkedin/connect → 404 when linkedinAutosync disabled', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c5-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: false }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            const req = http.request({
-                method: 'POST',
-                path: '/api/linkedin/connect',
-                host: 'localhost',
-                port, // Node sets correct Host header automatically
-            }, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${body}`);
-                        resolve();
-                    });
-                });
-            });
-            req.on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-            req.end();
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer({ linkedinAutosync: false }, async (srv) => {
+        const res = await requestFromServer(srv, { method: 'POST', path: '/api/linkedin/connect' });
+        assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}: ${res.body}`);
+    });
 });
 
 /**
@@ -494,43 +349,8 @@ test('[LinkedInAPI/C]: POST /api/linkedin/connect → 404 when linkedinAutosync 
  * request is sent without a valid CSRF token.
  */
 test('[LinkedInAPI/C]: POST /api/linkedin/connect → 403 when cross-origin (no valid CSRF token)', { timeout: TEST_TIMEOUT }, async () => {
-    const { createServer } = require('../../crm/server.js');
-    const http = require('http');
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-li-c6-'));
-
-    fs.mkdirSync(path.join(tmp, 'unified'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'unified', 'contacts.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'unified', 'interactions.json'), '[]');
-    fs.writeFileSync(path.join(tmp, 'config.json'), JSON.stringify({ linkedinAutosync: true }));
-
-    const srv = createServer({ dataDir: tmp, port: 0 });
-
-    await withTimeout(new Promise((resolve, reject) => {
-        srv.on('listening', () => {
-            const { port } = srv.address();
-            const req = http.request({
-                method: 'POST',
-                path: '/api/linkedin/connect',
-                host: 'localhost',
-                port, // Node sets correct Host header automatically
-            }, (res) => {
-                let body = '';
-                res.on('data', c => { body += c; });
-                res.on('end', () => {
-                    srv.close(() => {
-                        fs.rmSync(tmp, { recursive: true, force: true });
-                        assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${body}`);
-                        resolve();
-                    });
-                });
-            });
-            req.on('error', (err) => {
-                srv.close();
-                fs.rmSync(tmp, { recursive: true, force: true });
-                reject(err);
-            });
-            req.end();
-        });
-        srv.on('error', reject);
-    }));
+    await withTempLinkedInServer({ linkedinAutosync: true }, async (srv) => {
+        const res = await requestFromServer(srv, { method: 'POST', path: '/api/linkedin/connect' });
+        assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${res.body}`);
+    });
 });
