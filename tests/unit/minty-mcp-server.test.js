@@ -226,9 +226,24 @@ describe('goal_next_actions tool', () => {
 
         const parsed = JSON.parse(resp.result.content[0].text);
         assert.equal(parsed.status, 'ok');
-        assert.equal(parsed.briefs[0].nextAction.type, 'pipeline_follow_up');
+        const brief = parsed.briefs[0];
+        assert.equal(brief.nextAction.type, 'pipeline_follow_up');
         assert.equal(parsed.safety.readOnly, true);
         assert.equal(parsed.safety.noOutreachTriggered, true);
+
+        assert.ok(Array.isArray(brief.citations));
+        assert.ok(brief.citations.length >= 1);
+        assert.match(brief.citations[0].ref, /^result:\d+:cite:\d+$/);
+        assert.ok(brief.citations.every(c => ['contact', 'interaction', 'group', 'insights'].includes(c.source)));
+        assert.ok(brief.matchedSources.includes('interaction'));
+        assert.ok(Array.isArray(brief.confidenceDrivers));
+        assert.ok(brief.confidenceDrivers.length >= 1);
+        assert.ok(brief.freshness && typeof brief.freshness === 'object');
+        assert.ok(Array.isArray(brief.matchedSources));
+        assert.ok(brief.matchedSources.length >= 1);
+        assert.ok(Array.isArray(brief.answerSources));
+        assert.ok(brief.answerSources.length >= 1);
+        assert.equal(typeof brief.sourceSummary, 'string');
 
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('raw-goal-id-mcp'), false);

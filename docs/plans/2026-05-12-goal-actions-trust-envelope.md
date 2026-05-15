@@ -57,7 +57,24 @@ On current `main`:
 
 **Step 1: Write failing test**
 
-Append this test after the existing pipeline prioritization test:
+First, if you choose to reuse trust assertions across existing tests, define the helper before the first `test(...)` call. Do not call `assertTrustEnvelope(...)` before adding this helper; that creates a misleading `ReferenceError` instead of a real trust-contract failure.
+
+```js
+function assertTrustEnvelope(brief) {
+    assert.ok(brief, 'brief is required');
+    assert.ok(Array.isArray(brief.citations), 'citations must be an array');
+    assert.ok(brief.citations.length > 0, 'citations must not be empty for non-empty briefs');
+    assert.ok(brief.citations.every(c => /^result:\d+:cite:\d+$/.test(c.ref)), 'citation refs must be opaque result refs');
+    assert.ok(Array.isArray(brief.confidenceDrivers), 'confidenceDrivers must be an array');
+    assert.ok(brief.confidenceDrivers.length > 0, 'confidenceDrivers must not be empty for non-empty briefs');
+    assert.ok(brief.freshness && typeof brief.freshness === 'object', 'freshness must be present');
+    assert.ok(Array.isArray(brief.matchedSources), 'matchedSources must be an array');
+    assert.ok(Array.isArray(brief.answerSources), 'answerSources must be an array');
+    assert.equal(typeof brief.sourceSummary, 'string');
+}
+```
+
+Then append this test after the existing pipeline prioritization test:
 
 ```js
 test('[AgentGoalActions]: annotates pipeline follow-ups with trust metadata', () => {
