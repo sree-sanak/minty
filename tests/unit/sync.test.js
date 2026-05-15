@@ -16,6 +16,7 @@ const {
     computeDirHash,
     loadSyncState,
     saveSyncState,
+    writeJsonFileAtomic,
     deepMerge,
     recordSourceSyncSuccess,
     recordSourceSyncFailure,
@@ -183,6 +184,115 @@ test('[Sync]: loadSyncState merges with defaults (missing keys filled in)', () =
     assert.ok('sms' in loaded);
     assert.equal(loaded.email.historyId, 'x');
     fs.unlinkSync(tmpFile);
+});
+
+test('[Sync]: writeJsonFileAtomic preserves existing JSON when rename fails', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-sync-atomic-'));
+    const tmpFile = path.join(tmpDir, 'sync-state.json');
+    fs.writeFileSync(tmpFile, JSON.stringify({ email: { historyId: 'existing' } }, null, 2));
+
+    const failingFs = {
+        ...fs,
+        renameSync() {
+            throw new Error('synthetic rename failure');
+        },
+    };
+
+    assert.throws(
+        () => writeJsonFileAtomic(tmpFile, { email: { historyId: 'new' } }, { fsModule: failingFs }),
+        /synthetic rename failure/
+    );
+
+    const raw = JSON.parse(fs.readFileSync(tmpFile, 'utf8'));
+    assert.equal(raw.email.historyId, 'existing');
+    const leftovers = fs.readdirSync(tmpDir).filter(name => name.includes('.tmp-'));
+    assert.deepEqual(leftovers, []);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('[Sync]: writeJsonFileAtomic preserves existing JSON when write fails before rename', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-sync-write-fail-'));
+    const tmpFile = path.join(tmpDir, 'sync-state.json');
+    fs.writeFileSync(tmpFile, JSON.stringify({ email: { historyId: 'existing' } }, null, 2));
+    const calls = [];
+
+    const failingFs = {
+        ...fs,
+        writeFileSync(target, data, encoding) {
+            if (typeof target === 'number') {
+                throw new Error('synthetic write failure');
+            }
+            return fs.writeFileSync(target, data, encoding);
+        },
+        renameSync(fromPath, toPath) {
+            calls.push(`rename:${path.basename(fromPath)}:${path.basename(toPath)}`);
+            return fs.renameSync(fromPath, toPath);
+        },
+    };
+
+    assert.throws(
+        () => writeJsonFileAtomic(tmpFile, { email: { historyId: 'new' } }, { fsModule: failingFs }),
+        /synthetic write failure/
+    );
+
+    const raw = JSON.parse(fs.readFileSync(tmpFile, 'utf8'));
+    assert.equal(raw.email.historyId, 'existing');
+    assert.deepEqual(calls, []);
+    const leftovers = fs.readdirSync(tmpDir).filter(name => name.includes('.tmp-'));
+    assert.deepEqual(leftovers, []);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test('[Sync]: writeJsonFileAtomic fsyncs file before rename and directory after rename', () => {
+    const calls = [];
+    const fakeFs = {
+        openSync(filePath, flags, mode) {
+            calls.push(`open:${path.basename(filePath)}:${flags}:${mode.toString(8)}`);
+            return path.basename(filePath) === 'minty-atomic-order' ? 22 : 11;
+        },
+        writeFileSync(fd, data, encoding) {
+            calls.push(`write:${fd}:${encoding}:${data}`);
+        },
+        fsyncSync(fd) {
+            calls.push(`fsync:${fd}`);
+        },
+        closeSync(fd) {
+            calls.push(`close:${fd}`);
+        },
+        chmodSync(filePath, mode) {
+            calls.push(`chmod:${path.basename(filePath)}:${mode.toString(8)}`);
+        },
+        renameSync(fromPath, toPath) {
+            calls.push(`rename:${path.basename(fromPath)}:${path.basename(toPath)}`);
+        },
+        unlinkSync(filePath) {
+            calls.push(`unlink:${path.basename(filePath)}`);
+        },
+    };
+
+    writeJsonFileAtomic('/tmp/minty-atomic-order/sync-state.json', { ok: true }, { fsModule: fakeFs });
+
+    const fileFsyncIndex = calls.indexOf('fsync:11');
+    const tempCloseIndex = calls.indexOf('close:11');
+    const renameIndex = calls.findIndex(call => call.startsWith('rename:'));
+    const dirOpenIndex = calls.indexOf('open:minty-atomic-order:r:0');
+    const dirFsyncIndex = calls.indexOf('fsync:22');
+    const dirCloseIndex = calls.indexOf('close:22');
+    assert.equal(fileFsyncIndex > -1, true);
+    assert.equal(fileFsyncIndex < tempCloseIndex, true);
+    assert.equal(tempCloseIndex < renameIndex, true);
+    assert.equal(renameIndex < dirOpenIndex, true);
+    assert.equal(dirOpenIndex < dirFsyncIndex, true);
+    assert.equal(dirFsyncIndex < dirCloseIndex, true);
+});
+
+test('[Sync]: saveSyncState writes owner-only state file permissions', { skip: process.platform === 'win32' }, () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-sync-mode-'));
+    const tmpFile = path.join(tmpDir, 'sync-state.json');
+    saveSyncState(tmpFile, getDefaultSyncState());
+    const mode = fs.statSync(tmpFile).mode & 0o777;
+    assert.equal(mode, 0o600);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
