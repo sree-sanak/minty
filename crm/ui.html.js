@@ -4348,7 +4348,7 @@ function renderEvidenceWorkbench() {
     const btnText = suppressed ? 'Restore' : 'Suppress';
     const nextDecision = suppressed ? 'restore' : 'suppress';
     const sources = (row.sources || []).map(s => '<span style="font-size:11px;color:var(--text-secondary);border:1px solid var(--border);border-radius:999px;padding:2px 7px">' + esc(s) + '</span>').join('');
-    const latest = row.latestAt ? new Date(row.latestAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : 'unknown freshness';
+    const latest = formatRelativeEvidenceTime(row.latestAt ? new Date(row.latestAt) : null);
     return '<div style="display:grid;grid-template-columns:minmax(120px,1fr) 100px 90px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--border)">'
       + '<div style="font-size:13px;color:var(--text-primary);font-weight:500">' + esc(row.contactName || 'Unknown person') + '</div>'
       + '<div style="font-size:12px;color:var(--accent);font-weight:600">' + esc(row.topic) + '</div>'
@@ -4371,11 +4371,17 @@ function renderEvidenceWorkbench() {
 
 async function setEvidenceDecision(contactRef, topic, decision) {
   try {
-    await fetch(BASE + '/api/evidence/review/' + encodeURIComponent(contactRef) + '/' + encodeURIComponent(topic), {
+    const response = await fetch(BASE + '/api/evidence/review/' + encodeURIComponent(contactRef) + '/' + encodeURIComponent(topic), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision }),
     });
+    if (!response.ok) {
+      let body = '';
+      try { body = JSON.stringify(await response.json()); }
+      catch { body = await response.text().catch(() => ''); }
+      throw new Error('evidence decision failed: HTTP ' + response.status + (body ? ' ' + body : ''));
+    }
     const evidence = await fetch(BASE + '/api/evidence/review').then(r => r.json());
     evidenceReviewRows = evidence.rows || [];
     renderReview();
@@ -4797,6 +4803,23 @@ function fmtDaysAgo(days) {
   if (days < 30) return Math.floor(days / 7) + 'w';
   if (days < 365) return Math.floor(days / 30) + 'mo';
   return Math.floor(days / 365) + 'yr';
+}
+
+function formatRelativeEvidenceTime(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'unknown freshness';
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return 'today';
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  const days = Math.floor(hours / 24);
+  if (days === 0) return 'today';
+  if (days < 7) return days + 'd ago';
+  if (days < 30) return Math.floor(days / 7) + 'w ago';
+  if (days < 365) return Math.floor(days / 30) + 'mo ago';
+  return Math.floor(days / 365) + 'yr ago';
 }
 
 function getInitials(name) {

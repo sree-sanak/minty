@@ -93,6 +93,26 @@ test('[EvidenceReview]: applyEvidenceOverrides removes suppressed topics only', 
     assert.equal(out.c1.evidenceCount, 3);
 });
 
+test('[EvidenceReview]: applyEvidenceOverrides preserves contacts that never had topics', () => {
+    const out = applyEvidenceOverrides({
+        contactEvidence: {
+            c1: {
+                sources: ['email'],
+                evidenceCount: 2,
+                latestAt: '2026-05-06T10:00:00.000Z',
+                sourceCoverage: { email: 2 },
+            },
+        },
+        overrides: { suppressions: [{ contactRef: safeContactRef('other'), topic: 'ai', decision: 'suppress' }] },
+    });
+
+    assert.deepEqual(out.c1.sources, ['email']);
+    assert.equal(out.c1.evidenceCount, 2);
+    assert.deepEqual(out.c1.topicEvidence, []);
+    assert.deepEqual(out.c1.topics, []);
+    assert.deepEqual(out.c1.sourceCoverage, { email: 2 });
+});
+
 test('[EvidenceReview]: updateEvidenceOverride validates opaque refs and allowlisted topics', () => {
     const reviewedAt = '2026-05-06T12:00:00.000Z';
     const contactRef = safeContactRef('c1');

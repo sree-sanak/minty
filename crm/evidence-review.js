@@ -160,7 +160,8 @@ function applyEvidenceOverrides({ contactEvidence = {}, overrides = {} } = {}) {
                 .map(topic => extractAllowedTopics(topic)[0])
                 .filter(topic => topic && !topicSuppressed(overrideMap, ref, topic)),
         ])].sort();
-        if (!keptTopics.length) continue;
+        const originalHadTopics = topicRows.length > 0 || (Array.isArray(ev.topics) && ev.topics.length > 0);
+        if (!keptTopics.length && originalHadTopics) continue;
         const sources = keptTopicRows.length
             ? safeSources(keptTopicRows.flatMap(row => Array.isArray(row.sources) ? row.sources : []))
             : safeSources(ev.sources);
@@ -193,9 +194,24 @@ function updateEvidenceOverride({ overrides = {}, contactRef, topic, decision, n
     return { suppressions };
 }
 
+function applyEvidenceOverridesToHybridIndex({ index = [], overrides = {} } = {}) {
+    const overrideMap = normalizeOverrides(overrides);
+    if (overrideMap.size === 0) return Array.isArray(index) ? index : [];
+    return (Array.isArray(index) ? index : []).map(row => {
+        if (!row || typeof row !== 'object') return row;
+        const ref = row.contactRef || (row.id ? safeContactRef(row.id) : null);
+        if (!ref) return row;
+        const topicTokens = (Array.isArray(row.topicTokens) ? row.topicTokens : [])
+            .map(topic => extractAllowedTopics(topic)[0])
+            .filter(topic => topic && !topicSuppressed(overrideMap, ref, topic));
+        return { ...row, topicTokens: [...new Set(topicTokens)].sort() };
+    });
+}
+
 module.exports = {
     buildEvidenceReviewRows,
     normalizeOverrides,
     applyEvidenceOverrides,
+    applyEvidenceOverridesToHybridIndex,
     updateEvidenceOverride,
 };

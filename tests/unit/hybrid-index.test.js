@@ -117,7 +117,7 @@ test('buildHybridIndex excludes isMailingList contacts', () => {
 });
 
 test('[HybridIndex]: suppressed evidence topics are not indexed', () => {
-    const { applyEvidenceOverrides } = require('../../crm/evidence-review');
+    const { applyEvidenceOverrides, applyEvidenceOverridesToHybridIndex } = require('../../crm/evidence-review');
     const contacts = [{ id: 'c1', name: 'Alice', relationshipScore: 80 }];
     const filtered = applyEvidenceOverrides({
         contactEvidence: {
@@ -131,4 +131,17 @@ test('[HybridIndex]: suppressed evidence topics are not indexed', () => {
     });
     const index = buildHybridIndex({ contacts, contactEvidence: filtered, sourceEvents: [] });
     assert.deepEqual(queryHybridIndex('ai', { index }), []);
+
+    const prebuilt = buildHybridIndex({ contacts, contactEvidence: {
+        c1: {
+            topics: ['ai'],
+            sources: ['email'],
+            topicEvidence: [{ topic: 'ai', sources: ['email'], count: 1 }],
+        },
+    }, sourceEvents: [] });
+    const filteredIndex = applyEvidenceOverridesToHybridIndex({
+        index: prebuilt,
+        overrides: { suppressions: [{ contactRef: safeContactRef('c1'), topic: 'ai', decision: 'suppress' }] },
+    });
+    assert.deepEqual(queryHybridIndex('ai', { index: filteredIndex }), []);
 });

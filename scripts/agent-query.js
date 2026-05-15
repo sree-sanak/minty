@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const { queryNetwork } = require('../crm/agent-retrieval');
-const { applyEvidenceOverrides } = require('../crm/evidence-review');
+const { applyEvidenceOverrides, applyEvidenceOverridesToHybridIndex } = require('../crm/evidence-review');
 
 /**
  * Resolve the CRM data directory:
@@ -131,13 +131,15 @@ function loadData(dataDir) {
     }
     const contactEvidence = loadJson('contact-evidence.json');
     const evidenceOverrides = loadJson('evidence-overrides.json');
+    const filteredContactEvidence = applyEvidenceOverrides({ contactEvidence, overrides: evidenceOverrides });
+    const hybridIndex = loadJson('hybrid-index.json');
     return {
         contacts: loadJson('contacts.json'),
         insights: loadJson('insights.json'),
         interactions: loadJson('interactions.json'),
-        contactEvidence: applyEvidenceOverrides({ contactEvidence, overrides: evidenceOverrides }),
+        contactEvidence: filteredContactEvidence,
         sourceEvents: loadJson('source-events.json'),
-        hybridIndex: loadJson('hybrid-index.json'),
+        hybridIndex: Array.isArray(hybridIndex) ? applyEvidenceOverridesToHybridIndex({ index: hybridIndex, overrides: evidenceOverrides }) : hybridIndex,
         goals: loadJson('goals.json'),
         groupMemberships: loadJson('group-memberships.json'),
         syncState: loadRootSyncState('sync-state.json'),
