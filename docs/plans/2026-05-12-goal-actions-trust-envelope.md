@@ -97,10 +97,11 @@ test('[AgentGoalActions]: annotates pipeline follow-ups with trust metadata', ()
         stale: false,
     });
     assert.ok(Array.isArray(brief.citations));
-    assert.ok(brief.citations.length >= 2);
+    assert.equal(brief.citations.length, 3);
     assert.ok(brief.citations.every(c => /^brief:1:cite:\d+$/.test(c.ref)));
     assert.ok(brief.citations.some(c => c.supports === 'pipeline'));
     assert.ok(brief.citations.some(c => c.supports === 'warmth'));
+    assert.ok(brief.citations.some(c => c.supports === 'freshness'));
 
     const serialized = JSON.stringify(out);
     assert.equal(serialized.includes('raw-goal-id-trust'), false);
@@ -154,6 +155,14 @@ const SAFE_CONFIDENCE_DRIVERS = new Set([
     'recent_or_known_contact',
     'stale_contact_penalty',
     'profile_match',
+    'intro_path',
+]);
+
+const SAFE_CITATION_SUPPORTS = new Set([
+    'pipeline',
+    'profile',
+    'warmth',
+    'freshness',
     'intro_path',
 ]);
 ```
@@ -220,14 +229,15 @@ function confidenceDriversForContact(contact, extra = [], options = {}) {
     return [...new Set(drivers)];
 }
 
-function buildCitations(entries) {
+function buildCitations(entries, briefNumber = 1) {
     const citations = [];
+    const safeBriefNumber = Number.isInteger(briefNumber) && briefNumber > 0 ? briefNumber : 1;
     for (const entry of entries || []) {
         if (!entry || typeof entry !== 'object') continue;
         const supports = typeof entry.supports === 'string' ? entry.supports : null;
-        if (!['pipeline', 'profile', 'warmth', 'freshness', 'intro_path'].includes(supports)) continue;
+        if (!SAFE_CITATION_SUPPORTS.has(supports)) continue;
         citations.push({
-            ref: `brief:1:cite:${citations.length + 1}`,
+            ref: `brief:${safeBriefNumber}:cite:${citations.length + 1}`,
             source: entry.source === 'goal' ? 'goal' : entry.source === 'graph' ? 'graph' : 'contact',
             field: typeof entry.field === 'string' ? entry.field : 'local',
             provenance: entry.provenance === 'derived-local' ? 'derived-local' : 'local-contact',
@@ -261,7 +271,7 @@ function withTrustMetadata(brief, contact, options = {}) {
 }
 ```
 
-**Important adjustment:** `buildCitations()` above starts with `brief:1` only as a temporary TDD scaffold for the first single-brief test. Task 3 must be implemented before the feature branch is considered mergeable; do not expose or ship an intermediate state where multiple final briefs can share `brief:1` citation refs.
+**Important adjustment:** `buildCitations()` accepts a `briefNumber` immediately so tests do not teach a duplicate-ref scaffold. Task 3 still renumbers after final sorting/dedupe; do not expose or ship any state where multiple final briefs can share `brief:1` citation refs.
 
 **Step 2: Wrap pipeline and new-ask briefs**
 
