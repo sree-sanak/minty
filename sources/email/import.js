@@ -86,9 +86,13 @@ async function fetchEmailsViaGmailAPI(accessToken, options = {}) {
         }
 
         const headers = {};
-        (msg.payload?.headers || []).forEach(h => { headers[h.name.toLowerCase()] = h.value; });
+        (msg.payload?.headers || []).forEach(h => {
+          if (!h || typeof h.name !== 'string') return;
+          headers[h.name.toLowerCase()] = typeof h.value === 'string' ? h.value : '';
+        });
 
-        const date = headers.date ? new Date(headers.date).toISOString() : null;
+        const parsedDate = headers.date ? new Date(headers.date) : null;
+        const date = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toISOString() : null;
         const allAddrs = [...parseAddrs(headers.from), ...parseAddrs(headers.to), ...parseAddrs(headers.cc)];
 
         allAddrs.forEach(a => {
