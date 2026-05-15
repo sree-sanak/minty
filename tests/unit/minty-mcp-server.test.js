@@ -122,9 +122,9 @@ describe('MCP protocol', () => {
         assert.equal(resp.id, 2);
         const tools = resp.result.tools;
         assert.ok(Array.isArray(tools));
-        assert.equal(tools.length, 6);
+        assert.equal(tools.length, 7);
         const names = tools.map(t => t.name).sort();
-        assert.deepEqual(names, ['goal_next_actions', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
+        assert.deepEqual(names, ['goal_next_actions', 'intro_paths', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
     });
 
     it('returns error for unknown method', async () => {
@@ -190,6 +190,17 @@ describe('tool definitions', () => {
         assert.equal(tool.inputSchema.properties.contactId, undefined);
         assert.equal(tool.inputSchema.properties.send, undefined);
     });
+
+    it('intro_paths has target or goal input and no mutation fields', () => {
+        const tool = TOOLS.find(t => t.name === 'intro_paths');
+        assert.ok(tool);
+        assert.equal(tool.inputSchema.properties.target.type, 'string');
+        assert.equal(tool.inputSchema.properties.goal.type, 'string');
+        assert.equal(tool.inputSchema.properties.limit.type, 'number');
+        assert.equal(tool.inputSchema.properties.contactId, undefined);
+        assert.equal(tool.inputSchema.properties.send, undefined);
+        assert.equal(tool.inputSchema.properties.message, undefined);
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -251,6 +262,66 @@ describe('goal_next_actions tool', () => {
         assert.equal(serialized.includes('maya-secret@example.com'), false);
         assert.equal(serialized.includes('raw-phone-555-0101'), false);
         assert.equal(serialized.includes('raw private body sentinel'), false);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// tools/call tests — intro_paths
+// ---------------------------------------------------------------------------
+
+describe('intro_paths tool', () => {
+    it('returns redacted read-only intro paths through MCP', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0',
+            id: 1301,
+            method: 'tools/call',
+            params: { name: 'intro_paths', arguments: { target: 'Maya Target', limit: 1 } },
+        }, {
+            contacts: [
+                {
+                    id: 'raw-target-id-mcp',
+                    name: 'Maya Target',
+                    relationshipScore: 12,
+                    emails: ['maya-secret@example.com'],
+                    phones: ['raw-phone-555-0101'],
+                    sources: { linkedin: { company: 'TargetCo', position: 'Partner', publicIdentifier: 'raw-linkedin-handle' } },
+                    groupMemberships: [{ chatId: 'raw-group-id-mcp@g.us', chatName: 'Secret Intro Group' }],
+                },
+                {
+                    id: 'raw-warm-id-mcp',
+                    name: 'Priya Warm',
+                    relationshipScore: 86,
+                    daysSinceContact: 4,
+                    sources: { linkedin: { company: 'WarmCo', position: 'Founder' } },
+                    groupMemberships: [{ chatId: 'raw-group-id-mcp@g.us', chatName: 'Secret Intro Group' }],
+                },
+            ],
+            groupMemberships: {
+                'raw-group-id-mcp@g.us': { name: 'Secret Intro Group', size: 3, members: ['raw-target-id-mcp', 'raw-warm-id-mcp'] },
+            },
+        });
+
+        const parsed = JSON.parse(resp.result.content[0].text);
+        assert.equal(parsed.status, 'ok');
+        assert.equal(parsed.paths.length, 1);
+        assert.equal(parsed.paths[0].target.name, 'Maya Target');
+        assert.equal(parsed.paths[0].intermediary.name, 'Priya Warm');
+        assert.equal(parsed.paths[0].sharedContext.kind, 'private_group_membership');
+        assert.equal(parsed.safety.readOnly, true);
+        assert.equal(parsed.safety.noOutreachTriggered, true);
+
+        const serialized = JSON.stringify(parsed);
+        for (const forbidden of [
+            'raw-target-id-mcp',
+            'raw-warm-id-mcp',
+            'raw-group-id-mcp',
+            'Secret Intro Group',
+            'maya-secret@example.com',
+            'raw-phone-555-0101',
+            'raw-linkedin-handle',
+        ]) {
+            assert.equal(serialized.includes(forbidden), false, forbidden);
+        }
     });
 });
 
