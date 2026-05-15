@@ -2146,6 +2146,28 @@ describe('agent-query: loadData()', () => {
         assert.deepEqual(data.contactEvidence, contactEvidence);
     });
 
+    it('applies evidence overrides before returning contact evidence for agent retrieval', () => {
+        writeUnified('contact-evidence.json', {
+            c1: {
+                topics: ['ai', 'defi'],
+                sources: ['email', 'telegram'],
+                topicEvidence: [
+                    { topic: 'ai', sources: ['email'], count: 1 },
+                    { topic: 'defi', sources: ['telegram'], count: 2 },
+                ],
+            },
+        });
+        writeUnified('evidence-overrides.json', {
+            suppressions: [{ contactRef: safeContactRef('c1'), topic: 'ai', decision: 'suppress' }],
+        });
+
+        const data = loadData(tmpDataDir);
+
+        assert.deepEqual(data.contactEvidence.c1.topics, ['defi']);
+        assert.deepEqual(data.contactEvidence.c1.topicEvidence.map(row => row.topic), ['defi']);
+        assert.deepEqual(data.contactEvidence.c1.sources, ['telegram']);
+    });
+
     it('loads goals and group memberships for agent goal tools', () => {
         const goals = [{ id: 'raw-goal-id-1', text: 'raise seed', active: true }];
         const groupMemberships = {

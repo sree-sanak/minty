@@ -26,6 +26,11 @@ const observability = require('./observability');
 const { atomicWriteJsonSync } = require('./utils');
 const { redactPath } = require('./hermes-readiness');
 const { acquireLock } = require('../sources/linkedin/lock');
+const {
+    buildEvidenceReviewRows,
+    updateEvidenceOverride,
+    applyEvidenceOverrides,
+} = require('./evidence-review');
 
 observability.init();
 
@@ -3587,6 +3592,53 @@ function readJsonIfExists(filePath, fallback) {
     catch { return fallback; }
 }
 
+function evidenceReviewFiles(paths) {
+    const unifiedDir = path.dirname(paths.contacts);
+    return {
+        contacts: paths.contacts,
+        contactEvidence: path.join(unifiedDir, 'contact-evidence.json'),
+        overrides: path.join(unifiedDir, 'evidence-overrides.json'),
+    };
+}
+
+function loadEvidenceReviewPayload(paths) {
+    const files = evidenceReviewFiles(paths);
+    return {
+        contacts: loadContacts(paths),
+        contactEvidence: readJsonIfExists(files.contactEvidence, {}),
+        overrides: readJsonIfExists(files.overrides, {}),
+        files,
+    };
+}
+
+async function handleEvidenceReviewList(req, res, _params, paths) {
+    const { contacts, contactEvidence, overrides } = loadEvidenceReviewPayload(paths);
+    const result = buildEvidenceReviewRows({ contacts, contactEvidence, overrides });
+    json(res, result);
+}
+
+async function handleEvidenceReviewDecision(req, res, [contactRef, topic], paths) {
+    if (String(contactRef || '').length > 32 || String(topic || '').length > 80) {
+        json(res, { error: 'invalid evidence review decision' }, 400);
+        return;
+    }
+    let payload;
+    try { payload = await body(req); } catch { json(res, { error: 'invalid body' }, 400); return; }
+    const decision = payload && payload.decision;
+    const { contacts, contactEvidence, overrides, files } = loadEvidenceReviewPayload(paths);
+    let next;
+    try {
+        next = updateEvidenceOverride({ overrides, contactRef, topic, decision });
+    } catch (err) {
+        json(res, { error: err.message || 'invalid evidence review decision' }, 400);
+        return;
+    }
+    atomicWriteJsonSync(files.overrides, next);
+    const result = buildEvidenceReviewRows({ contacts, contactEvidence, overrides: next });
+    const row = result.rows.find(r => r.contactRef === contactRef && r.topic === topic) || null;
+    json(res, { ok: true, row, safety: result.safety });
+}
+
 async function handleEmptyNetworkQuery(req, res, paths) {
     let reqBody;
     try { reqBody = await body(req); } catch { reqBody = {}; }
@@ -3631,11 +3683,14 @@ async function handleNetworkQuery(req, res, _params, paths) {
 
     const unifiedDir = path.dirname(paths.contacts);
     const contacts = loadContacts(paths);
+    const rawContactEvidence = readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {});
+    const evidenceOverrides = readJsonIfExists(path.join(unifiedDir, 'evidence-overrides.json'), {});
+    const contactEvidence = applyEvidenceOverrides({ contactEvidence: rawContactEvidence, overrides: evidenceOverrides });
     const agentResult = queryAgentNetwork(queryForMatching, {
         contacts,
         insights: readJsonIfExists(paths.insights, {}),
         interactions: readJsonIfExists(paths.interactions, []),
-        contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
+        contactEvidence,
         sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
         hybridIndex: readJsonIfExists(path.join(unifiedDir, 'hybrid-index.json'), []),
         syncState: readJsonIfExists(path.join(unifiedDir, '..', 'sync-state.json'), {}),
@@ -3847,6 +3902,8 @@ const ROUTES = [
         version: require('../package.json').version,
     })],
     ['GET',  /^\/api\/settings$/,                        handleGetSettings],
+    ['GET',  /^\/api\/evidence\/review$/,                 handleEvidenceReviewList],
+    ['POST', /^\/api\/evidence\/review\/([^/]+)\/([^/]+)$/, handleEvidenceReviewDecision],
     ['POST', /^\/api\/settings\/mode$/,                  handleSetMode],
     ['POST', /^\/api\/settings\/seed-demo$/,             handleSeedDemo],
     ['POST', /^\/api\/settings\/linkedin-autosync$/,     handleSetLinkedinAutosync],
