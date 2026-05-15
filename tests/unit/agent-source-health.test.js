@@ -124,6 +124,82 @@ test('[AgentSourceHealth]: safety envelope always present', () => {
     assert.equal(out.safety.rawRowsOmitted, true);
 });
 
+test('[AgentSourceHealth]: exposes privacy-safe memory refresh status', () => {
+    const out = buildAgentSourceHealth({
+        contacts: [contact()],
+        interactions: [],
+        contactEvidence: {},
+        sourceEvents: [],
+        syncState: { telegram: { lastSyncAt: '2026-05-06T07:00:00Z', status: 'ok' } },
+        memoryRefreshStatus: {
+            generatedAt: '2026-05-07T09:30:00Z',
+            status: 'failed',
+            failedStep: 'telegram',
+            steps: {
+                telegram: {
+                    status: 'failed',
+                    detail: 'failed for alice@example.com at /root/.hermes/google_token.json with api_key="private-token"',
+                    error: 'raw-phone-555-0101',
+                },
+            },
+            warnings: ['raw private path /root/.hermes/private/brain token abc123'],
+        },
+    }, { source: 'telegram', now: NOW });
+
+    assert.equal(out.status, 'warning');
+    assert.deepEqual(out.refresh, {
+        status: 'failed',
+        failedStep: 'telegram',
+        generatedAt: '2026-05-07T09:30:00Z',
+        warnings: ['raw private path [REDACTED_PATH] [REDACTED_TOKEN]'],
+        nextActions: ['Check Telegram importer credentials and recent export freshness.'],
+    });
+
+    const serialized = JSON.stringify(out);
+    assert.equal(serialized.includes('alice@example.com'), false);
+    assert.equal(serialized.includes('/root/.hermes/google_token.json'), false);
+    assert.equal(serialized.includes('private-token'), false);
+    assert.equal(serialized.includes('abc123'), false);
+    assert.equal(serialized.includes('raw-phone-555-0101'), false);
+});
+
+test('[AgentSourceHealth]: defaults to unknown memory refresh status', () => {
+    const out = buildAgentSourceHealth({ contacts: [], interactions: [], contactEvidence: {}, syncState: {} }, { now: NOW });
+
+    assert.deepEqual(out.refresh, {
+        status: 'unknown',
+        failedStep: null,
+        generatedAt: null,
+        warnings: [],
+        nextActions: [],
+    });
+});
+
+test('[AgentSourceHealth]: rejects unsafe refresh timestamp and failed step fields', () => {
+    const out = buildAgentSourceHealth({
+        contacts: [],
+        interactions: [],
+        contactEvidence: {},
+        syncState: {},
+        memoryRefreshStatus: {
+            status: 'failed',
+            failedStep: 'alice@example.com /root/private/.env',
+            generatedAt: 'alice@example.com /root/private/status.json token=unsafe',
+            warnings: ['safe aggregate warning'],
+        },
+    }, { now: NOW });
+    const serialized = JSON.stringify(out.refresh);
+
+    assert.equal(out.refresh.status, 'failed');
+    assert.equal(out.refresh.failedStep, null);
+    assert.equal(out.refresh.generatedAt, null);
+    assert.deepEqual(out.refresh.warnings, ['safe aggregate warning']);
+    assert.deepEqual(out.refresh.nextActions, ['Inspect the local memory refresh job and rerun npm run memory:refresh after fixing the failed source.']);
+    assert.equal(serialized.includes('alice@example.com'), false);
+    assert.equal(serialized.includes('/root/private'), false);
+    assert.equal(serialized.includes('unsafe'), false);
+});
+
 test('[AgentSourceHealth]: malformed nested source fields degrade safely', () => {
     assert.doesNotThrow(() => buildAgentSourceHealth({
         contacts: [{ sources: { telegram: { username: 'safe' } }, activeChannels: 'telegram' }],

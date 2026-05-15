@@ -365,6 +365,7 @@ function executeTool(name, args, data) {
     const sourceEvents = Array.isArray(data.sourceEvents) ? data.sourceEvents : undefined;
     const hybridIndex = Array.isArray(data.hybridIndex) ? data.hybridIndex : undefined;
     const syncState = (data.syncState && typeof data.syncState === 'object' && !Array.isArray(data.syncState)) ? data.syncState : {};
+    const memoryRefreshStatus = (data.memoryRefreshStatus && typeof data.memoryRefreshStatus === 'object' && !Array.isArray(data.memoryRefreshStatus)) ? data.memoryRefreshStatus : undefined;
     const goals = Array.isArray(data.goals) ? data.goals : [];
     const groupMemberships = (data.groupMemberships && typeof data.groupMemberships === 'object' && !Array.isArray(data.groupMemberships)) ? data.groupMemberships : {};
     const nowForTests = typeof data.nowForTests === 'string' ? data.nowForTests : undefined;
@@ -466,7 +467,7 @@ function executeTool(name, args, data) {
             querySourceFilter = inferredSources;
         }
         const envelope = buildAgentSourceHealth(
-            { contacts, interactions, contactEvidence, sourceEvents, syncState },
+            { contacts, interactions, contactEvidence, sourceEvents, syncState, memoryRefreshStatus },
             {
                 source: args.source,
                 sources: args.sources || inferredSources,
