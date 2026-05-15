@@ -96,9 +96,58 @@ function loadSyncState(statePath) {
     }
 }
 
+function fsyncDirectoryBestEffort(dirPath, fsModule) {
+    if (typeof fsModule.openSync !== 'function' || typeof fsModule.fsyncSync !== 'function') return;
+    let dirFd = null;
+    try {
+        dirFd = fsModule.openSync(dirPath, 'r', 0);
+        fsModule.fsyncSync(dirFd);
+    } catch {
+        // Some platforms/filesystems do not support opening/fsyncing directories.
+    } finally {
+        if (dirFd !== null) {
+            try { fsModule.closeSync(dirFd); } catch { /* ignore */ }
+        }
+    }
+}
+
+function writeJsonFileAtomic(filePath, value, options = {}) {
+    const fsModule = options.fsModule || fs;
+    const mode = options.mode === undefined ? 0o600 : options.mode;
+    const dir = path.dirname(filePath);
+    const base = path.basename(filePath);
+    const tempPath = path.join(
+        dir,
+        `.${base}.tmp-${process.pid}-${Date.now()}-${crypto.randomBytes(6).toString('hex')}`
+    );
+    const data = JSON.stringify(value, null, 2);
+    let fd = null;
+
+    try {
+        fd = fsModule.openSync(tempPath, 'wx', mode === null ? 0o666 : mode);
+        fsModule.writeFileSync(fd, data, 'utf8');
+        if (typeof fsModule.fsyncSync === 'function') fsModule.fsyncSync(fd);
+        fsModule.closeSync(fd);
+        fd = null;
+        if (mode !== null) {
+            try { fsModule.chmodSync(tempPath, mode); } catch { /* ignore */ }
+        }
+        fsModule.renameSync(tempPath, filePath);
+        if (mode !== null) {
+            try { fsModule.chmodSync(filePath, mode); } catch { /* ignore */ }
+        }
+        fsyncDirectoryBestEffort(dir, fsModule);
+    } catch (error) {
+        if (fd !== null) {
+            try { fsModule.closeSync(fd); } catch { /* ignore */ }
+        }
+        try { fsModule.unlinkSync(tempPath); } catch { /* ignore */ }
+        throw error;
+    }
+}
+
 function saveSyncState(statePath, state) {
-    fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
-    try { fs.chmodSync(statePath, 0o600); } catch { /* ignore */ }
+    writeJsonFileAtomic(statePath, state, { mode: 0o600 });
 }
 
 function deepMerge(target, source) {
@@ -288,7 +337,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
         const profile = await apiGet('profile');
         accountState.historyId = profile.historyId;
         gmailState[email] = accountState;
-        fs.writeFileSync(stateFile, JSON.stringify(gmailState, null, 2));
+        writeJsonFileAtomic(stateFile, gmailState, { mode: 0o600 });
         console.log(`[sync] Gmail ${email}: seeded historyId ${accountState.historyId}`);
         return { newMessages: 0 };
     }
@@ -303,7 +352,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
             const profile = await apiGet('profile');
             accountState.historyId = profile.historyId;
             gmailState[email] = accountState;
-            fs.writeFileSync(stateFile, JSON.stringify(gmailState, null, 2));
+            writeJsonFileAtomic(stateFile, gmailState, { mode: 0o600 });
             console.log(`[sync] Gmail ${email}: historyId expired, reseeded`);
             return { newMessages: 0 };
         }
@@ -324,7 +373,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
     if (msgIds.size === 0) {
         accountState.historyId = newHistoryId;
         gmailState[email] = accountState;
-        fs.writeFileSync(stateFile, JSON.stringify(gmailState, null, 2));
+        writeJsonFileAtomic(stateFile, gmailState, { mode: 0o600 });
         return { newMessages: 0 };
     }
 
@@ -359,7 +408,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
     }
 
     if (added > 0) {
-        fs.writeFileSync(messagesPath, JSON.stringify(messages, null, 2));
+        writeJsonFileAtomic(messagesPath, messages, { mode: 0o600 });
         // Re-run merge to incorporate new interactions
         try {
             const unifiedDir = path.join(userDataDir, 'unified');
@@ -372,7 +421,7 @@ async function syncGmailAccount(account, emailDataDir, userDataDir) {
 
     accountState.historyId = newHistoryId;
     gmailState[email] = accountState;
-    fs.writeFileSync(stateFile, JSON.stringify(gmailState, null, 2));
+    writeJsonFileAtomic(stateFile, gmailState, { mode: 0o600 });
 
     console.log(`[sync] Gmail ${email}: +${added} new messages`);
     return { newMessages: added };
@@ -431,7 +480,7 @@ async function syncGoogleContacts(account, gcDataDir, userDataDir) {
     if (changed.length === 0) {
         if (newSyncToken) {
             gcState[email] = { ...(gcState[email] || {}), syncToken: newSyncToken };
-            fs.writeFileSync(stateFile, JSON.stringify(gcState, null, 2));
+            writeJsonFileAtomic(stateFile, gcState, { mode: 0o600 });
         }
         return { changed: 0 };
     }
@@ -467,7 +516,7 @@ async function syncGoogleContacts(account, gcDataDir, userDataDir) {
         }
     }
 
-    fs.writeFileSync(contactsPath, JSON.stringify(existing, null, 2));
+    writeJsonFileAtomic(contactsPath, existing, { mode: 0o600 });
 
     // Re-run merge before advancing the Google Contacts sync token.
     try {
@@ -480,7 +529,7 @@ async function syncGoogleContacts(account, gcDataDir, userDataDir) {
 
     if (newSyncToken) {
         gcState[email] = { ...(gcState[email] || {}), syncToken: newSyncToken };
-        fs.writeFileSync(stateFile, JSON.stringify(gcState, null, 2));
+        writeJsonFileAtomic(stateFile, gcState, { mode: 0o600 });
     }
 
     console.log(`[sync] Google Contacts ${email}: ${changed.length} changed contacts`);
@@ -600,7 +649,7 @@ function attachWhatsAppSync(uuid, client, userDataDir, statePath) {
                 type: msg.type || 'chat',
             });
 
-            fs.writeFileSync(chatsPath, JSON.stringify(chats, null, 2));
+            writeJsonFileAtomic(chatsPath, chats, { mode: 0o600 });
 
             // Incremental merge before advancing freshness; failed merges mean
             // agent/source-health surfaces must not trust the new local file yet.
@@ -783,8 +832,7 @@ function startSyncDaemon(uuid, userDataDir) {
                 if (idx !== -1) accts[idx].accessToken = account.accessToken;
                 if (u2[uuid]?.sources?.email?.accounts) {
                     u2[uuid].sources.email.accounts = accts;
-                    fs.writeFileSync(usersPath, JSON.stringify(u2, null, 2));
-                    try { fs.chmodSync(usersPath, 0o600); } catch { /* ignore */ }
+                    writeJsonFileAtomic(usersPath, u2, { mode: 0o600 });
                 }
             } catch (e) {
                 failures++;
@@ -846,8 +894,7 @@ function startSyncDaemon(uuid, userDataDir) {
                 if (idx !== -1 && account.accessToken) accts[idx].accessToken = account.accessToken;
                 if (u2[uuid]?.sources?.email?.accounts) {
                     u2[uuid].sources.email.accounts = accts;
-                    fs.writeFileSync(usersPath, JSON.stringify(u2, null, 2));
-                    try { fs.chmodSync(usersPath, 0o600); } catch { /* ignore */ }
+                    writeJsonFileAtomic(usersPath, u2, { mode: 0o600 });
                 }
             } catch (e) {
                 failures++;
@@ -903,8 +950,7 @@ function startSyncDaemon(uuid, userDataDir) {
             if (idx !== -1 && account.accessToken) accts[idx].accessToken = account.accessToken;
             if (u2[uuid]?.sources?.email?.accounts) {
                 u2[uuid].sources.email.accounts = accts;
-                fs.writeFileSync(usersPath, JSON.stringify(u2, null, 2));
-                try { fs.chmodSync(usersPath, 0o600); } catch { /* ignore */ }
+                writeJsonFileAtomic(usersPath, u2, { mode: 0o600 });
             }
         } catch (e) {
             console.error(`[sync] Calendar poll error for ${account.email}:`, e.message);
@@ -1167,6 +1213,7 @@ module.exports = {
     computeDirHash,
     loadSyncState,
     saveSyncState,
+    writeJsonFileAtomic,
     deepMerge,
     recordSourceSyncSuccess,
     recordSourceSyncFailure,
