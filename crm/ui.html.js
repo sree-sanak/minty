@@ -4459,6 +4459,7 @@ function renderReview() {
     : '';
 
   body.innerHTML = \`
+    \${evidenceWorkbench}
     <div class="card">
       <div class="reason-bar">
         <span class="tag \${tagClass}">\${prev || 'needs review'}</span>
