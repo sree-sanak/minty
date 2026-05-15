@@ -2042,6 +2042,16 @@ async function handleUploadSource(req, res, [source], paths, uuid) {
     }
 }
 
+function safeErrorLogMetadata(err) {
+    const safeCode = typeof err?.code === 'string' && /^[A-Z0-9_-]{1,40}$/.test(err.code)
+        ? err.code
+        : (typeof err?.code === 'string' ? 'invalid' : undefined);
+    const safeName = typeof err?.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,60}$/.test(err.name)
+        ? err.name
+        : (typeof err?.name === 'string' ? 'Error' : undefined);
+    return { code: safeCode, name: safeName };
+}
+
 async function handleConnectEmail(req, res, params, paths, uuid) {
     const { host, user, pass, port, mailbox, limit } = await body(req);
     if (!host || !user || !pass) return json(res, { error: 'host, user, pass required' }, 400);
@@ -2069,8 +2079,11 @@ async function handleConnectEmail(req, res, params, paths, uuid) {
         updateUserSource(uuid, 'email', { host, user, port: port || 993, status: 'connected', connectedAt: new Date().toISOString() });
         json(res, { ok: true });
     } catch (e) {
-        console.error(e);
-        json(res, { error: e.message }, 500);
+        console.error('Email connection failed', safeErrorLogMetadata(e));
+        json(res, {
+            error: 'email connection failed',
+            message: 'Email connection failed. Check the host, port, mailbox, and credentials, then try again.',
+        }, 500);
     }
 }
 
@@ -4156,7 +4169,7 @@ async function createServer(opts = {}) {
     return server;
 }
 
-module.exports = { createServer };
+module.exports = { createServer, safeErrorLogMetadata };
 
 // Start the server when run as a script (not required as a module).
 if (require.main === module) {

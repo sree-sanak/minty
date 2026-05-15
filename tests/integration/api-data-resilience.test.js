@@ -8,6 +8,7 @@ const net = require('node:net');
 
 const ROOT = path.resolve(__dirname, '../..');
 const SERVER = path.join(ROOT, 'crm/server.js');
+const { safeErrorLogMetadata } = require('../../crm/server');
 
 function writeJson(file, value) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -105,6 +106,19 @@ async function withServer(dataDir, fn) {
     }
 }
 
+test('email connector log metadata rejects sensitive error code and name values', () => {
+    const metadata = safeErrorLogMetadata({
+        code: 'ENOTFOUND /root/private-host.example.invalid token=raw-secret',
+        name: 'private-sentinel@example.com Error',
+    });
+
+    assert.deepEqual(metadata, { code: 'invalid', name: 'Error' });
+    const serialized = JSON.stringify(metadata);
+    assert.equal(serialized.includes('/root/'), false);
+    assert.equal(serialized.includes('private-sentinel@example.com'), false);
+    assert.equal(serialized.includes('raw-secret'), false);
+});
+
 test('GET /api/today preserves zero-day contact recency', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-today-'));
     seedDataDir(dir, [
@@ -181,6 +195,39 @@ test('GET /api/export uses stable public error when bundle generation fails', as
         assert.doesNotMatch(text, /stack|at JSON\.parse/i);
         assert.equal(text.includes(dir), false, 'response leaked temp directory path');
         assert.equal(text.includes(sentinel), false, 'response leaked temp directory basename');
+    });
+});
+
+test('POST /api/sources/email returns stable public error on connector failure', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-email-safe-error-'));
+    seedDataDir(dir, []);
+    const sentinelHost = '/root/private-host.example.invalid';
+    const sentinelUser = 'private-sentinel@example.com';
+    const sentinelPass = 'private-password-sentinel';
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/sources/email`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                host: sentinelHost,
+                user: sentinelUser,
+                pass: sentinelPass,
+                limit: 1,
+            }),
+        });
+        assert.equal(res.status, 500);
+        const text = await res.text();
+        const payload = JSON.parse(text);
+        assert.deepEqual(payload, {
+            error: 'email connection failed',
+            message: 'Email connection failed. Check the host, port, mailbox, and credentials, then try again.',
+        });
+        assert.doesNotMatch(text, /Command failed|ENOTFOUND|getaddrinfo|stack|node:|sources\/email\/import\.js/i);
+        assert.equal(text.includes(sentinelHost), false, 'response leaked connector host/path');
+        assert.equal(text.includes(sentinelUser), false, 'response leaked connector username');
+        assert.equal(text.includes(sentinelPass), false, 'response leaked connector password');
+        assert.equal(text.includes('/root/'), false, 'response leaked local path');
     });
 });
 
