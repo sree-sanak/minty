@@ -48,9 +48,12 @@ function gmailGet(accessToken, endpoint) {
   });
 }
 
-async function fetchEmailsViaGmailAPI(accessToken) {
+async function fetchEmailsViaGmailAPI(accessToken, options = {}) {
+  const get = options.gmailGet || gmailGet;
+  const logger = options.logger || console;
   const contactMap = {};
   const messages = [];
+  const diagnostics = { skippedMessages: 0 };
 
   // Fetch message IDs (sent + received)
   let pageToken;
@@ -59,7 +62,7 @@ async function fetchEmailsViaGmailAPI(accessToken) {
 
   do {
     const qs = 'messages?maxResults=500' + (pageToken ? '&pageToken=' + pageToken : '');
-    const res = await gmailGet(accessToken, qs);
+    const res = await get(accessToken, qs);
     if (res.error) throw new Error('Gmail API error: ' + JSON.stringify(res.error));
     (res.messages || []).forEach(m => ids.push(m.id));
     pageToken = res.nextPageToken;
@@ -74,10 +77,13 @@ async function fetchEmailsViaGmailAPI(accessToken) {
     const batch = ids.slice(i, i + batchSize);
     await Promise.all(batch.map(async id => {
       try {
-        const msg = await gmailGet(accessToken,
+        const msg = await get(accessToken,
           `messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject&metadataHeaders=Date`
         );
-        if (msg.error) return;
+        if (msg.error) {
+          diagnostics.skippedMessages++;
+          return;
+        }
 
         const headers = {};
         (msg.payload?.headers || []).forEach(h => { headers[h.name.toLowerCase()] = h.value; });
@@ -99,11 +105,17 @@ async function fetchEmailsViaGmailAPI(accessToken) {
           cc: headers.cc || null,
           subject: headers.subject || null,
         });
-      } catch (e) { /* skip bad messages */ }
+      } catch (e) {
+        diagnostics.skippedMessages++;
+      }
     }));
   }
 
-  return { messages, contacts: Object.values(contactMap) };
+  if (diagnostics.skippedMessages) {
+    logger.warn(`Gmail API: ${diagnostics.skippedMessages} messages failed to import`);
+  }
+
+  return { messages, contacts: Object.values(contactMap), diagnostics };
 }
 
 // ── IMAP fallback ──────────────────────────────────────────────────────────
@@ -281,4 +293,10 @@ async function run() {
   });
 }
 
-run().catch(err => { console.error(err); process.exit(1); });
+if (require.main === module) {
+  run().catch(err => { console.error(err); process.exit(1); });
+}
+
+module.exports = {
+  fetchEmailsViaGmailAPI,
+};
