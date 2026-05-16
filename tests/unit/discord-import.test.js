@@ -123,6 +123,7 @@ test('[DiscordImport] missing export progress error omits local path', () => {
     const missingPath = path.join(dir, 'private-export.json');
     const failures = [];
 
+    let thrown;
     assert.throws(() => runDiscordImport({
         exportFile: missingPath,
         outDir: path.join(dir, 'out'),
@@ -132,10 +133,16 @@ test('[DiscordImport] missing export progress error omits local path', () => {
             failProgress(_dataDir, _source, err) { failures.push(err && err.message); },
         },
         logger: { log() {}, error() {} },
-    }), /Discord export not found/);
+    }), err => {
+        thrown = err;
+        return /Discord export file was not found/.test(err.message);
+    });
 
+    assert.ok(thrown);
     assert.equal(failures.length, 1);
     assert.equal(failures[0], 'Discord export file was not found');
-    assert.equal(failures[0].includes(dir), false);
-    assert.equal(failures[0].includes('private-export.json'), false);
+    for (const message of [failures[0], thrown.message]) {
+        assert.equal(message.includes(dir), false);
+        assert.equal(message.includes('private-export.json'), false);
+    }
 });

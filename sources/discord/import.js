@@ -171,8 +171,8 @@ function runDiscordImport(options = {}) {
 
     if (progress) progress.startProgress(dataDir, 'discord', { step: 'init', message: 'Reading Discord export…' });
     if (!fs.existsSync(exportFile)) {
-        const err = new Error(`Discord export not found: ${exportFile}`);
-        if (progress) progress.failProgress(dataDir, 'discord', new Error('Discord export file was not found'));
+        const err = new Error('Discord export file was not found');
+        if (progress) progress.failProgress(dataDir, 'discord', err);
         throw err;
     }
 
