@@ -144,3 +144,71 @@ test('GET /api/source-health ignores invalid calendar dates in now query', async
         await new Promise(resolve => server.close(resolve));
     }
 });
+
+test('GET /api/source-quality/workbench returns privacy-safe trust gaps', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-source-quality-api-'));
+    const unified = path.join(dir, 'unified');
+    writeJson(path.join(unified, 'contacts.json'), [
+        {
+            id: 'raw-quality-alpha',
+            name: 'Quality Sentinel',
+            email: 'quality.alice@example.com',
+            phones: ['raw-phone-555-0202'],
+            company: 'QualityCo',
+            sources: { linkedin: { id: 'raw-linkedin-quality-alpha', url: 'https://private.example/quality-alice' } },
+        },
+        {
+            id: 'raw-quality-beta',
+            name: 'Qualia Sentinel',
+            emails: ['quality.alicia@example.com'],
+            company: 'QualityCo',
+            sources: { linkedin: { id: 'raw-linkedin-quality-beta' } },
+        },
+    ]);
+    writeJson(path.join(unified, 'interactions.json'), []);
+    writeJson(path.join(unified, 'insights.json'), {});
+    writeJson(path.join(unified, 'contact-evidence.json'), {});
+    writeJson(path.join(unified, 'source-events.json'), []);
+    writeJson(path.join(dir, 'sync-state.json'), {
+        email: {
+            status: 'error',
+            lastSyncAt: '2026-04-01T00:00:00Z',
+            lastError: 'api_key="private-quality-token" /root/private/email.json',
+        },
+    });
+
+    const server = await createServer({ dataDir: dir, port: 0 });
+    try {
+        const res = await request(server, '/api/source-quality/workbench?now=2026-05-06T08%3A00%3A00Z');
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+
+        assert.equal(payload.status, 'needs_review');
+        assert.equal(payload.buckets.ambiguousIdentityClusters.count, 1);
+        assert.equal(payload.buckets.staleOrUnhealthySources.count, 1);
+        assert.equal(payload.buckets.ingestionGaps.count, 1);
+        assert.equal(payload.safety.readOnly, true);
+        assert.equal(payload.safety.contactDetailsOmitted, true);
+        assert.equal(payload.safety.opaqueRefsOnly, true);
+
+        const serialized = JSON.stringify(payload);
+        for (const forbidden of [
+            'raw-quality-alpha',
+            'raw-quality-beta',
+            'Quality Sentinel',
+            'Qualia Sentinel',
+            'quality.alice@example.com',
+            'quality.alicia@example.com',
+            'raw-phone-555-0202',
+            'raw-linkedin-quality-alpha',
+            'raw-linkedin-quality-beta',
+            'https://private.example',
+            'private-quality-token',
+            '/root/private/email.json',
+        ]) {
+            assert.equal(serialized.includes(forbidden), false, `leaked ${forbidden}`);
+        }
+    } finally {
+        await new Promise(resolve => server.close(resolve));
+    }
+});

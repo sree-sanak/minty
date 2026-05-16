@@ -32,6 +32,7 @@ const {
     applyEvidenceOverrides,
 } = require('./evidence-review');
 const { buildAgentSourceHealth } = require('./agent-source-health');
+const { buildSourceQualityWorkbench } = require('./source-quality-workbench');
 
 observability.init();
 
@@ -1994,9 +1995,19 @@ function safeSourceHealthNow(value) {
     return parsed.toISOString().replace('.000Z', 'Z') === value ? value : parsed.toISOString();
 }
 
-function handleGetSourceHealth(req, res, params, paths) {
-    const url = new URL(req.url, `http://localhost:${PORT}`);
+function loadSourceTrustData(paths) {
     const unifiedDir = path.dirname(paths.contacts);
+    return {
+        contacts: readJsonIfExists(paths.contacts, []),
+        interactions: readJsonIfExists(paths.interactions, []),
+        contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
+        sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
+        syncState: readJsonIfExists(path.join(unifiedDir, '..', 'sync-state.json'), {}),
+        memoryRefreshStatus: readJsonIfExists(path.join(unifiedDir, '..', 'memory-refresh-status.json'), null),
+    };
+}
+
+function parseSourceQueryFilters(url) {
     const querySourceFilter = [];
     const addSource = value => {
         if (!value) return;
@@ -2007,17 +2018,25 @@ function handleGetSourceHealth(req, res, params, paths) {
     };
     addSource(url.searchParams.get('source'));
     addSource(url.searchParams.get('sources'));
+    return querySourceFilter;
+}
 
-    const payload = buildAgentSourceHealth({
-        contacts: readJsonIfExists(paths.contacts, []),
-        interactions: readJsonIfExists(paths.interactions, []),
-        contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
-        sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
-        syncState: readJsonIfExists(path.join(unifiedDir, '..', 'sync-state.json'), {}),
-        memoryRefreshStatus: readJsonIfExists(path.join(unifiedDir, '..', 'memory-refresh-status.json'), null),
-    }, {
+function handleGetSourceHealth(req, res, params, paths) {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+
+    const payload = buildAgentSourceHealth(loadSourceTrustData(paths), {
         now: safeSourceHealthNow(url.searchParams.get('now')),
-        sources: querySourceFilter,
+        sources: parseSourceQueryFilters(url),
+    });
+    json(res, payload);
+}
+
+function handleGetSourceQualityWorkbench(req, res, params, paths) {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+
+    const payload = buildSourceQualityWorkbench(loadSourceTrustData(paths), {
+        now: safeSourceHealthNow(url.searchParams.get('now')),
+        sources: parseSourceQueryFilters(url),
     });
     json(res, payload);
 }
@@ -3908,9 +3927,16 @@ function handleLinkedInSync(req, res) {
     res.end(JSON.stringify({ ok: true, pid: child.pid }));
 }
 
+function isSourceReadinessRoute(pathname) {
+    return pathname.startsWith('/api/sources')
+        || pathname === '/api/source-health'
+        || pathname === '/api/source-quality/workbench';
+}
+
 const ROUTES = [
     ['GET',  /^\/api\/sources$/,                          handleGetSources],
     ['GET',  /^\/api\/source-health$/,                    handleGetSourceHealth],
+    ['GET',  /^\/api\/source-quality\/workbench$/,        handleGetSourceQualityWorkbench],
     ['GET',  /^\/api\/linkedin\/status$/,                 handleLinkedInStatus],
     ['POST', /^\/api\/linkedin\/connect$/,                handleLinkedInConnect],
     ['POST', /^\/api\/linkedin\/sync$/,                   handleLinkedInSync],
@@ -4056,7 +4082,7 @@ const server = http.createServer(async (req, res) => {
 
     if (p.startsWith('/api/')) {
         // Allow source management/readiness routes even when there are no contacts yet
-        const isSourceRoute = p.startsWith('/api/sources') || p === '/api/source-health';
+        const isSourceRoute = isSourceReadinessRoute(p);
         if (!isSourceRoute && !fs.existsSync(paths.contacts)) {
             if (p === '/api/contacts') { json(res, []); return; }
             if (p === '/api/pending')  { json(res, []); return; }
@@ -4218,7 +4244,7 @@ async function createServer(opts = {}) {
             return;
         }
         if (p.startsWith('/api/')) {
-            const isSourceRoute = p.startsWith('/api/sources') || p === '/api/source-health';
+            const isSourceRoute = isSourceReadinessRoute(p);
             if (!isSourceRoute && !fs.existsSync(paths.contacts)) {
                 if (p === '/api/contacts') { json(res, []); return; }
                 if (p === '/api/pending') { json(res, []); return; }
