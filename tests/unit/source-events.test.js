@@ -96,6 +96,17 @@ test('canonicalSafeSource never echoes arbitrary channel names', () => {
     assert.equal(canonicalSafeSource('SMS'), 'sms');
 });
 
+test('[SourceEvents] canonicalizes Slack as a safe source label', () => {
+    assert.equal(canonicalSafeSource('slack'), 'slack');
+    assert.equal(canonicalSafeSource('Slack Channel'), 'slack');
+});
+
+test('[SourceEvents] canonicalizes Discord as a safe source label', () => {
+    assert.equal(canonicalSafeSource('discord'), 'discord');
+    assert.equal(canonicalSafeSource('Discord DM'), 'discord');
+    assert.equal(canonicalSafeSource('Discord Group DM'), 'discord');
+});
+
 test('source event ids do not persist raw upstream ids or contact handles', () => {
     const contacts = [{ id: 'alice@example.com', sources: { telegram: { userId: '+15551234567' } } }];
     const interactions = [{

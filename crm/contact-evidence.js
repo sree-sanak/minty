@@ -18,6 +18,7 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     linkedin: 'linkedin',
     googlecontacts: 'googleContacts',
     slack: 'slack',
+    discord: 'discord',
 });
 
 const STOPWORDS = new Set([

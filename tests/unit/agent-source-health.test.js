@@ -99,8 +99,38 @@ test('[AgentSourceHealth]: all-sources summary with no filter', () => {
 
     // Should include all known sources
     assert.ok(Object.keys(out.sources).length >= 5);
+    assert.ok('discord' in out.sources);
     assert.ok('telegram' in out.sources);
     assert.ok('email' in out.sources);
+});
+
+test('[AgentSourceHealth]: reports Discord as a fresh evidence-bearing local source', () => {
+    const out = buildAgentSourceHealth({
+        contacts: [contact({
+            id: 'c_discord',
+            name: 'Discord Friend',
+            emails: [],
+            phones: [],
+            sources: { discord: { discordRef: 'discord_user_abc123' } },
+            activeChannels: ['discord'],
+        })],
+        interactions: [{ contactId: 'c_discord', source: 'discord', body: 'private discord alpha note', timestamp: '2026-05-06T07:30:00Z' }],
+        contactEvidence: { c_discord: { sources: ['discord'], topics: ['alpha'], updatedAt: '2026-05-06T07:35:00Z' } },
+        sourceEvents: [{ source: 'discord', contactId: 'c_discord', text: 'private source event' }],
+        syncState: { discord: { lastSyncAt: '2026-05-06T07:00:00Z', status: 'ok' } },
+    }, { source: 'Discord DM', now: NOW });
+
+    assert.equal(out.status, 'ok');
+    assert.equal(out.sources.discord.status, 'ready');
+    assert.equal(out.sources.discord.contactCount, 1);
+    assert.equal(out.sources.discord.interactionCount, 1);
+    assert.equal(out.sources.discord.evidenceContactCount, 1);
+    assert.equal(out.sources.discord.sourceEventCount, 1);
+
+    const serialized = JSON.stringify(out);
+    assert.equal(serialized.includes('discord_user_abc123'), false);
+    assert.equal(serialized.includes('private discord alpha note'), false);
+    assert.equal(serialized.includes('c_discord'), false);
 });
 
 test('[AgentSourceHealth]: not_configured warning when sync state missing', () => {

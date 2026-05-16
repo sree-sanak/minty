@@ -187,6 +187,7 @@ const SAFE_SOURCE_LABELS = Object.freeze({
     linkedin: 'LinkedIn evidence',
     googlecontacts: 'Google Contacts evidence',
     slack: 'Slack evidence',
+    discord: 'Discord evidence',
 });
 
 const SOURCE_DISPLAY_LABELS = Object.freeze({
@@ -197,6 +198,7 @@ const SOURCE_DISPLAY_LABELS = Object.freeze({
     linkedin: 'LinkedIn',
     googlecontacts: 'Google Contacts',
     slack: 'Slack',
+    discord: 'Discord',
 });
 
 function canonicalSource(source) {

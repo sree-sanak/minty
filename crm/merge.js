@@ -74,6 +74,10 @@ function slackStableId(id) {
     return id ? `slack_${String(id).trim()}` : null;
 }
 
+function discordStableId(id) {
+    return id ? `discord_${String(id).replace(/[^a-zA-Z0-9_:-]/g, '_')}` : null;
+}
+
 function slackMemberName(c) {
     return c && (c.displayName || c.realName || c.real_name || c.name || c.profile?.display_name || c.profile?.real_name) || null;
 }
@@ -332,9 +336,33 @@ function loadSlack(index, providedContacts = null) {
     console.log(`Merged ${merged} Slack members`);
 }
 
+function loadDiscord(index, providedContacts = null) {
+    const contacts = providedContacts || load(path.join(DATA, 'discord/contacts.json'));
+    if (!contacts) { console.log('discord/contacts.json not found, skipping'); return; }
+    let merged = 0;
+    for (const c of contacts) {
+        if (!c || typeof c !== 'object') continue;
+        const id = c.discordRef || c.id;
+        const name = typeof c.name === 'string' ? c.name.trim() : '';
+        if (!id || !name) continue;
+        const stableId = discordStableId(id);
+        const contact = index.upsert([], [], name, stableId);
+        contact.sources.discord = {
+            id: String(id),
+            name,
+            discordRef: String(id),
+            messageCount: Number.isFinite(Number(c.messageCount)) ? Number(c.messageCount) : 0,
+            lastMessageAt: c.lastMessageAt || null,
+        };
+        if (!contact.name && name) contact.name = name;
+        merged++;
+    }
+    console.log(`Merged ${merged} Discord contacts`);
+}
+
 // --- Interaction timeline ---
 
-function buildInteractions() {
+function buildInteractions(options = {}) {
     const interactions = [];
 
     // WhatsApp
@@ -433,6 +461,20 @@ function buildInteractions() {
                 type: isDirect ? 'direct' : 'channel',
                 body: m.body || m.text || null,
             }));
+        }
+    }
+
+    const discordThreads = options.discordThreads || load(path.join(DATA, 'discord/messages.json'));
+    if (discordThreads) {
+        for (const thread of discordThreads) {
+            for (const m of thread.messages || []) {
+                interactions.push(createInteraction('discord', {
+                    ...m,
+                    chatId: thread.id,
+                    chatName: thread.chatName || 'Discord conversation',
+                    type: thread.type || 'dm',
+                }));
+            }
         }
     }
 
@@ -572,6 +614,10 @@ function getContactInteractionStats(contact, idx) {
         const slackId = contact.sources.slack.userId || contact.sources.slack.id || contact.sources.slack.user_id || contact.sources.slack.slackId || contact.sources.slack.memberId;
         if (slackId) add(idx.byFrom[String(slackId)]);
     }
+    if (contact.sources.discord) {
+        const discordId = contact.sources.discord.discordRef || contact.sources.discord.id;
+        if (discordId) add(idx.byFrom[String(discordId)]);
+    }
 
     // Find most recent interaction timestamp
     let lastTs = null;
@@ -649,6 +695,7 @@ function run() {
     loadGoogleContacts(index);
     loadSms(index);
     loadSlack(index);
+    loadDiscord(index);
     applyOverrides(index);
     applyApolloEnrichment(index);
 
@@ -673,12 +720,14 @@ module.exports = {
     waStableId,
     liStableId,
     slackStableId,
+    discordStableId,
     buildPhoneBridge,
     buildInteractions,
     buildInteractionIndex,
     getContactInteractionStats,
     loadWhatsAppRosters,
     loadSlack,
+    loadDiscord,
     computeRelationshipScores,
     applyOverrides,
 };
