@@ -17,7 +17,71 @@ test('proposes exact source/email/phone candidates as auto-merge eligible', () =
     assert.deepEqual(candidates[0].contactIds, ['a', 'b']);
     assert.equal(candidates[0].decision, 'auto_exact');
     assert.equal(candidates[0].requiresReview, false);
+    assert.equal(candidates[0].score, 100);
+    assert.deepEqual(candidates[0].reasons, [{ kind: 'exact_email', detail: 'Exact private identifier match; identifier omitted.' }]);
     assert.equal(JSON.stringify(candidates).includes('alice@example.com'), false);
+});
+
+test('proposes pairwise exact email candidates for clusters with three people', () => {
+    const contacts = [
+        { id: 'a', name: 'Ada One', emails: ['ada-cluster@example.test'] },
+        { id: 'b', name: 'Ada Two', emails: ['ADA-CLUSTER@example.test'] },
+        { id: 'c', name: 'Ada Three', emails: [' ada-cluster@example.test '] },
+    ];
+
+    const candidates = proposeIdentityCandidates(contacts);
+
+    assert.deepEqual(candidates.map(c => c.contactIds), [['a', 'b'], ['a', 'c'], ['b', 'c']]);
+    for (const candidate of candidates) {
+        assert.equal(candidate.decision, 'auto_exact');
+        assert.equal(candidate.requiresReview, false);
+        assert.equal(candidate.score, 100);
+        assert.deepEqual(candidate.reasons, [{ kind: 'exact_email', detail: 'Exact private identifier match; identifier omitted.' }]);
+    }
+    const serialized = JSON.stringify(candidates).toLowerCase();
+    assert.equal(serialized.includes('ada-cluster@example.test'), false);
+});
+
+test('proposes pairwise exact phone candidates for clusters with three people without leaking the phone', () => {
+    const contacts = [
+        { id: 'a', name: 'Phone One', phones: ['+1 (555) 010-4242'] },
+        { id: 'b', name: 'Phone Two', phone: '15550104242' },
+        { id: 'c', name: 'Phone Three', sources: { whatsapp: { phone: '+1-555-010-4242' } } },
+    ];
+
+    const candidates = proposeIdentityCandidates(contacts);
+
+    assert.deepEqual(candidates.map(c => c.contactIds), [['a', 'b'], ['a', 'c'], ['b', 'c']]);
+    for (const candidate of candidates) {
+        assert.equal(candidate.decision, 'auto_exact');
+        assert.equal(candidate.requiresReview, false);
+        assert.equal(candidate.score, 100);
+        assert.deepEqual(candidate.reasons, [{ kind: 'exact_phone', detail: 'Exact private identifier match; identifier omitted.' }]);
+    }
+    const serialized = JSON.stringify(candidates);
+    assert.equal(serialized.includes('15550104242'), false);
+    assert.equal(serialized.includes('5550104242'), false);
+});
+
+test('proposes pairwise exact source-id candidates for clusters with three people without leaking source ids', () => {
+    const contacts = [
+        { id: 'a', name: 'Source One', sources: { slack: { userId: 'UCLUSTER123' } } },
+        { id: 'b', name: 'Source Two', sources: { slack: { id: 'UCLUSTER123' } } },
+        { id: 'c', name: 'Source Three', sources: { slack: { handle: 'UCLUSTER123' } } },
+    ];
+
+    const candidates = proposeIdentityCandidates(contacts);
+
+    assert.deepEqual(candidates.map(c => c.contactIds), [['a', 'b'], ['a', 'c'], ['b', 'c']]);
+    for (const candidate of candidates) {
+        assert.equal(candidate.decision, 'auto_exact');
+        assert.equal(candidate.requiresReview, false);
+        assert.equal(candidate.score, 100);
+        assert.deepEqual(candidate.reasons, [{ kind: 'exact_source_id', detail: 'Exact private identifier match; identifier omitted.' }]);
+    }
+    const serialized = JSON.stringify(candidates).toLowerCase();
+    assert.equal(serialized.includes('ucluster123'), false);
+    assert.equal(serialized.includes('slack:ucluster123'), false);
 });
 
 test('keeps fuzzy name/company matches as review-only candidates', () => {

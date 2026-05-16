@@ -76,13 +76,17 @@ function exactCandidates(contacts, out) {
         }
         for (const ids of idx.values()) {
             const unique = [...new Set(ids)].sort();
-            if (unique.length !== 2) continue;
-            addCandidate(out, unique[0], unique[1], {
-                decision: 'auto_exact',
-                requiresReview: false,
-                score: 100,
-                reasons: [{ kind: labels[i], detail: 'Exact private identifier match; identifier omitted.' }],
-            });
+            if (unique.length < 2) continue;
+            for (let a = 0; a < unique.length; a += 1) {
+                for (let b = a + 1; b < unique.length; b += 1) {
+                    addCandidate(out, unique[a], unique[b], {
+                        decision: 'auto_exact',
+                        requiresReview: false,
+                        score: 100,
+                        reasons: [{ kind: labels[i], detail: 'Exact private identifier match; identifier omitted.' }],
+                    });
+                }
+            }
         }
     }
 }
