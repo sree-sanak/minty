@@ -242,7 +242,7 @@ function buildAgentSourceHealth(data = {}, options = {}) {
             status: 'error',
             sources: {},
             invalidSourceFilters: filter.invalid,
-            safety: { readOnly: true, contactDetailsOmitted: true, rawRowsOmitted: true },
+            safety: { readOnly: true, contactDetailsOmitted: true, rawRowsOmitted: true, tokenPathsOmitted: true },
         };
     }
 

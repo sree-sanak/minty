@@ -31,6 +31,7 @@ const {
     updateEvidenceOverride,
     applyEvidenceOverrides,
 } = require('./evidence-review');
+const { buildAgentSourceHealth } = require('./agent-source-health');
 
 observability.init();
 
@@ -1974,6 +1975,53 @@ function handleGetSources(req, res, params, paths, uuid) {
     json(res, result);
 }
 
+function safeSourceHealthNow(value) {
+    if (typeof value !== 'string' || !value) return undefined;
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{3}))?Z$/.exec(value);
+    if (!match) return undefined;
+    const [, year, month, day, hour, minute, second, millis = '000'] = match;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return undefined;
+    if (
+        parsed.getUTCFullYear() !== Number(year)
+        || parsed.getUTCMonth() + 1 !== Number(month)
+        || parsed.getUTCDate() !== Number(day)
+        || parsed.getUTCHours() !== Number(hour)
+        || parsed.getUTCMinutes() !== Number(minute)
+        || parsed.getUTCSeconds() !== Number(second)
+        || parsed.getUTCMilliseconds() !== Number(millis)
+    ) return undefined;
+    return parsed.toISOString().replace('.000Z', 'Z') === value ? value : parsed.toISOString();
+}
+
+function handleGetSourceHealth(req, res, params, paths) {
+    const url = new URL(req.url, `http://localhost:${PORT}`);
+    const unifiedDir = path.dirname(paths.contacts);
+    const querySourceFilter = [];
+    const addSource = value => {
+        if (!value) return;
+        for (const part of String(value).split(',')) {
+            const trimmed = part.trim();
+            if (trimmed) querySourceFilter.push(trimmed);
+        }
+    };
+    addSource(url.searchParams.get('source'));
+    addSource(url.searchParams.get('sources'));
+
+    const payload = buildAgentSourceHealth({
+        contacts: readJsonIfExists(paths.contacts, []),
+        interactions: readJsonIfExists(paths.interactions, []),
+        contactEvidence: readJsonIfExists(path.join(unifiedDir, 'contact-evidence.json'), {}),
+        sourceEvents: readJsonIfExists(path.join(unifiedDir, 'source-events.json'), []),
+        syncState: readJsonIfExists(path.join(unifiedDir, '..', 'sync-state.json'), {}),
+        memoryRefreshStatus: readJsonIfExists(path.join(unifiedDir, '..', 'memory-refresh-status.json'), null),
+    }, {
+        now: safeSourceHealthNow(url.searchParams.get('now')),
+        sources: querySourceFilter,
+    });
+    json(res, payload);
+}
+
 async function handleUploadSource(req, res, [source], paths, uuid) {
     const ct = req.headers['content-type'] || '';
     const boundary = ct.match(/boundary=(.+)/)?.[1];
@@ -3862,6 +3910,7 @@ function handleLinkedInSync(req, res) {
 
 const ROUTES = [
     ['GET',  /^\/api\/sources$/,                          handleGetSources],
+    ['GET',  /^\/api\/source-health$/,                    handleGetSourceHealth],
     ['GET',  /^\/api\/linkedin\/status$/,                 handleLinkedInStatus],
     ['POST', /^\/api\/linkedin\/connect$/,                handleLinkedInConnect],
     ['POST', /^\/api\/linkedin\/sync$/,                   handleLinkedInSync],
@@ -4006,8 +4055,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p.startsWith('/api/')) {
-        // Allow source management routes even when there are no contacts yet
-        const isSourceRoute = p.startsWith('/api/sources');
+        // Allow source management/readiness routes even when there are no contacts yet
+        const isSourceRoute = p.startsWith('/api/sources') || p === '/api/source-health';
         if (!isSourceRoute && !fs.existsSync(paths.contacts)) {
             if (p === '/api/contacts') { json(res, []); return; }
             if (p === '/api/pending')  { json(res, []); return; }
@@ -4169,7 +4218,7 @@ async function createServer(opts = {}) {
             return;
         }
         if (p.startsWith('/api/')) {
-            const isSourceRoute = p.startsWith('/api/sources');
+            const isSourceRoute = p.startsWith('/api/sources') || p === '/api/source-health';
             if (!isSourceRoute && !fs.existsSync(paths.contacts)) {
                 if (p === '/api/contacts') { json(res, []); return; }
                 if (p === '/api/pending') { json(res, []); return; }
