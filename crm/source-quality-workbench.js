@@ -8,7 +8,7 @@
  * messages, provider ids, paths, or credentials.
  */
 
-const { buildAgentSourceHealth, canonicalSource } = require('./agent-source-health');
+const { buildAgentSourceHealth, canonicalSource, normalizeSourceFilter } = require('./agent-source-health');
 const { proposeIdentityCandidates } = require('./identity-candidates');
 
 function sortSources(sources) {
@@ -17,6 +17,41 @@ function sortSources(sources) {
 
 function hasConfiguredState(row) {
     return !!(row && row.lastSyncAt) || (row && Array.isArray(row.warnings) && !row.warnings.includes('not_configured'));
+}
+
+function hasPayload(value) {
+    return !!(value && typeof value === 'object' && Object.values(value).some(v =>
+        v != null && v !== '' && !(Array.isArray(v) && v.length === 0)
+    ));
+}
+
+function contactSources(contact) {
+    const out = new Set();
+    for (const [source, payload] of Object.entries((contact && contact.sources) || {})) {
+        const canonical = canonicalSource(source);
+        if (canonical && hasPayload(payload)) out.add(canonical);
+    }
+    const activeChannels = Array.isArray(contact && contact.activeChannels) ? contact.activeChannels : [];
+    for (const channel of activeChannels) {
+        const canonical = canonicalSource(channel);
+        if (canonical) out.add(canonical);
+    }
+    return out;
+}
+
+function sourceScopedContacts(contacts, options) {
+    const rawFilters = [];
+    if (options && options.source !== undefined) rawFilters.push(options.source);
+    if (options && options.sources !== undefined) {
+        if (Array.isArray(options.sources)) rawFilters.push(...options.sources);
+        else rawFilters.push(options.sources);
+    }
+    if (!rawFilters.length) return contacts;
+    const filter = normalizeSourceFilter(rawFilters);
+    if (filter.invalid.length) return [];
+    if (!filter.sources.length) return contacts;
+    const selected = new Set(filter.sources);
+    return contacts.filter(contact => [...contactSources(contact)].some(source => selected.has(source)));
 }
 
 function sourceRowsFromHealth(health) {
@@ -116,6 +151,7 @@ function makeBucket(label, description, items) {
 
 function buildSourceQualityWorkbench(data = {}, options = {}) {
     const contacts = Array.isArray(data.contacts) ? data.contacts : [];
+    const contactsForIdentityReview = sourceScopedContacts(contacts, options);
     const contactEvidence = data.contactEvidence && typeof data.contactEvidence === 'object' && !Array.isArray(data.contactEvidence)
         ? data.contactEvidence
         : {};
@@ -126,7 +162,7 @@ function buildSourceQualityWorkbench(data = {}, options = {}) {
         ambiguousIdentityClusters: makeBucket(
             'Ambiguous identity clusters',
             'Potential duplicate people that need local review before cross-source context is trusted.',
-            ambiguousIdentityClusters(contacts),
+            ambiguousIdentityClusters(contactsForIdentityReview),
         ),
         weakEvidenceSources: makeBucket(
             'Weak source evidence',
