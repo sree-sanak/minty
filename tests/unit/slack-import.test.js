@@ -91,6 +91,29 @@ test('[SlackImport] normalizes DMs and MPIMs with diagnostics', () => {
     assert.equal(group.chatName, 'Slack direct group');
 });
 
+test('[SlackImport] skips malformed timestamps without aborting import', () => {
+    const result = normalizeSlackExport({
+        users: fixture.users,
+        dms: fixture.dms,
+        messagesByConversation: {
+            D_RAW_ADA: [
+                { type: 'message', user: 'U_ADA_RAW', ts: '1778848800.123456', text: 'valid epoch message survives' },
+                { type: 'message', user: 'U_ADA_RAW', ts: '2026-05-15T10:00:00.123456Z', text: 'valid ISO message survives' },
+                { type: 'message', user: 'U_ADA_RAW', ts: '999999999999999999999999999999', text: 'huge timestamp should skip' },
+                { type: 'message', user: 'U_ADA_RAW', ts: '2026-02-30T10:00:00Z', text: 'invalid calendar date should skip' },
+                { type: 'message', user: 'U_ADA_RAW', ts: '2026-05-15 10:00:00', text: 'naive timestamp should skip' },
+            ],
+        },
+    }, { selfUserIds: ['U_SELF_RAW'] });
+
+    assert.equal(result.messages.length, 2);
+    assert.deepEqual(result.messages.map((message) => message.body), [
+        'valid epoch message survives',
+        'valid ISO message survives',
+    ]);
+    assert.equal(result.diagnostics.skippedMessages, 3);
+});
+
 test('[SlackImport] serialized normalized output omits raw ids, emails, names, URLs, and token words', () => {
     const result = normalizeSlackExport(fixture, { selfUserIds: ['U_SELF_RAW'] });
     const serialized = JSON.stringify(result);
