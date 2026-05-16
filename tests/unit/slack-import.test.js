@@ -91,6 +91,20 @@ test('[SlackImport] normalizes DMs and MPIMs with diagnostics', () => {
     assert.equal(group.chatName, 'Slack direct group');
 });
 
+test('[SlackImport] preserves normal uppercase acronyms while redacting Slack-shaped ids', () => {
+    const result = normalizeSlackExport({
+        users: fixture.users,
+        dms: fixture.dms,
+        messagesByConversation: {
+            D_RAW_ADA: [
+                { type: 'message', user: 'U_ADA_RAW', ts: '1778848800.000000', text: 'Discussed GDPR, AWS, HTTP APIs, JSON logs, and U123456789 secrets.' },
+            ],
+        },
+    }, { selfUserIds: ['U_SELF_RAW'] });
+
+    assert.equal(result.messages[0].body, 'Discussed GDPR, AWS, HTTP APIs, JSON logs, and [slack-ref] secrets.');
+});
+
 test('[SlackImport] skips malformed timestamps without aborting import', () => {
     const result = normalizeSlackExport({
         users: fixture.users,
