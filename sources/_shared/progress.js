@@ -8,7 +8,7 @@
  *
  * Shape of a progress record:
  *   {
- *     source: "whatsapp" | "linkedin" | "telegram" | "email" | "sms" | "googleContacts" | "discord" | "apollo",
+ *     source: "whatsapp" | "linkedin" | "telegram" | "email" | "sms" | "googleContacts" | "discord" | "imessage" | "apollo",
  *     step:   "init" | "contacts" | "messages" | "merging" | "done" | "error",
  *     message: string,
  *     current?: number,
@@ -37,6 +37,7 @@ const SOURCE_DIR = {
     sms:            'sms',
     googleContacts: 'google-contacts',
     discord:       'discord',
+    imessage:      'imessage',
     apollo:         'apollo',
 };
 

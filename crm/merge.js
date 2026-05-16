@@ -78,6 +78,12 @@ function discordStableId(id) {
     return id ? `discord_${String(id).replace(/[^a-zA-Z0-9_:-]/g, '_')}` : null;
 }
 
+function imessageStableId(id) {
+    if (!id) return null;
+    const safe = String(id).replace(/[^a-zA-Z0-9_:-]/g, '_');
+    return safe.startsWith('imessage_') ? safe : `imessage_${safe}`;
+}
+
 function slackMemberName(c) {
     return c && (c.displayName || c.realName || c.real_name || c.name || c.profile?.display_name || c.profile?.real_name) || null;
 }
@@ -360,6 +366,30 @@ function loadDiscord(index, providedContacts = null) {
     console.log(`Merged ${merged} Discord contacts`);
 }
 
+function loadIMessage(index, providedContacts = null) {
+    const contacts = providedContacts || load(path.join(DATA, 'imessage/contacts.json'));
+    if (!contacts) { console.log('imessage/contacts.json not found, skipping'); return; }
+    let merged = 0;
+    for (const c of contacts) {
+        if (!c || typeof c !== 'object') continue;
+        const id = c.imessageRef || c.id;
+        const name = typeof c.name === 'string' ? c.name.trim() : '';
+        if (!id || !name) continue;
+        const stableId = imessageStableId(id);
+        const contact = index.upsert([], [], name, stableId);
+        contact.sources.imessage = {
+            id: String(id),
+            name,
+            imessageRef: String(id),
+            messageCount: Number.isFinite(Number(c.messageCount)) ? Number(c.messageCount) : 0,
+            lastMessageAt: c.lastMessageAt || null,
+        };
+        if (!contact.name && name) contact.name = name;
+        merged++;
+    }
+    console.log(`Merged ${merged} iMessage contacts`);
+}
+
 // --- Interaction timeline ---
 
 function buildInteractions(options = {}) {
@@ -475,6 +505,17 @@ function buildInteractions(options = {}) {
                     type: thread.type || 'dm',
                 }));
             }
+        }
+    }
+
+    const imessageMessages = options.imessageMessages || load(path.join(DATA, 'imessage/messages/messages.json'));
+    if (imessageMessages) {
+        for (const m of imessageMessages) {
+            interactions.push(createInteraction('imessage', {
+                ...m,
+                chatName: m.chatName || (m.type === 'group' ? 'iMessage direct group' : 'iMessage conversation'),
+                type: m.type || 'direct',
+            }));
         }
     }
 
@@ -696,6 +737,7 @@ function run() {
     loadSms(index);
     loadSlack(index);
     loadDiscord(index);
+    loadIMessage(index);
     applyOverrides(index);
     applyApolloEnrichment(index);
 
@@ -721,6 +763,7 @@ module.exports = {
     liStableId,
     slackStableId,
     discordStableId,
+    imessageStableId,
     buildPhoneBridge,
     buildInteractions,
     buildInteractionIndex,
@@ -728,6 +771,7 @@ module.exports = {
     loadWhatsAppRosters,
     loadSlack,
     loadDiscord,
+    loadIMessage,
     computeRelationshipScores,
     applyOverrides,
 };

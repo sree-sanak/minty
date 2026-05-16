@@ -26,6 +26,7 @@ function createContact(id) {
             sms: null,             // { phone, contactName, messageCount, lastMessageAt }
             slack: null,           // { id, userId, name, displayName, title, workspace }
             discord: null,         // { id, name, discordRef, messageCount, lastMessageAt }
+            imessage: null,        // { id, name, imessageRef, messageCount, lastMessageAt }
         },
         lastContactedAt: null,   // ISO timestamp of most recent interaction
         createdAt: new Date().toISOString(),
