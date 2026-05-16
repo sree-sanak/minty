@@ -149,3 +149,62 @@ test('[SourceQualityWorkbench]: returns honest empty state without synthetic wor
     assert.deepEqual(payload.buckets.ingestionGaps.items, []);
     assert.equal(payload.emptyState, 'No source-quality trust gaps found for the selected local sources.');
 });
+
+test('[SourceQualityWorkbench]: source filters scope identity-review gaps', () => {
+    const data = baseData({
+        contacts: [
+            {
+                id: 'linkedin-alpha',
+                name: 'Filtered Sentinel',
+                company: 'FilterCo',
+                sources: { linkedin: { id: 'raw-linkedin-alpha' } },
+            },
+            {
+                id: 'linkedin-beta',
+                name: 'Filter Sentinel',
+                company: 'FilterCo',
+                sources: { linkedin: { id: 'raw-linkedin-beta' } },
+            },
+            {
+                id: 'telegram-ready',
+                name: 'Telegram Ready',
+                sources: { telegram: { username: 'telegram_ready' } },
+                activeChannels: ['telegram'],
+            },
+        ],
+        interactions: [{ source: 'telegram', contactId: 'telegram-ready', text: 'synthetic telegram evidence' }],
+        contactEvidence: { 'telegram-ready': { sources: ['telegram'], topics: ['agents'] } },
+        sourceEvents: [{ source: 'telegram', contactId: 'telegram-ready' }],
+        syncState: {
+            telegram: { status: 'ok', lastSyncAt: '2026-05-06T07:00:00Z' },
+            linkedin: { status: 'ok', lastSyncAt: '2026-05-06T07:00:00Z' },
+        },
+    });
+
+    const telegramPayload = buildSourceQualityWorkbench(data, { now: NOW, sources: ['telegram'] });
+    assert.equal(telegramPayload.status, 'clear');
+    assert.equal(telegramPayload.buckets.ambiguousIdentityClusters.count, 0);
+    assert.equal(telegramPayload.summary.totalOpenItems, 0);
+
+    const scalarTelegramPayload = buildSourceQualityWorkbench(data, { now: NOW, source: 'telegram' });
+    assert.equal(scalarTelegramPayload.status, 'clear');
+    assert.equal(scalarTelegramPayload.buckets.ambiguousIdentityClusters.count, 0);
+
+    const linkedinPayload = buildSourceQualityWorkbench(data, { now: NOW, sources: ['linkedin'] });
+    assert.equal(linkedinPayload.status, 'needs_review');
+    assert.equal(linkedinPayload.buckets.ambiguousIdentityClusters.count, 1);
+    assert.equal(linkedinPayload.summary.totalOpenItems, 1);
+});
+
+test('[SourceQualityWorkbench]: invalid source filters fail closed for identity-review gaps', () => {
+    const payload = buildSourceQualityWorkbench(baseData({
+        contacts: [
+            { id: 'alpha', name: 'Private Alpha', company: 'PrivateCo', sources: { linkedin: { id: 'raw-a' } } },
+            { id: 'beta', name: 'Private Alfa', company: 'PrivateCo', sources: { linkedin: { id: 'raw-b' } } },
+        ],
+    }), { now: NOW, sources: ['linkedin', 'private-channel@example.com'] });
+
+    assert.equal(payload.status, 'clear');
+    assert.equal(payload.buckets.ambiguousIdentityClusters.count, 0);
+    assert.equal(JSON.stringify(payload).includes('private-channel@example.com'), false);
+});
