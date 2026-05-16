@@ -121,7 +121,7 @@ function sanitizeMessageBody(value, extraSlackRefs = []) {
         .replace(/\bx(?:ox|app|oxa|oxb|oxp|oxs)[a-z0-9-]*-[A-Za-z0-9._-]+\b/gi, '[redacted-secret]')
         .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, 'Bearer [redacted-secret]')
         .replace(/\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd)\s*[:=]\s*(?:"[^"]+"|'[^']+'|\S+)/gi, '[redacted-secret]')
-        .replace(/\b[A-Z][A-Z0-9_]{3,}\b/g, '[slack-ref]')
+        .replace(/\b[UCWDGBT][A-Z0-9]{8,11}\b/g, '[slack-ref]')
         .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
         .replace(/\b(?:https?|ftp|file):\/\/\S+/gi, '[url]')
         .replace(/\b[a-zA-Z]:\\(?:[^\s]+\\?)+/g, '[path]')
