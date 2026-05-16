@@ -67,7 +67,7 @@ function resolveSyncStatePath(dataDir, userDataDir) {
 
 const MAX_SAFE_MESSAGE_LEN = 150;
 const SUPPORTED_SOURCE_NAMES = Object.freeze([
-    'whatsapp', 'email', 'googleContacts', 'linkedin', 'telegram', 'sms', 'calendar', 'discord',
+    'whatsapp', 'email', 'googleContacts', 'linkedin', 'telegram', 'sms', 'calendar', 'discord', 'imessage',
 ]);
 
 function extractErrorMessage(err) {
