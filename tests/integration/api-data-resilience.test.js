@@ -402,6 +402,7 @@ test('POST /api/network/query does not expose raw topic text from insights evide
 
 test('POST /api/network/query uses sync state for source-filtered precomputed evidence', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-network-contact-evidence-'));
+    const freshSyncAt = new Date().toISOString();
     seedDataDir(dir, []);
     const unified = path.join(dir, 'unified');
     writeJson(path.join(unified, 'contacts.json'), [
@@ -439,8 +440,8 @@ test('POST /api/network/query uses sync state for source-filtered precomputed ev
             contactId: 'c_ev_http',
             topics: ['defi', 'lending protocol', 'risk'],
             topicEvidence: [
-                { topic: 'defi', count: 2, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
-                { topic: 'lending protocol', count: 1, sources: ['telegram'], lastEvidenceAt: '2026-05-01T00:00:00.000Z' },
+                { topic: 'defi', count: 2, sources: ['telegram'], lastEvidenceAt: freshSyncAt },
+                { topic: 'lending protocol', count: 1, sources: ['telegram'], lastEvidenceAt: freshSyncAt },
             ],
             sources: ['telegram'],
             interactionCount: 2,
@@ -448,7 +449,7 @@ test('POST /api/network/query uses sync state for source-filtered precomputed ev
         },
     });
     writeJson(path.join(dir, 'sync-state.json'), {
-        telegram: { status: 'ok', lastSyncAt: '2026-05-01T00:00:00.000Z' },
+        telegram: { status: 'ok', lastSyncAt: freshSyncAt },
     });
 
     await withServer(dir, async (base) => {

@@ -4,9 +4,12 @@ const {
     waStableId,
     liStableId,
     slackStableId,
+    discordStableId,
     buildPhoneBridge,
     buildInteractionIndex,
+    buildInteractions,
     loadSlack,
+    loadDiscord,
 } = require('../../crm/merge');
 const { ContactIndex } = require('../../crm/utils');
 
@@ -82,6 +85,53 @@ describe('Slack source merge', () => {
         assert.equal(contact.sources.slack.userId, 'U123');
         assert.equal(contact.sources.slack.title, 'Founder building AI infrastructure');
         assert.deepEqual(contact.emails, ['dana@example.com']);
+    });
+});
+
+// --- buildPhoneBridge ---
+
+describe('Discord source merge', () => {
+    it('derives stable local Discord contact ids from safe refs', () => {
+        assert.equal(discordStableId('discord_user_abc123'), 'discord_discord_user_abc123');
+        assert.equal(discordStableId(null), null);
+    });
+
+    it('loads Discord export contacts with source metadata', () => {
+        const index = new ContactIndex();
+        loadDiscord(index, [
+            { id: 'discord_user_abc123', name: 'Ada Example', messageCount: 3, lastMessageAt: '2026-05-01T10:00:00.000Z' },
+            { id: 'discord_user_missing_name' },
+        ]);
+
+        assert.equal(index.contacts.length, 1);
+        const contact = index.contacts[0];
+        assert.equal(contact.id, 'discord_discord_user_abc123');
+        assert.equal(contact.name, 'Ada Example');
+        assert.equal(contact.sources.discord.discordRef, 'discord_user_abc123');
+        assert.equal(contact.sources.discord.messageCount, 3);
+    });
+
+    it('adds Discord messages to the interaction timeline', () => {
+        const interactions = buildInteractions({
+            discordThreads: [{
+                id: 'discord_thread_abc123',
+                type: 'group_dm',
+                chatName: 'Discord direct group',
+                messages: [{
+                    id: 'discord_msg_1',
+                    timestamp: '2026-05-01T10:00:00.000Z',
+                    from: 'discord_user_abc123',
+                    to: 'me',
+                    body: 'synthetic local-only discord context',
+                }],
+            }],
+        });
+
+        const discord = interactions.find(i => i.source === 'discord');
+        assert.equal(discord.id, 'discord_msg_1');
+        assert.equal(discord.chatId, 'discord_thread_abc123');
+        assert.equal(discord.chatName, 'Discord direct group');
+        assert.equal(discord.from, 'discord_user_abc123');
     });
 });
 

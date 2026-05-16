@@ -37,8 +37,8 @@ const TOOLS = [
             properties: {
                 query: { type: 'string', description: 'Natural-language query, e.g. "investors in London" or "who knows about crypto insurance"' },
                 limit: { type: 'number', description: 'Max results (1-50, default 10)' },
-                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
-                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
             },
             required: ['query'],
         },
@@ -54,8 +54,8 @@ const TOOLS = [
             properties: {
                 person: { type: 'string', description: 'Person name to look up' },
                 limit: { type: 'number', description: 'Max matches to return (default 3)' },
-                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
-                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
             },
             required: ['person'],
         },
@@ -71,8 +71,8 @@ const TOOLS = [
             properties: {
                 goal: { type: 'string', description: 'Workflow goal, e.g. "Find EU crypto insurance partners"' },
                 limit: { type: 'number', description: 'Max people to include (default 5)' },
-                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
-                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, email, sms, googlecontacts)' },
+                source: { type: 'string', description: 'Restrict to a single source (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
+                sources: { type: 'array', items: { type: 'string' }, description: 'Restrict to multiple sources (telegram, whatsapp, linkedin, slack, discord, email, sms, googlecontacts)' },
             },
             required: ['goal'],
         },
@@ -85,7 +85,7 @@ const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: {
-                source: { type: 'string', description: 'Optional source filter, e.g. telegram, email, linkedin, whatsapp, sms, googlecontacts, slack' },
+                source: { type: 'string', description: 'Optional source filter, e.g. telegram, email, linkedin, whatsapp, sms, googlecontacts, slack, discord' },
                 sources: { type: 'array', items: { type: 'string' }, description: 'Optional list of source filters.' },
                 query: { type: 'string', description: 'Optional query to infer source filters from diagnostics without returning people.' },
             },

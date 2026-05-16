@@ -11,7 +11,7 @@
 const { canonicalSource: canonicalEvidenceSource } = require('./contact-evidence');
 const { redactDirectContactDetails } = require('./privacy-envelope');
 
-const KNOWN_SOURCES = ['email', 'googleContacts', 'linkedin', 'sms', 'telegram', 'whatsapp', 'slack'];
+const KNOWN_SOURCES = ['discord', 'email', 'googleContacts', 'linkedin', 'sms', 'telegram', 'whatsapp', 'slack'];
 const KNOWN_SOURCE_KEYS = new Set(KNOWN_SOURCES.map(s => s.toLowerCase()));
 const UNKNOWN_REFRESH_STATUS = Object.freeze({
     status: 'unknown',
@@ -26,6 +26,8 @@ function canonicalSource(value) {
     if (!key) return null;
     if (key === 'gmail') return 'email';
     if (key === 'googlecontact' || key === 'googlecontacts' || key === 'google') return 'googleContacts';
+    if (key === 'slackchannel' || key === 'slackdm' || key === 'slackdirectmessage') return 'slack';
+    if (key === 'discorddm' || key === 'discorddirectmessage' || key === 'discorddirectgroup' || key === 'discordgroupdm') return 'discord';
     const evidenceLabel = canonicalEvidenceSource(value);
     if (evidenceLabel && evidenceLabel !== 'interaction' && KNOWN_SOURCE_KEYS.has(evidenceLabel.toLowerCase())) return evidenceLabel;
     return null;
