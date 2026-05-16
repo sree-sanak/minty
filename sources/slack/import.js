@@ -48,18 +48,42 @@ function displayName(user) {
     return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
 }
 
+function isoFromMillis(millis) {
+    if (!Number.isFinite(millis)) return null;
+    const parsed = new Date(millis);
+    return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function strictIsoTimestamp(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$/.exec(value);
+    if (!match) return null;
+    const [, y, mo, d, h, mi, s, fraction = '0'] = match;
+    const millisecond = Number(fraction.padEnd(3, '0').slice(0, 3));
+    const millis = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s), millisecond);
+    const parsed = new Date(millis);
+    if (!Number.isFinite(parsed.getTime())) return null;
+    if (parsed.getUTCFullYear() !== Number(y)
+        || parsed.getUTCMonth() !== Number(mo) - 1
+        || parsed.getUTCDate() !== Number(d)
+        || parsed.getUTCHours() !== Number(h)
+        || parsed.getUTCMinutes() !== Number(mi)
+        || parsed.getUTCSeconds() !== Number(s)
+        || parsed.getUTCMilliseconds() !== millisecond) {
+        return null;
+    }
+    return parsed.toISOString();
+}
+
 function slackTimestamp(message) {
     const raw = message && (message.ts || message.timestamp || message.date || message.createdAt || message.created_at);
-    if (typeof raw === 'number' && Number.isFinite(raw)) return new Date(raw * 1000).toISOString();
+    if (typeof raw === 'number' && Number.isFinite(raw)) return isoFromMillis(raw * 1000);
     if (typeof raw !== 'string' || !raw.trim()) return null;
     const trimmed = raw.trim();
     if (/^\d{10}(?:\.\d{1,6})?$/.test(trimmed)) {
-        const millis = Number(trimmed) * 1000;
-        return Number.isFinite(millis) ? new Date(millis).toISOString() : null;
+        return isoFromMillis(Number(trimmed) * 1000);
     }
     if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
-        const parsed = new Date(trimmed);
-        return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+        return strictIsoTimestamp(trimmed);
     }
     return null;
 }
