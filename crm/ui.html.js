@@ -5110,6 +5110,7 @@ const SOURCE_META = {
 };
 
 let sourceStatuses = {};
+let sourceHealthStatuses = {};
 let syncStatuses = {};
 let waPoller = null;
 let sourcesRefreshTimer = null;
@@ -5396,14 +5397,46 @@ async function seedDemo() {
 }
 
 async function loadSources() {
-  const [sourcesData, syncData] = await Promise.all([
+  const loadSourceHealth = () => fetch(BASE + '/api/source-health')
+    .then(r => r.ok ? r.json() : {})
+    .catch(() => ({}));
+  const [sourcesData, sourceHealthData, syncData] = await Promise.all([
     fetch(BASE + '/api/sources').then(r => r.json()),
+    loadSourceHealth(),
     fetch(BASE + '/api/sync/status').then(r => r.json()).catch(() => ({})),
   ]);
   sourceStatuses = sourcesData;
+  sourceHealthStatuses = sourceHealthData;
   syncStatuses = syncData;
   renderSources();
   updateSyncStatusBar();
+}
+
+function renderSourceReadiness(key) {
+  const row = sourceHealthStatuses?.sources?.[key];
+  if (!row) return '';
+  const copy = {
+    ready: ['Ready for answers', '#34d399'],
+    stale: ['Stale evidence', '#f59e0b'],
+    limited: ['Limited evidence', '#f97316'],
+    error: ['Needs repair', '#f87171'],
+    unknown: ['Unknown freshness', '#8892a4'],
+  }[row.status] || ['Needs attention', '#f59e0b'];
+  const counts = [];
+  if (row.contactCount != null) counts.push(row.contactCount.toLocaleString() + ' contacts');
+  if (row.evidenceContactCount != null) counts.push(row.evidenceContactCount.toLocaleString() + ' evidence-backed');
+  const warnings = (row.warnings || []).map(w => w.replaceAll('_', ' ')).join(' · ');
+  const detail = warnings || counts.join(' · ') || 'Aggregate readiness only';
+  const next = row.suggestedNextStep || 'Refresh this source before trusting source-specific answers.';
+  return \`
+    <div style="border:1px solid rgba(99,102,241,0.18);background:rgba(99,102,241,0.06);border-radius:10px;padding:8px 10px;margin:10px 0 12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">
+        <span style="font-size:0.72rem;color:\${copy[1]};font-weight:600">\${esc(copy[0])}</span>
+        <span style="font-size:0.66rem;color:#4b5563;text-transform:uppercase;letter-spacing:0.08em">agent readiness</span>
+      </div>
+      <div style="font-size:0.7rem;color:#8892a4;line-height:1.45">\${esc(detail)}</div>
+      <div style="font-size:0.68rem;color:#4b5563;line-height:1.45;margin-top:4px">\${esc(next)}</div>
+    </div>\`;
 }
 
 function makeSourceCard(key, meta) {
@@ -5446,6 +5479,7 @@ function makeSourceCard(key, meta) {
       <span class="source-status \${statusClass}">\${statusLabel}</span>
     </div>
     \${!connected && !isConnecting ? '<div class="source-desc">' + meta.desc + '</div>' : ''}
+    \${renderSourceReadiness(key)}
     \${tip}
     <div id="source-form-\${key}"></div>
   \`;
