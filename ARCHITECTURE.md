@@ -139,7 +139,7 @@ These are load-bearing. Break one and something breaks somewhere far away.
 
 ## Where to start as a contributor
 
-- **Adding a new importer:** copy one of the simpler ones (`sources/telegram/import.js`) and follow its file layout. Write to `data/<your-source>/`, then add a merge step in `crm/merge.js`.
+- **Adding a new importer:** copy one of the simpler ones (`sources/telegram/import.js`) and follow its file layout. Write to `data/<your-source>/`, then add a merge step in `crm/merge.js`. For local-file importers, add the source to `tests/unit/source-importer-contract.test.js` so the shared harness proves local-only reads, privacy-safe normalized artifacts, merge compatibility, source-health visibility, and no live provider/send hooks.
 - **Improving matching:** read `crm/MATCHING.md`, then change `crm/match.js`. Add a fixture to `tests/`.
 - **UI work:** edit `crm/ui.html.js` for SPA HTML/CSS/JS; edit `crm/server.js` for routes/API wiring. Hot-reload by restarting `npm run crm`.
 - **Performance on large datasets:** the merge path is the usual bottleneck. `tests/integration/` has fixture-based perf tests.

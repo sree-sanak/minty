@@ -53,6 +53,29 @@ function userId(value) {
     return null;
 }
 
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizeDiscordText(value, extraRefs = []) {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    let cleaned = value;
+    for (const ref of extraRefs) {
+        if (typeof ref !== 'string' || !ref.trim()) continue;
+        cleaned = cleaned.replace(new RegExp(escapeRegExp(ref.trim()), 'gi'), '[discord-ref]');
+    }
+    return cleaned
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email]')
+        .replace(/\+?\b\d[\d\s().-]{6,}\d\b/g, '[phone]')
+        .replace(/\b(?:https?|ftp|file):\/\/\S+/gi, '[url]')
+        .replace(/\b[a-zA-Z]:\\(?:[^\s]+\\?)+/g, '[path]')
+        .replace(/(^|\s)\/(?:Users|home|root|tmp|var|private|etc)\/[^\s]+/g, '$1[path]')
+        .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, 'Bearer [redacted-secret]')
+        .replace(/\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret|password|passwd|token)\s*[:=]?\s*(?:"[^"]+"|'[^']+'|[A-Za-z0-9._-]{6,})/gi, '[redacted-secret]')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function conversationType(conv) {
     const raw = String(conv?.type || conv?.channelType || '').toLowerCase();
     if (['dm', 'direct', 'direct_message', 'private'].includes(raw)) return 'dm';
@@ -128,9 +151,10 @@ function normalizeDiscordExport(data, options = {}) {
                 continue;
             }
             const from = selfIds.has(authorId) ? 'me' : safeDiscordUserRef(authorId);
-            const body = typeof msg.content === 'string'
+            const rawBody = typeof msg.content === 'string'
                 ? msg.content
                 : (typeof msg.body === 'string' ? msg.body : '');
+            const body = sanitizeDiscordText(rawBody, [conv.id, msg.id, msg.messageId, authorId, ...rawParticipantIds]);
             const normalized = {
                 id: safeDiscordMessageRef(`${conv.id}:${msg.id || msg.messageId || timestamp}:${authorId}`),
                 source: 'discord',
@@ -217,6 +241,7 @@ if (require.main === module) {
 
 module.exports = {
     normalizeDiscordExport,
+    sanitizeDiscordText,
     safeDiscordUserRef,
     safeDiscordThreadRef,
     safeDiscordMessageRef,

@@ -28,7 +28,7 @@ The pre-push hook (`.githooks/pre-push`) auto-skips E2E if Playwright's Chromium
 |---|---|
 | New pure function in `crm/utils.js`, `crm/match.js`, etc. | `tests/unit/` |
 | New API route in `crm/server.js` | `tests/integration/` (or `tests/unit/` if logic is well-isolated) |
-| New importer in `sources/` | `tests/unit/` for parsers; `tests/integration/` for fetchers |
+| New importer in `sources/` | `tests/unit/` for parsers; `tests/unit/source-importer-contract.test.js` for local-file importer trust invariants; `tests/integration/` for fetchers |
 | New UI flow visible to the user | `tests/e2e/` Playwright spec, tagged `@smoke` if it's golden-path |
 | Bug fix | A failing test that exposes the bug, plus the fix |
 
