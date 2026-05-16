@@ -114,6 +114,14 @@ LINKEDIN_EXPORT_DIR=/path/to/extracted npm run linkedin
 TELEGRAM_EXPORT_FILE=/path/to/result.json npm run telegram
 ```
 
+### Slack
+1. Slack workspace export → download and extract the ZIP locally
+2. Point Minty at the extracted export directory:
+```bash
+SLACK_EXPORT_DIR=/path/to/extracted-slack-export npm run slack
+```
+This local-file importer normalizes DMs and MPIMs into `data/slack/` artifacts. It does **not** use Slack APIs, OAuth, bot tokens, webhooks, workspace scraping, or message sends. Public/private channels are not imported by default in this slice, and raw Slack exports should stay local and uncommitted.
+
 ### Gmail / Email
 **Option A — in-app Google OAuth** (recommended)
 Go to the **Sources** view → Connect Gmail. Uses OAuth device flow, scoped to read-only. Requires `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (see `.env.example`).
