@@ -94,6 +94,12 @@ test('[source-scheduler] isDue: backoff extends next run', () => {
     assert.equal(isDue(s, now + 60001), true);
 });
 
+test('[source-scheduler] nextRunAt: corrupt lastRunAt fails open instead of stalling', () => {
+    const s = { ...createSchedule({ intervalMs: 60000 }), lastRunAt: 'not-a-date' };
+    assert.equal(nextRunAt(s), 0);
+    assert.equal(isDue(s, Date.now()), true);
+});
+
 test('[source-scheduler] isDue: multiple failures increase backoff', () => {
     const now = Date.now();
     let s = createSchedule({ intervalMs: 60000 });
