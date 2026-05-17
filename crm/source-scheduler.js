@@ -42,6 +42,7 @@ function computeBackoff(consecutiveFailures) {
 function nextRunAt(schedule) {
     if (!schedule.lastRunAt) return 0;
     const base = new Date(schedule.lastRunAt).getTime();
+    if (!Number.isFinite(base)) return 0;
     const backoff = computeBackoff(schedule.consecutiveFailures);
     const interval = Math.max(schedule.intervalMs, backoff);
     const next = base + interval;
