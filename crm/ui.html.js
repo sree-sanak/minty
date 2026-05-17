@@ -3485,13 +3485,19 @@ async function loadInteractions(contactId) {
         const color = SRC_COLORS[i.source] || 'var(--text-muted)';
         const body = (i.body || i.subject || '').slice(0, 140);
         const chat = i.chatName ? esc(i.chatName) : '';
-        return \`<div style="display:flex;gap:10px;padding:5px 0;font-size:0.78rem;align-items:flex-start">
-          <div style="color:\${color};font-size:0.65rem;font-weight:700;width:44px;flex-shrink:0;padding-top:3px;text-transform:uppercase">\${esc(i.source||'')}</div>
-          <div style="flex:1;min-width:0">
-            \${chat ? \`<div style="color:var(--text-muted);font-size:0.68rem;margin-bottom:1px">\${chat}</div>\` : ''}
-            <div style="color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">\${esc(body)}</div>
-          </div>
-        </div>\`;
+        const meta = i.metadata || {};
+        const cues = [
+          meta.hasAttachment ? 'Attachment' : '',
+          meta.linkPreviewCount ? esc(meta.linkPreviewCount + ' links') : '',
+          meta.reactionCount ? esc(meta.reactionCount + ' reactions') : '',
+        ].filter(Boolean).map(label => '<span style="display:inline-block;margin-top:3px;margin-right:5px;padding:1px 6px;border:1px solid var(--border);border-radius:999px;color:var(--text-muted);font-size:0.62rem;line-height:1.3">' + label + '</span>').join('');
+        return '<div style="display:flex;gap:10px;padding:5px 0;font-size:0.78rem;align-items:flex-start">'
+          + '<div style="color:' + color + ';font-size:0.65rem;font-weight:700;width:44px;flex-shrink:0;padding-top:3px;text-transform:uppercase">' + esc(i.source||'') + '</div>'
+          + '<div style="flex:1;min-width:0">'
+          + (chat ? '<div style="color:var(--text-muted);font-size:0.68rem;margin-bottom:1px">' + chat + '</div>' : '')
+          + '<div style="color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(body) + '</div>'
+          + (cues ? '<div aria-label="safe interaction metadata">' + cues + '</div>' : '')
+          + '</div></div>';
       }).join('');
       return \`<div style="margin-bottom:12px">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;color:var(--text-muted);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--border)">\${esc(day)}</div>

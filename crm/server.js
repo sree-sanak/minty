@@ -33,6 +33,7 @@ const {
 } = require('./evidence-review');
 const { buildAgentSourceHealth } = require('./agent-source-health');
 const { buildSourceQualityWorkbench } = require('./source-quality-workbench');
+const { buildInteractionMetadata } = require('./schema');
 
 observability.init();
 
@@ -325,7 +326,10 @@ function getContactInteractions(contact, paths, uuid) {
     function add(list) {
         for (const i of (list || [])) {
             const key = i.id || `${i.source}:${i.timestamp}:${i.body?.slice(0, 20)}`;
-            if (!seen.has(key)) { seen.add(key); results.push(i); }
+            if (!seen.has(key)) {
+                seen.add(key);
+                results.push({ ...i, metadata: i.metadata || buildInteractionMetadata(i.raw || i) });
+            }
         }
     }
 
@@ -768,10 +772,23 @@ function handleFindIntroTargets(req, res, _params, paths) {
     json(res, { query: q, targets });
 }
 
+function publicInteraction(i) {
+    return {
+        id: i.id || null,
+        source: i.source || null,
+        timestamp: i.timestamp || null,
+        body: i.body || null,
+        subject: i.subject || null,
+        chatName: i.chatName || null,
+        type: i.type || 'message',
+        metadata: buildInteractionMetadata({ ...(i.raw || i), ...(i.metadata || {}) }),
+    };
+}
+
 function handleGetInteractions(req, res, [id], paths, uuid) {
     const contact = loadContacts(paths).find(c => c.id === id);
     if (!contact) return json(res, { error: 'not found' }, 404);
-    json(res, getContactInteractions(contact, paths, uuid));
+    json(res, getContactInteractions(contact, paths, uuid).map(publicInteraction));
 }
 
 function handleGetTimeline(req, res, [id], paths, uuid) {
