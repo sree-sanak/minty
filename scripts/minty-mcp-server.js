@@ -167,19 +167,46 @@ function inferSourcesFromQuery(query) {
     return [...candidates].sort();
 }
 
+function safeEvidenceValue(value) {
+    if (typeof value === 'string') return redactDirectContactDetails(value);
+    if (Array.isArray(value)) return value.map(safeEvidenceValue);
+    if (value && typeof value === 'object') {
+        const safe = {};
+        for (const [key, nested] of Object.entries(value)) {
+            safe[redactDirectContactDetails(key)] = safeEvidenceValue(nested);
+        }
+        return safe;
+    }
+    return value;
+}
+
 function safeEvidence(evidence) {
     if (!Array.isArray(evidence)) return [];
     return evidence.map(e => {
-        if (!e || typeof e !== 'object') return e;
-        const safe = {};
-        for (const [key, value] of Object.entries(e)) {
-            safe[key] = typeof value === 'string' ? redactDirectContactDetails(value) : value;
-        }
+        if (!e || typeof e !== 'object') return safeEvidenceValue(e);
+        const safe = safeEvidenceValue(e);
         // Insight topic details can contain raw conversation-derived text.
         // Preserve the evidence signal, but not the sensitive topic string.
         if (safe.kind === 'topic') delete safe.detail;
         return safe;
     });
+}
+
+function redactErrorPath(value) {
+    return value.replace(/(?:[A-Za-z]:)?[\\/][^\s"']+/g, '[redacted path]');
+}
+
+function jsonRpcErrorId(id) {
+    if (typeof id !== 'string') return id;
+    return redactErrorPath(redactDirectContactDetails(id));
+}
+
+function jsonRpcParseError() {
+    return { code: -32700, message: 'Parse error' };
+}
+
+function jsonRpcInternalError() {
+    return { code: -32603, message: 'Internal error' };
 }
 
 function safeStringArray(values) {
@@ -669,7 +696,7 @@ if (require.main === module) {
         } catch (err) {
             sendResponse({
                 jsonrpc: '2.0', id: null,
-                error: { code: -32700, message: 'Parse error: ' + err.message },
+                error: jsonRpcParseError(),
             }, responseMode);
             return;
         }
@@ -679,8 +706,8 @@ if (require.main === module) {
             if (resp) sendResponse(resp, responseMode);
         } catch (err) {
             sendResponse({
-                jsonrpc: '2.0', id: msg && msg.id !== undefined ? msg.id : null,
-                error: { code: -32603, message: 'Internal error: ' + err.message },
+                jsonrpc: '2.0', id: msg && msg.id !== undefined ? jsonRpcErrorId(msg.id) : null,
+                error: jsonRpcInternalError(),
             }, responseMode);
         }
     }
@@ -699,4 +726,4 @@ if (require.main === module) {
     process.stdin.on('end', () => process.exit(0));
 }
 
-module.exports = { handleMessage, TOOLS, clampLimit, safeResult };
+module.exports = { handleMessage, TOOLS, clampLimit, safeResult, jsonRpcParseError, jsonRpcInternalError, jsonRpcErrorId };
