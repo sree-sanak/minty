@@ -1384,6 +1384,38 @@ function extractGroupSignals(messages) {
     return { urls, hiring, events, intros };
 }
 
+function coarsenGroupSignals(signals) {
+    const coarsenItems = (items) => (items || []).map(item => ({
+        timestamp: item.timestamp || null,
+        detail: 'Signal detected in group conversation',
+    }));
+    return {
+        urls: (signals.urls || []).map(item => ({
+            timestamp: item.timestamp || null,
+            detail: 'Link shared in group conversation',
+        })),
+        hiring: coarsenItems(signals.hiring),
+        events: coarsenItems(signals.events),
+        intros: coarsenItems(signals.intros),
+    };
+}
+
+function safeGroupDisplayName(resolved) {
+    if (!resolved || resolved.kind === 'phone' || resolved.kind === 'raw') return 'Group member';
+    return resolved.name || 'Group member';
+}
+
+function safeGroupMessageProjection(message, resolveFrom) {
+    const resolved = resolveFrom(message.from);
+    return {
+        timestamp: message.timestamp || null,
+        fromName: safeGroupDisplayName(resolved),
+        fromContactId: null,
+        fromKind: resolved.kind,
+        body: message.body ? '[message hidden]' : '',
+    };
+}
+
 function loadGroupMemberships() {
     const p = path.join(DATA, 'unified/group-memberships.json');
     try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
@@ -1427,7 +1459,7 @@ function handleGetGroups(req, res, params, paths, uuid) {
             name: existing.name || name,
             messageCount: msgs.length,
             lastMessageAt: sorted[0]?.timestamp || null,
-            lastSnippet: (sorted[0]?.body || '').slice(0, 100),
+            lastSnippet: sorted[0]?.body ? '[message hidden]' : '',
             posterCount: posters.size,
         };
     }
@@ -1642,7 +1674,7 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
     const sorted = [...msgs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     const name = sorted[0]?.chatName || rawChatEntry?.meta?.name || membership?.name || chatId;
     const category = inferGroupCategory(name);
-    const signals = extractGroupSignals(sorted);
+    const signals = coarsenGroupSignals(extractGroupSignals(sorted));
     const pinnedMessages = rawChatEntry?.meta?.pinnedMessages || [];
 
     // Resolve `from` (WA ids like 12847989915@c.us) to contact display name
@@ -1656,9 +1688,8 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
         const c = byContactId.get(cid);
         if (!c) return null;
         return {
-            id: c.id,
-            name: c.name || formatPhoneFallback(c) || '(unknown)',
-            phones: c.phones || [],
+            id: null,
+            name: c.name || 'Group member',
             position: c.sources?.linkedin?.position || c.sources?.googleContacts?.title || null,
             company: c.sources?.linkedin?.company || c.sources?.googleContacts?.org || null,
             relationshipScore: c.relationshipScore || 0,
@@ -1691,33 +1722,24 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
     const candidateRoster = roster.filter(r => !seenContactIds.has(r.id));
 
     json(res, {
-        chatId,
+        chatId: null,
         name,
         category,
         messageCount: msgs.length,
         lastMessageAt: sorted[0]?.timestamp || null,
-        messages: sorted.slice(0, 50).map(m => {
-            const r = resolveFrom(m.from);
-            return {
-                timestamp: m.timestamp,
-                from: m.from,
-                fromName: r.name,
-                fromContactId: r.contactId,
-                fromKind: r.kind,
-                body: m.body || '',
-            };
-        }),
-        unresolvedSenders,
-        suggestedContacts: candidateRoster,
-        pinnedMessages: pinnedMessages.map(m => {
-            const r = resolveFrom(m.from || m.author);
-            return { ...m, fromName: r.name, fromContactId: r.contactId, fromKind: r.kind };
-        }),
+        messages: sorted.slice(0, 50).map(m => safeGroupMessageProjection(m, resolveFrom)),
+        unresolvedSenders: [],
+        suggestedContacts: [],
+        pinnedMessages: pinnedMessages.map(m => safeGroupMessageProjection({
+            timestamp: m.timestamp,
+            from: m.from || m.author,
+            body: m.body || m.text || m.message || '',
+        }, resolveFrom)),
         rosterCount: membership?.size || 0,
         roster,
-        owner: membership?.owner || rawChatEntry?.meta?.owner || null,
+        owner: null,
         createdAt: membership?.createdAt || rawChatEntry?.meta?.createdAt || null,
-        description: membership?.description || rawChatEntry?.meta?.description || null,
+        description: null,
         signals,
     });
 }

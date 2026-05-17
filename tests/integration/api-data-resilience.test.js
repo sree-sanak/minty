@@ -156,6 +156,92 @@ test('malformed interactions.json does not expose raw parser errors on read-only
     });
 });
 
+test('GET /api/groups/:chatId does not expose raw group message bodies or source ids', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-group-privacy-'));
+    const chatId = '12065550999@g.us';
+    seedDataDir(dir, [
+        {
+            id: 'g1',
+            source: 'whatsapp',
+            chatId,
+            chatName: 'Private Founder Group',
+            from: '12065550100@c.us',
+            body: 'private sentinel body with private-sentinel@example.com and https://private.example/path',
+            timestamp: '2026-05-16T10:00:00.000Z',
+        },
+        {
+            id: 'g2',
+            source: 'whatsapp',
+            chatId,
+            chatName: 'Private Founder Group',
+            from: '999888777666@lid',
+            body: 'anonymous lid private sentinel phone +15551234567',
+            timestamp: '2026-05-16T11:00:00.000Z',
+        },
+    ]);
+    writeJson(path.join(dir, 'unified/group-memberships.json'), {
+        [chatId]: {
+            name: 'Private Founder Group',
+            size: 1,
+            members: ['wa_12065550100'],
+            owner: '12065550100@c.us',
+            description: 'private group description sentinel',
+            createdAt: '2026-01-01T00:00:00.000Z',
+        },
+    });
+    writeJson(path.join(dir, 'whatsapp/chats.json'), {
+        PrivateFounderGroup: {
+            meta: {
+                id: chatId,
+                name: 'Private Founder Group',
+                owner: '12065550100@c.us',
+                description: 'raw private description',
+                pinnedMessages: [
+                    { from: '12065550100@c.us', body: 'pinned private sentinel body', timestamp: '2026-05-16T12:00:00.000Z' },
+                ],
+            },
+        },
+    });
+
+    await withServer(dir, async (base) => {
+        const detailRes = await fetch(`${base}/api/groups/${encodeURIComponent(chatId)}`);
+        assert.equal(detailRes.status, 200);
+        const payload = await detailRes.json();
+        const text = JSON.stringify(payload);
+
+        const listRes = await fetch(`${base}/api/groups`);
+        assert.equal(listRes.status, 200);
+        const listText = await listRes.text();
+        assert.equal(listText.includes('private sentinel body'), false, 'group list leaked raw last snippet');
+        assert.equal(listText.includes('[message hidden]'), true, 'group list should coarsen last snippet');
+
+        assert.equal(payload.chatId, null);
+        assert.equal(payload.description, null);
+        assert.equal(payload.owner, null);
+        assert.deepEqual(payload.unresolvedSenders, []);
+        assert.deepEqual(payload.suggestedContacts, []);
+        assert.equal(payload.messages[0].body, '[message hidden]');
+        assert.equal(payload.pinnedMessages[0].body, '[message hidden]');
+
+        for (const forbidden of [
+            chatId,
+            '@g.us',
+            '@c.us',
+            '@lid',
+            '12065550100',
+            'private sentinel body',
+            'private-sentinel@example.com',
+            '+15551234567',
+            'pinned private sentinel body',
+            'private.example/path',
+            'private group description sentinel',
+            'raw private description',
+        ]) {
+            assert.equal(text.includes(forbidden), false, `group detail leaked ${forbidden}`);
+        }
+    });
+});
+
 test('GET /api/meta and /api/settings do not expose absolute local data paths', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-meta-paths-'));
     seedDataDir(dir, []);

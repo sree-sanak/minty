@@ -3765,17 +3765,17 @@ async function loadGroupDetail(chatId) {
   const urlSection = sig.urls.length ? \`<div class="signal-section">
     <div class="signal-title">🔗 Links <span style="color:#374151">\${sig.urls.length}</span></div>
     \${sig.urls.map(u => \`<div class="signal-item">
-      <a href="\${esc(u.url)}" target="_blank">\${esc(u.url.replace(/^https?:\\/\\//, '').slice(0, 50))}</a>
+      \${u.url ? \`<a href="\${esc(u.url)}" target="_blank">\${esc(u.url.replace(/^https?:\\/\\//, '').slice(0, 50))}</a>\` : esc(u.detail || 'Link shared in group conversation')}
       <span class="signal-date">\${fmtDate(u.timestamp)}</span>
     </div>\`).join('')}
   </div>\` : '';
 
   const hiringSection = sigSection('Hiring signals', '💼', sig.hiring, h =>
-    \`<div class="signal-item">\${esc(h.snippet)}<span class="signal-date">\${fmtDate(h.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(h.snippet || h.detail || 'Signal detected in group conversation')}<span class="signal-date">\${fmtDate(h.timestamp)}</span></div>\`);
   const eventSection = sigSection('Events', '📅', sig.events, e =>
-    \`<div class="signal-item">\${esc(e.snippet)}<span class="signal-date">\${fmtDate(e.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(e.snippet || e.detail || 'Signal detected in group conversation')}<span class="signal-date">\${fmtDate(e.timestamp)}</span></div>\`);
   const introSection = sigSection('Intros', '🤝', sig.intros, i =>
-    \`<div class="signal-item">\${esc(i.snippet)}<span class="signal-date">\${fmtDate(i.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(i.snippet || i.detail || 'Signal detected in group conversation')}<span class="signal-date">\${fmtDate(i.timestamp)}</span></div>\`);
 
   const noSignals = !sig.urls.length && !sig.hiring.length && !sig.events.length && !sig.intros.length;
 
