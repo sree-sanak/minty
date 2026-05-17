@@ -370,6 +370,13 @@ function json(res, data, status = 200) {
     res.end(JSON.stringify(data));
 }
 
+function publicJsonError(res, publicMessage, status = 500, err = null, context = 'api request failed') {
+    if (err) {
+        console.error(context, safeErrorLogMetadata(err));
+    }
+    json(res, { error: publicMessage }, status);
+}
+
 function body(req, max = JSON_BODY_MAX) {
     return new Promise((resolve, reject) => {
         let s = '';
@@ -504,7 +511,7 @@ async function handleSaveDebrief(req, res, [meetingId], paths) {
         }
         json(res, { meetingId, debrief: updated[meetingId] });
     } catch (e) {
-        json(res, { error: e.message }, 400);
+        publicJsonError(res, 'Could not save meeting debrief. Please check the debrief fields and retry.', 400, e, 'meeting debrief save failed');
     }
 }
 
@@ -590,7 +597,7 @@ function handleGetLifeEvents(req, res, _params, paths) {
         }
         json(res, { count: events.length, events: events.slice(0, limit) });
     } catch (e) {
-        json(res, { error: e.message }, 500);
+        publicJsonError(res, 'Life events are temporarily unavailable.', 500, e, 'life events request failed');
     }
 }
 
@@ -1568,7 +1575,7 @@ async function handleSeedDemo(_req, res) {
         });
         json(res, { ok: true, output: out.split('\n').slice(-10).join('\n') });
     } catch (e) {
-        json(res, { error: e.message }, 500);
+        publicJsonError(res, 'Could not regenerate demo data. Please retry from Settings.', 500, e, 'seed demo failed');
     }
 }
 
@@ -2125,8 +2132,7 @@ async function handleUploadSource(req, res, [source], paths, uuid) {
         updateUserSource(uuid, source, { connectedAt: new Date().toISOString(), status: 'connected' });
         json(res, { ok: true });
     } catch (e) {
-        console.error(e);
-        json(res, { error: e.message }, 500);
+        publicJsonError(res, 'Source import failed. Please check the file and retry from Sources.', 500, e, 'source upload failed');
     }
 }
 
@@ -2888,7 +2894,7 @@ function handleWhatsappProfilePic(req, res, [encodedId], paths, uuid) {
         });
         fs.createReadStream(picPath).pipe(res);
     } catch (e) {
-        json(res, { error: e.message }, 500);
+        publicJsonError(res, 'Profile picture is temporarily unavailable.', 500, e, 'whatsapp profile picture failed');
     }
 }
 
@@ -3274,7 +3280,8 @@ async function handleTriggerSync(req, res, [source], paths, uuid) {
         const result = await triggerSync(uuid, source, getUserDataDir(uuid));
         json(res, result);
     } catch (e) {
-        json(res, { ok: false, message: e.message }, 500);
+        console.error('sync trigger failed', safeErrorLogMetadata(e));
+        json(res, { ok: false, message: 'Sync failed. Please retry from Sources.' }, 500);
     }
 }
 
@@ -3713,7 +3720,7 @@ async function handleEvidenceReviewDecision(req, res, [contactRef, topic], paths
     try {
         next = updateEvidenceOverride({ overrides, contactRef, topic, decision });
     } catch (err) {
-        json(res, { error: err.message || 'invalid evidence review decision' }, 400);
+        publicJsonError(res, 'invalid evidence review decision', 400, err, 'evidence review decision rejected');
         return;
     }
     atomicWriteJsonSync(files.overrides, next);
@@ -3917,7 +3924,7 @@ function handleLinkedInCheckExport(req, res, params, paths, uuid) {
             json(res, { error: 'daemon-not-ready' }, 503);
         }
     } catch (e) {
-        json(res, { error: e.message }, 500);
+        publicJsonError(res, 'LinkedIn export check failed. Please retry from Sources.', 500, e, 'linkedin export check failed');
     }
 }
 
