@@ -13,7 +13,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 
 // The server exports a handleMessage(json) function for unit testing
-const { handleMessage, TOOLS, clampLimit, safeResult } = require('../../scripts/minty-mcp-server');
+const { handleMessage, TOOLS, clampLimit, safeResult, jsonRpcParseError, jsonRpcInternalError, jsonRpcErrorId } = require('../../scripts/minty-mcp-server');
 
 // ---------------------------------------------------------------------------
 // Test fixtures — same shape as agent-retrieval tests
@@ -586,7 +586,7 @@ describe('search_network tool', () => {
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('raw_private_contact_id'), false);
         assert.equal(serialized.includes('citation-search@example.com'), false);
-        assert.equal(serialized.includes('+155****4567'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
         assert.equal(serialized.includes('private_handle'), false);
         assert.equal(serialized.includes('subjectId'), false);
     });
@@ -610,6 +610,33 @@ describe('search_network tool', () => {
             assert.equal(r.phones, undefined, 'phones must not leak through MCP');
             assert.equal(r.rawContact, undefined, 'rawContact must not leak through MCP');
         }
+    });
+
+    it('recursively redacts nested MCP evidence values', () => {
+        const result = safeResult({
+            name: 'Nested Evidence Person',
+            relationshipScore: 50,
+            evidence: [{
+                kind: 'message',
+                detail: {
+                    snippet: 'Email private-nested@example.com and call +15551234567',
+                    nested: ['handle 447700900123@c.us', { note: 'backup nested@example.org' }],
+                    keyed: { 'owner private-key@example.com': 'safe value' },
+                },
+            }, 'primitive evidence mentions primitive@example.net'],
+        });
+
+        const serialized = JSON.stringify(result);
+        assert.equal(serialized.includes('private-nested@example.com'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
+        assert.equal(serialized.includes('447700900123@c.us'), false);
+        assert.equal(serialized.includes('nested@example.org'), false);
+        assert.equal(serialized.includes('private-key@example.com'), false);
+        assert.equal(serialized.includes('primitive@example.net'), false);
+        assert.equal(result.evidence[0].detail.snippet.includes('[redacted email]'), true);
+        assert.equal(result.evidence[0].detail.snippet.includes('[redacted phone]'), true);
+        assert.equal(Object.hasOwn(result.evidence[0].detail.keyed, 'owner [redacted email]'), true);
+        assert.equal(result.evidence[1], 'primitive evidence mentions [redacted email]');
     });
 
     it('redacts raw insight topic details from MCP evidence', async () => {
@@ -761,7 +788,7 @@ describe('person_context tool', () => {
         assert.equal(parsed.person, '[redacted email] [redacted phone] Alice');
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('alice@example.com'), false);
-        assert.equal(serialized.includes('+155****4567'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
     });
 
     it('source-filtered person_context blocks stale source matches safely', async () => {
@@ -1062,7 +1089,7 @@ describe('workflow_brief tool', () => {
         assert.equal(parsed.safety.noOutreachTriggered, true);
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('alice@example.com'), false);
-        assert.equal(serialized.includes('+155****4567'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
     });
 
     it('source-filtered workflow briefs return a blocked empty state when the source is stale', async () => {
@@ -1289,6 +1316,48 @@ describe('stdio transport', () => {
         const parsed = JSON.parse(payload);
         assert.equal(parsed.id, 77);
         assert.equal(parsed.result.serverInfo.name, 'minty');
+    });
+
+    it('does not echo raw parser details in JSON-RPC parse errors', async () => {
+        const serverPath = path.join(__dirname, '..', '..', 'scripts', 'minty-mcp-server.js');
+        const child = spawn(process.execPath, [serverPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        let stdout = '';
+        let stderr = '';
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', chunk => { stdout += chunk; });
+        child.stderr.on('data', chunk => { stderr += chunk; });
+
+        child.stdin.end('{"jsonrpc":"2.0","id":"secret-user@example.com" bad-json /root/private-path\n');
+
+        const exitCode = await new Promise(resolve => child.on('close', resolve));
+        assert.equal(exitCode, 0, stderr);
+        const parsed = JSON.parse(stdout.trim());
+        assert.equal(parsed.error.code, -32700);
+        assert.equal(parsed.error.message, 'Parse error');
+        assert.equal(JSON.stringify(parsed).includes('secret-user@example.com'), false);
+        assert.equal(JSON.stringify(parsed).includes('/root/private-path'), false);
+        assert.equal(JSON.stringify(parsed).includes('Unexpected'), false);
+    });
+
+    it('keeps JSON-RPC helper error payloads generic', () => {
+        const parseError = jsonRpcParseError(new Error('bad JSON /root/private-path secret-user@example.com'));
+        const internalError = jsonRpcInternalError(new Error('CRM_DATA_DIR /root/private-path secret-user@example.com'));
+
+        assert.deepEqual(parseError, { code: -32700, message: 'Parse error' });
+        assert.deepEqual(internalError, { code: -32603, message: 'Internal error' });
+        const serialized = JSON.stringify({ parseError, internalError });
+        assert.equal(serialized.includes('CRM_DATA_DIR'), false);
+        assert.equal(serialized.includes('/root/private-path'), false);
+        assert.equal(serialized.includes('secret-user@example.com'), false);
+    });
+
+    it('redacts sensitive JSON-RPC error ids before echoing them', () => {
+        assert.equal(jsonRpcErrorId('secret-user@example.com /root/private-path'), '[redacted email] [redacted path]');
+        assert.equal(jsonRpcErrorId('+15551234567'), '[redacted phone]');
+        assert.equal(jsonRpcErrorId(42), 42);
+        assert.equal(jsonRpcErrorId(null), null);
     });
 });
 
@@ -1606,7 +1675,7 @@ describe('safeResult', () => {
 
         const serialized = JSON.stringify(safe);
         assert.equal(serialized.includes('alice@example.com'), false);
-        assert.equal(serialized.includes('+155****4567'), false);
+        assert.equal(serialized.includes('+15551234567'), false);
         assert.deepEqual(safe.answerSources, ['Telegram', '[redacted email]', '[redacted phone]']);
         assert.equal(safe.sourceSummary, 'Telegram, [redacted email], [redacted phone]');
     });
