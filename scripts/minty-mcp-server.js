@@ -197,8 +197,9 @@ function redactErrorPath(value) {
 }
 
 function jsonRpcErrorId(id) {
-    if (typeof id !== 'string') return id;
-    return redactErrorPath(redactDirectContactDetails(id));
+    if (typeof id === 'number') return id;
+    if (typeof id === 'string') return redactErrorPath(redactDirectContactDetails(id));
+    return null;
 }
 
 function jsonRpcParseError() {
@@ -572,10 +573,11 @@ function handleMessage(msg, data) {
     // MCP sends notifications/initialized, but this also avoids noisy errors for
     // future client notifications we do not explicitly know yet.
     if (id === undefined) return null;
+    const safeId = jsonRpcErrorId(id);
 
     if (method === 'initialize') {
         return {
-            jsonrpc: '2.0', id,
+            jsonrpc: '2.0', id: safeId,
             result: {
                 protocolVersion: '2024-11-05',
                 capabilities: { tools: {} },
@@ -586,7 +588,7 @@ function handleMessage(msg, data) {
 
     if (method === 'tools/list') {
         return {
-            jsonrpc: '2.0', id,
+            jsonrpc: '2.0', id: safeId,
             result: { tools: TOOLS },
         };
     }
@@ -600,7 +602,7 @@ function handleMessage(msg, data) {
             const dataDir = resolveDataDir();
             if (!dataDir) {
                 return {
-                    jsonrpc: '2.0', id,
+                    jsonrpc: '2.0', id: safeId,
                     result: {
                         isError: true,
                         content: [{ type: 'text', text: 'No Minty data found. Run "npm run seed:demo" or set CRM_DATA_DIR.' }],
@@ -611,13 +613,13 @@ function handleMessage(msg, data) {
         }
 
         const result = executeTool(toolName, args, data);
-        return { jsonrpc: '2.0', id, result };
+        return { jsonrpc: '2.0', id: safeId, result };
     }
 
     // Unknown method
     return {
-        jsonrpc: '2.0', id,
-        error: { code: -32601, message: `Method not found: ${method}` },
+        jsonrpc: '2.0', id: safeId,
+        error: { code: -32601, message: 'Method not found' },
     };
 }
 

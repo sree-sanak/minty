@@ -127,10 +127,49 @@ describe('MCP protocol', () => {
         assert.deepEqual(names, ['goal_next_actions', 'intro_paths', 'meeting_prep', 'person_context', 'search_network', 'source_health', 'workflow_brief']);
     });
 
+    it('redacts sensitive JSON-RPC ids at every response boundary', async () => {
+        const sensitiveId = 'secret-user@example.com /root/private-path';
+        const initialize = await handleMessage({
+            jsonrpc: '2.0', id: sensitiveId, method: 'initialize',
+            params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test' } },
+        });
+        assert.equal(initialize.id, '[redacted email] [redacted path]');
+
+        const toolsList = await handleMessage({
+            jsonrpc: '2.0', id: sensitiveId, method: 'tools/list', params: {},
+        });
+        assert.equal(toolsList.id, '[redacted email] [redacted path]');
+
+        const toolCall = await handleMessage({
+            jsonrpc: '2.0', id: sensitiveId, method: 'tools/call',
+            params: { name: 'search_network', arguments: { query: 'crypto' } },
+        }, { contacts: CONTACTS, insights: INSIGHTS });
+        assert.equal(toolCall.id, '[redacted email] [redacted path]');
+
+        const unknown = await handleMessage({
+            jsonrpc: '2.0', id: sensitiveId, method: 'secret-user@example.com /root/private-path', params: {},
+        });
+        assert.equal(unknown.id, '[redacted email] [redacted path]');
+        assert.ok(unknown.error);
+        assert.equal(unknown.error.code, -32601);
+        assert.equal(unknown.error.message, 'Method not found');
+        assert.equal(JSON.stringify(unknown).includes('secret-user@example.com'), false);
+        assert.equal(JSON.stringify(unknown).includes('/root/private-path'), false);
+    });
+
+    it('nulls unsupported JSON-RPC id shapes before responding', async () => {
+        const resp = await handleMessage({
+            jsonrpc: '2.0', id: { secret: 'secret-user@example.com' }, method: 'tools/list', params: {},
+        });
+        assert.equal(resp.id, null);
+        assert.ok(resp.result);
+    });
+
     it('returns error for unknown method', async () => {
         const resp = await handleMessage({
             jsonrpc: '2.0', id: 99, method: 'bogus/method', params: {},
         });
+        assert.equal(resp.id, 99);
         assert.ok(resp.error);
         assert.equal(resp.error.code, -32601);
     });
@@ -545,6 +584,7 @@ describe('search_network tool', () => {
     });
 
     it('preserves safe citations, confidence drivers, and freshness metadata', async () => {
+        const fixturePhone = '+155****4567';
         const contacts = [{
             id: 'raw_private_contact_id',
             name: 'Citation Search Person',
@@ -553,7 +593,7 @@ describe('search_network tool', () => {
             daysSinceContact: 2,
             interactionCount: 3,
             emails: ['citation-search@example.com'],
-            phones: ['+155****4567'],
+            phones: [fixturePhone],
             sources: { linkedin: { publicIdentifier: 'private_handle' } },
         }];
 
@@ -586,7 +626,7 @@ describe('search_network tool', () => {
         const serialized = JSON.stringify(parsed);
         assert.equal(serialized.includes('raw_private_contact_id'), false);
         assert.equal(serialized.includes('citation-search@example.com'), false);
-        assert.equal(serialized.includes('+15551234567'), false);
+        assert.equal(serialized.includes(fixturePhone), false);
         assert.equal(serialized.includes('private_handle'), false);
         assert.equal(serialized.includes('subjectId'), false);
     });
@@ -1355,9 +1395,12 @@ describe('stdio transport', () => {
 
     it('redacts sensitive JSON-RPC error ids before echoing them', () => {
         assert.equal(jsonRpcErrorId('secret-user@example.com /root/private-path'), '[redacted email] [redacted path]');
-        assert.equal(jsonRpcErrorId('+15551234567'), '[redacted phone]');
+        assert.equal(jsonRpcErrorId('+155****4567'), '[redacted phone]');
         assert.equal(jsonRpcErrorId(42), 42);
         assert.equal(jsonRpcErrorId(null), null);
+        assert.equal(jsonRpcErrorId(true), null);
+        assert.equal(jsonRpcErrorId(['secret-user@example.com']), null);
+        assert.equal(jsonRpcErrorId({ id: 'secret-user@example.com' }), null);
     });
 });
 
