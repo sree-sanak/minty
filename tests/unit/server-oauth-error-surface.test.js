@@ -92,3 +92,13 @@ test('[ServerOAuthErrors]: Google Contacts manual sync does not return raw provi
     assert.match(serverSource, /logOAuthFailure\('google contacts fetch failed',\s*e\)/);
     assert.match(serverSource, /error:\s*'Google Contacts sync failed\. Please retry from Sources\.'/);
 });
+
+test('[ServerOAuthErrors]: API catch blocks do not serialize raw exception messages', () => {
+    assert.doesNotMatch(
+        serverSource,
+        /json\(res,\s*\{[^}\n]*(?:error|message):\s*(?:e|err|error)\.message[^}\n]*\}/,
+        'API handlers must not return raw exception messages in JSON responses'
+    );
+    assert.match(serverSource, /function publicJsonError\(/);
+    assert.match(serverSource, /safeErrorLogMetadata\(err\)/);
+});
