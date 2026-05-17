@@ -135,6 +135,66 @@ test('GET /api/today preserves zero-day contact recency', async () => {
     });
 });
 
+test('GET /api/contacts/:id/interactions exposes only safe timeline metadata cues', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-safe-metadata-'));
+    seedDataDir(dir, [
+        {
+            id: 'li-safe-metadata-1',
+            source: 'linkedin',
+            from: 'Sam García',
+            chatName: 'Sam García',
+            body: 'structured local artifact with safe cues',
+            timestamp: '2026-05-17T10:00:00Z',
+            hasAttachment: true,
+            linkPreviews: [
+                { url: 'https://private.example/secret-deck', title: 'private title' },
+                { url: 'file:///root/private/source.pdf', providerId: 'provider-private-id' },
+            ],
+            reactions: [
+                { actor: 'raw-phone-555-0101', emoji: '👍' },
+                { actor: 'private-sentinel@example.com', emoji: '🔥' },
+            ],
+            metadata: {
+                hasAttachment: true,
+                linkPreviewCount: 2,
+                reactionCount: 2,
+                rawUrl: 'https://private.example/from-existing-metadata',
+                fileName: 'metadata-private-file.pdf',
+                actor: 'metadata-private@example.com',
+            },
+            attachment: {
+                fileName: 'private deck.pdf',
+                localPath: '/root/private/source/private deck.pdf',
+                messageId: 'raw-message-id-123',
+            },
+        },
+    ]);
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/contacts/wa_12065550100/interactions`);
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        const item = payload.find(i => i.id === 'li-safe-metadata-1');
+        assert.ok(item, 'expected linked interaction in contact timeline response');
+        assert.deepEqual(item.metadata, {
+            hasAttachment: true,
+            linkPreviewCount: 2,
+            reactionCount: 2,
+        });
+
+        const serializedItem = JSON.stringify(item);
+        assert.equal(/https?:\/\//.test(serializedItem), false);
+        assert.equal(/file:\/\//.test(serializedItem), false);
+        assert.equal(serializedItem.includes('private title'), false);
+        assert.equal(serializedItem.includes('provider-private-id'), false);
+        assert.equal(serializedItem.includes('private deck.pdf'), false);
+        assert.equal(serializedItem.includes('/root/private'), false);
+        assert.equal(serializedItem.includes('raw-message-id-123'), false);
+        assert.equal(serializedItem.includes('raw-phone-555-0101'), false);
+        assert.equal(serializedItem.includes('private-sentinel@example.com'), false);
+    });
+});
+
 test('malformed interactions.json does not expose raw parser errors on read-only routes', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-bad-json-'));
     seedDataDir(dir, []);

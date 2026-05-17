@@ -39,6 +39,31 @@ function createContact(id) {
  * @param {string} source  - "whatsapp" | "linkedin" | "telegram" | "email"
  * @param {object} raw     - source-specific message object
  */
+function countStructuredCollection(raw, keys) {
+    for (const key of keys) {
+        const value = raw[key];
+        if (Array.isArray(value)) return value.length;
+        if (Number.isInteger(value) && value > 0) return value;
+    }
+    return 0;
+}
+
+function buildInteractionMetadata(raw = {}) {
+    const metadata = {};
+
+    if (raw.hasAttachment === true || raw.hasAttachments === true || raw.attachmentCount > 0 || raw.attachmentsCount > 0 || Array.isArray(raw.attachments) && raw.attachments.length > 0 || raw.attachment) {
+        metadata.hasAttachment = true;
+    }
+
+    const linkPreviewCount = countStructuredCollection(raw, ['linkPreviews', 'link_preview', 'linkPreviewsCount', 'linkPreviewCount']);
+    if (linkPreviewCount > 0) metadata.linkPreviewCount = linkPreviewCount;
+
+    const reactionCount = countStructuredCollection(raw, ['reactions', 'reactionCount', 'reactionsCount']);
+    if (reactionCount > 0) metadata.reactionCount = reactionCount;
+
+    return metadata;
+}
+
 function createInteraction(source, raw) {
     return {
         id: raw.id || null,
@@ -51,8 +76,9 @@ function createInteraction(source, raw) {
         chatId: raw.chatId || raw.conversationId || null,
         chatName: raw.chatName || null,
         type: raw.type || 'message',
+        metadata: buildInteractionMetadata(raw),
         raw,                                  // keep original for reference
     };
 }
 
-module.exports = { createContact, createInteraction };
+module.exports = { createContact, createInteraction, buildInteractionMetadata };
