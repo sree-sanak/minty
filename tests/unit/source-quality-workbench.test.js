@@ -2,8 +2,12 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const { buildSourceQualityWorkbench } = require('../../crm/source-quality-workbench');
+const { runSourceQualityWorkbenchCli } = require('../../scripts/source-quality-workbench');
 
 const NOW = '2026-05-06T08:00:00Z';
 
@@ -207,4 +211,95 @@ test('[SourceQualityWorkbench]: invalid source filters fail closed for identity-
     assert.equal(payload.status, 'clear');
     assert.equal(payload.buckets.ambiguousIdentityClusters.count, 0);
     assert.equal(JSON.stringify(payload).includes('private-channel@example.com'), false);
+});
+
+function writeJson(file, value) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value, null, 2));
+}
+
+function runCli(args) {
+    let stdout = '';
+    let stderr = '';
+    const code = runSourceQualityWorkbenchCli(args, {
+        stdout: { write: chunk => { stdout += chunk; } },
+        stderr: { write: chunk => { stderr += chunk; } },
+    });
+    return { code, stdout, stderr };
+}
+
+test('[SourceQualityWorkbenchCLI]: emits JSON envelope from local data without private rows', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-source-quality-cli-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), [
+        {
+            id: 'raw-cli-contact',
+            name: 'Private CLI Person',
+            emails: ['private-cli@example.com'],
+            sources: { telegram: { username: 'raw_cli_handle' } },
+            activeChannels: ['telegram'],
+        },
+    ]);
+    writeJson(path.join(dir, 'unified', 'interactions.json'), [
+        { id: 'raw-cli-message', source: 'telegram', contactId: 'raw-cli-contact', text: 'private cli message body', timestamp: NOW },
+    ]);
+    writeJson(path.join(dir, 'unified', 'contact-evidence.json'), {
+        'raw-cli-contact': { sources: ['telegram'], topics: [] },
+    });
+    writeJson(path.join(dir, 'unified', 'source-events.json'), [
+        { source: 'telegram', contactId: 'raw-cli-contact', detail: 'private cli event detail' },
+    ]);
+    writeJson(path.join(dir, 'sync-state.json'), {
+        telegram: { status: 'ok', lastSyncAt: '2026-05-06T07:00:00Z' },
+    });
+
+    const result = runCli(['--data-dir', dir, '--source', 'telegram', '--now', NOW, '--json']);
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, '');
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, 'needs_review');
+    assert.equal(payload.buckets.weakEvidenceSources.count, 1);
+    assert.equal(payload.safety.readOnly, true);
+    const serialized = JSON.stringify(payload);
+    for (const forbidden of [
+        'raw-cli-contact',
+        'Private CLI Person',
+        'private-cli@example.com',
+        'raw_cli_handle',
+        'private cli message body',
+        'private cli event detail',
+        dir,
+    ]) {
+        assert.equal(serialized.includes(forbidden), false, `leaked ${forbidden}`);
+    }
+});
+
+test('[SourceQualityWorkbenchCLI]: invalid source fails closed without echoing private input', () => {
+    const result = runCli(['--source', 'private-founder@example.com', '--json']);
+    assert.equal(result.code, 2);
+    assert.equal(result.stderr, '');
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.error.code, 'invalid_source');
+    assert.equal(payload.error.message, 'Unknown source filter.');
+    assert.equal(payload.safety.contactDetailsOmitted, true);
+    assert.equal(result.stdout.includes('private-founder@example.com'), false);
+});
+
+test('[SourceQualityWorkbenchCLI]: human output remains aggregate-only', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-source-quality-human-'));
+    writeJson(path.join(dir, 'unified', 'contacts.json'), [
+        { id: 'human-raw-id', name: 'Human Private', sources: { email: { address: 'human-private@example.com' } } },
+    ]);
+    writeJson(path.join(dir, 'sync-state.json'), {
+        email: { status: 'error', lastSyncAt: '2026-04-01T00:00:00Z', lastError: 'secret token at /private/path.json' },
+    });
+
+    const result = runCli(['--data-dir', dir, '--source', 'email', '--human', '--now', NOW]);
+    assert.equal(result.code, 0);
+    assert.match(result.stdout, /status: needs_review/);
+    assert.match(result.stdout, /totalOpenItems:/);
+    assert.equal(result.stdout.includes('human-raw-id'), false);
+    assert.equal(result.stdout.includes('Human Private'), false);
+    assert.equal(result.stdout.includes('human-private@example.com'), false);
+    assert.equal(result.stdout.includes('/private/path.json'), false);
 });

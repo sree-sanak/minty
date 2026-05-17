@@ -82,6 +82,7 @@
     "network:changes": "node scripts/agent-query.js \"people I haven't talked to recently who I used to talk to frequently — show changes in communication patterns\"",
     "network:reconnect": "node scripts/agent-query.js \"people I should reconnect with — fading relationships worth reviving\"",
     "source-events": "node scripts/build-source-events.js",
+    "source-quality": "node scripts/source-quality-workbench.js",
     "hybrid-index": "node scripts/build-hybrid-index.js",
     "network:evaluate": "node scripts/evaluate-network-memory.js",
     "telegram:live": "node sources/telegram/live.js",
