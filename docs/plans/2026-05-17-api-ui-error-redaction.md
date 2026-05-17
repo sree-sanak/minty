@@ -52,7 +52,7 @@ This is not generic polish. Hermes/OpenClaw can only trust Minty as private netw
 
 ### Task 1: Add public error helpers and unit coverage
 
-**Objective:** Create small reusable helpers that turn arbitrary exceptions into stable public API/UI copy.
+**Objective:** Create small reusable helpers that turn arbitrary exceptions into stable public API/UI copy. The helper must fail closed: only route-owned safe constants are returned, never arbitrary `e.message` text.
 
 **Files:**
 - Modify: `crm/server.js`
@@ -79,7 +79,7 @@ test('publicErrorPayload redacts internal exception detail', () => {
     const err = new Error('ENOENT: no such file or directory, open ' + path.join(os.tmpdir(), 'private-source.json'));
     err.code = 'ENOENT';
 
-    const payload = publicErrorPayload('load failed', err);
+    const payload = publicErrorPayload('load failed');
 
     assert.deepEqual(payload, {
         error: 'load failed',
@@ -92,14 +92,26 @@ test('publicErrorPayload redacts internal exception detail', () => {
 });
 
 test('publicErrorMessage never echoes raw parser or provider messages', () => {
-    const raw = 'SyntaxError: Expected property name or provider token at /tmp/private.json';
+    const raw = 'Provider failed for Sree Private Workspace account alpha';
     const message = publicErrorMessage(raw);
 
     assert.equal(message, 'Request failed. Check local Minty logs for details.');
-    assert.equal(message.includes('SyntaxError'), false);
-    assert.equal(message.includes('/tmp/private.json'), false);
-    assert.equal(message.includes('token'), false);
+    assert.equal(message.includes('Provider'), false);
+    assert.equal(message.includes('Sree Private Workspace'), false);
+    assert.equal(message.includes('account alpha'), false);
 });
+
+const EXPECTED_SAFE_PUBLIC_MESSAGES = [
+    'Could not load life events.',
+    'Could not save debrief.',
+    'load failed',
+];
+
+for (const safeMessage of EXPECTED_SAFE_PUBLIC_MESSAGES) {
+    test(`publicErrorMessage returns safe constant: ${safeMessage}`, () => {
+        assert.equal(publicErrorMessage(safeMessage), safeMessage);
+    });
+}
 ```
 
 **Step 2: Run test to verify failure**
@@ -118,30 +130,38 @@ In `crm/server.js`, near `json()` add:
 
 ```js
 const DEFAULT_PUBLIC_ERROR_MESSAGE = 'Request failed. Check local Minty logs for details.';
+const PUBLIC_ERROR_MESSAGES = new Set([
+    DEFAULT_PUBLIC_ERROR_MESSAGE,
+    'Invalid JSON request body.',
+    'Request body too large.',
+    'Could not save debrief.',
+    'Could not load life events.',
+    'Could not regenerate demo data.',
+    'Could not import source file.',
+    'load failed',
+]);
+const PUBLIC_ERROR_CODES = new Set([
+    'invalid_json_body',
+    'request_body_too_large',
+    'debrief_save_failed',
+    'life_events_load_failed',
+    'seed_demo_failed',
+    'source_import_failed',
+]);
 
 function publicErrorMessage(message) {
-    if (typeof message === 'string' && /^[A-Za-z0-9 .,'():;_-]{1,160}$/.test(message)) {
-        const lower = message.toLowerCase();
-        const unsafe = lower.includes('syntaxerror')
-            || lower.includes('token')
-            || lower.includes('enoent')
-            || lower.includes('stack')
-            || lower.includes('at json.parse')
-            || message.includes('/')
-            || message.includes('\\')
-            || message.includes('@');
-        if (!unsafe) return message;
-    }
+    if (typeof message === 'string' && PUBLIC_ERROR_MESSAGES.has(message)) return message;
     return DEFAULT_PUBLIC_ERROR_MESSAGE;
 }
 
-function publicErrorPayload(error, err, options = {}) {
+function publicErrorPayload(error, options = {}) {
     const payload = {
         error: publicErrorMessage(error),
         message: publicErrorMessage(options.message || DEFAULT_PUBLIC_ERROR_MESSAGE),
     };
-    if (options.code && /^[a-z0-9_-]{1,40}$/i.test(options.code)) payload.code = options.code;
-    if (err && options.logContext) console.error(options.logContext, err);
+    if (typeof options.publicCode === 'string' && PUBLIC_ERROR_CODES.has(options.publicCode)) {
+        payload.code = options.publicCode;
+    }
     return payload;
 }
 ```
@@ -151,6 +171,8 @@ Then update the export:
 ```js
 module.exports = { createServer, publicErrorMessage, publicErrorPayload, safeErrorLogMetadata };
 ```
+
+Do not pass raw `Error` objects, parser exceptions, provider payloads, or arbitrary `err.code` values into `publicErrorPayload()`. Detailed exceptions should be logged by the route catch block before constructing the public payload; any public `code` must be a route-owned `publicCode` from `PUBLIC_ERROR_CODES`.
 
 **Step 4: Run test to verify pass**
 
@@ -196,7 +218,7 @@ test('malformed JSON request bodies return generic public errors', async () => {
         });
         assert.equal(res.status, 400);
         const text = await res.text();
-        assert.doesNotMatch(text, /Expected|JSON|SyntaxError|position|private_event_ref|stack/i);
+        assert.doesNotMatch(text, /Expected property|SyntaxError|position|private_event_ref|stack|at JSON\.parse/i);
         const payload = JSON.parse(text);
         assert.equal(payload.error, 'Invalid JSON request body.');
         assert.equal(payload.message, 'Request failed. Check local Minty logs for details.');
@@ -252,7 +274,8 @@ Update `handleSaveDebrief()` catch:
 ```js
 } catch (e) {
     console.error('[meetings] failed to save debrief:', e);
-    json(res, publicErrorPayload(e.publicMessage || 'Could not save debrief.', e), e.status || 400);
+    const status = Number.isInteger(e.status) && e.status >= 400 && e.status < 500 ? e.status : 500;
+    json(res, publicErrorPayload(e.publicMessage || 'Could not save debrief.'), status);
 }
 ```
 
@@ -342,19 +365,19 @@ Patch these catch blocks in `crm/server.js`:
 // handleGetLifeEvents
 } catch (e) {
     console.error('[life-events] failed:', e);
-    json(res, publicErrorPayload('Could not load life events.', e), 500);
+    json(res, publicErrorPayload('Could not load life events.'), 500);
 }
 
 // handleSeedDemo
 } catch (e) {
     console.error('[settings] seed demo failed:', e);
-    json(res, publicErrorPayload('Could not regenerate demo data.', e), 500);
+    json(res, publicErrorPayload('Could not regenerate demo data.'), 500);
 }
 
 // upload/import catch around line 2127
 } catch (e) {
     console.error('[upload] import failed:', e);
-    json(res, publicErrorPayload('Could not import source file.', e), 500);
+    json(res, publicErrorPayload('Could not import source file.'), 500);
 }
 ```
 
@@ -400,13 +423,15 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../..');
 const UI = path.join(ROOT, 'crm/ui.html.js');
 
-test('generic UI catch blocks do not render raw e.message', () => {
+test('generic UI catch blocks do not render raw e.message to user-visible sinks', () => {
     const src = fs.readFileSync(UI, 'utf8');
     const unsafePatterns = [
+        /innerHTML\s*=\s*[^;]*(?:esc\()?e\.message/s,
+        /textContent\s*=\s*[^;]*e\.message/s,
+        /alert\(\s*e\.message\s*\)/,
         /Render error:\s*['"`]?\s*\+\s*esc\(e\.message\)/,
         /Failed to load contacts:\s*['"`]?\s*\+\s*esc\(e\.message\)/,
         /Query failed:\s*\$\{esc\(e\.message\)\}/,
-        /alert\(e\.message\)/,
         /log\.textContent\s*=\s*'✗ '\s*\+\s*e\.message/,
     ];
     for (const pattern of unsafePatterns) {
@@ -430,8 +455,16 @@ Expected: FAIL because several generic catch blocks currently render `e.message`
 In `crm/ui.html.js`, near existing escape helpers, add:
 
 ```js
-function publicUiError(prefix) {
-  return prefix || 'Something went wrong. Check local Minty logs for details.';
+function publicUiError(message) {
+  const DEFAULT_PUBLIC_UI_ERROR = 'Something went wrong. Check local Minty logs for details.';
+  const SAFE_PUBLIC_UI_ERRORS = new Set([
+    DEFAULT_PUBLIC_UI_ERROR,
+    'Render error. Check local Minty logs for details.',
+    'Failed to load contacts. Check local Minty logs for details.',
+    'Query failed. Check local Minty logs for details.',
+    'Request failed. Check local Minty logs for details.',
+  ]);
+  return SAFE_PUBLIC_UI_ERRORS.has(message) ? message : DEFAULT_PUBLIC_UI_ERROR;
 }
 ```
 
@@ -515,12 +548,14 @@ git diff HEAD~4..HEAD -- crm/server.js crm/ui.html.js tests/integration/api-data
 
 Expected: no production code emits raw `e.message`; any matches are split synthetic test sentinels or local log-only calls.
 
-**Step 5: Close or update issue #44 after merge**
+**Step 5: Update issue #44 after merge**
 
-If all checks pass and the PR lands, comment on #44 with the exact routes hardened and verification commands. Close #44 only if no remaining raw API/UI `e.message` responses from the issue body are still present; otherwise leave it open with the remaining route list.
+After the PR lands, prepare a privacy-safe issue update that lists the exact routes hardened and verification commands. Post it only from a normal PR/issue workflow where external GitHub comments are explicitly in scope, or leave it for the maintainer if running in a no-external-sends context. Close #44 only if no remaining raw API/UI `e.message` responses from the issue body are still present; otherwise leave it open with the remaining route list.
 
-```bash
-gh issue comment 44 --body "Hardened the first API/UI error-redaction slice: JSON body parsing, debrief save, life events, seed demo, upload/import, and generic UI catch blocks. Verified with node --test tests/integration/api-data-resilience.test.js, node --test tests/unit/ui-error-redaction.test.js, npm test, and npm run test:e2e."
+Suggested comment text for the PR body or a later maintainer issue update:
+
+```text
+Hardened the first API/UI error-redaction slice: JSON body parsing, debrief save, life events, seed demo, upload/import, and generic UI catch blocks. Verified with node --test tests/integration/api-data-resilience.test.js, node --test tests/unit/ui-error-redaction.test.js, npm test, and npm run test:e2e.
 ```
 
 ## Builder notes
