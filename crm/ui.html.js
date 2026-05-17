@@ -3737,9 +3737,9 @@ async function loadGroupDetail(chatId) {
   const feedHtml = g.messages.map(m => {
     const d = m.timestamp ? new Date(m.timestamp).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '';
     const t = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) : '';
-    // Server-resolved fromName (handles @c.us → contact name, @lid → 'Group member',
-    // raw phone → +XX formatted) — never show the raw id.
-    const display = m.fromName || (m.from === 'me' ? 'You' : 'Group member');
+    // Server-resolved fromName keeps raw sender identifiers out of the browser payload.
+    const display = m.fromName || 'Group member';
+    const safeSnippet = m.snippet || m.body || '';
     const clickable = m.fromContactId
       ? \`<span class="group-msg-from group-msg-from-link" onclick="event.stopPropagation();openContact('\${jsAttr(m.fromContactId)}')">\${esc(display)}</span>\`
       : \`<span class="group-msg-from">\${esc(display)}</span>\`;
@@ -3748,7 +3748,7 @@ async function loadGroupDetail(chatId) {
         \${clickable}
         <span>\${d} \${t}</span>
       </div>
-      <div class="group-msg-body">\${esc(m.body)}</div>
+      <div class="group-msg-body">\${esc(safeSnippet)}</div>
     </div>\`;
   }).join('');
 
@@ -3784,10 +3784,11 @@ async function loadGroupDetail(chatId) {
   const pinnedHtml = pinned.length ? \`<div class="signal-section" style="background:var(--surface-alt,#1a1f2b);padding:12px;border-radius:6px;margin-bottom:12px">
     <div class="signal-title">📌 Pinned <span style="color:#374151">\${pinned.length}</span></div>
     \${pinned.map(m => {
-      const who = m.fromName || (m.from === 'me' ? 'You' : 'Group member');
+      const who = m.fromName || 'Group member';
+      const safeSnippet = m.snippet || m.body || '';
       return \`<div class="signal-item" style="margin-bottom:8px">
         <div style="font-weight:600;font-size:0.72rem;color:var(--text-muted)">\${esc(who)} · \${fmtDate(m.timestamp)}</div>
-        <div style="color:var(--text-primary);font-size:0.82rem;margin-top:2px">\${esc((m.body || '').slice(0, 280))}</div>
+        <div style="color:var(--text-primary);font-size:0.82rem;margin-top:2px">\${esc(safeSnippet)}</div>
       </div>\`;
     }).join('')}
   </div>\` : '';
@@ -3812,20 +3813,15 @@ async function loadGroupDetail(chatId) {
   const labelHtml = unresolved.length ? \`<div class="lid-label-panel">
     <div class="lid-label-title">
       \${unresolved.length} anonymous sender\${unresolved.length === 1 ? '' : 's'} in this group
-      <span class="lid-label-help">— WhatsApp redacts unsaved members. Match them to roster contacts and the names will stick across all groups.</span>
+      <span class="lid-label-help">— WhatsApp redacts unsaved members; sender identifiers are omitted from this read-only detail view.</span>
     </div>
-    \${unresolved.slice(0, 12).map((s, i) => \`<div class="lid-label-row">
+    \${unresolved.slice(0, 12).map(s => \`<div class="lid-label-row">
       <div class="lid-label-info">
         <span class="lid-label-count">\${s.count}</span>
-        <span class="lid-label-sample">"\${esc((s.sample || '(no text)').slice(0, 70))}"</span>
+        <span class="lid-label-sample">"\${esc((s.sample || '(content omitted)').slice(0, 70))}"</span>
       </div>
-      <select class="lid-label-select" data-lid="\${jsAttr(s.id)}" id="lid-sel-\${i}">
-        <option value="">— assign to —</option>
-        \${candidates.map(c => \`<option value="\${esc(c.id)}">\${esc(c.name)}\${c.company ? ' · ' + esc(c.company) : ''}</option>\`).join('')}
-      </select>
     </div>\`).join('')}
     \${unresolved.length > 12 ? '<div class="lid-label-more">+ ' + (unresolved.length - 12) + ' more — top 12 shown.</div>' : ''}
-    <button class="lid-label-save" onclick="saveLidLabels('\${jsAttr(g.chatId)}')">Save labels</button>
   </div>\` : '';
 
   // Roster — show known members as clickable chips, anonymous LIDs as a count
