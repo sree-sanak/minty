@@ -179,6 +179,52 @@ test('GET /api/meta and /api/settings do not expose absolute local data paths', 
     });
 });
 
+test('GET /api/groups/:chatId redacts message bodies and raw sender source IDs', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-group-detail-safe-'));
+    const rawSender = 'raw-sender-5550101@c.us';
+    const rawLid = 'raw-lid-5550102@lid';
+    const rawEmail = 'group-detail-private@example.com';
+    const rawPhone = '+1 415 555 0199';
+    const rawBody = `please email ${rawEmail} or call ${rawPhone} about the role`;
+    const groupId = 'synthetic-group-privacy@g.us';
+    seedDataDir(dir, [
+        {
+            id: 'group-msg-1',
+            source: 'whatsapp',
+            chatId: groupId,
+            chatName: 'Synthetic privacy group',
+            from: rawSender,
+            body: rawBody,
+            timestamp: '2026-05-16T12:00:00.000Z',
+        },
+        {
+            id: 'group-msg-2',
+            source: 'whatsapp',
+            chatId: groupId,
+            chatName: 'Synthetic privacy group',
+            from: rawLid,
+            body: 'anonymous lid body with group-detail-lid-secret',
+            timestamp: '2026-05-16T12:01:00.000Z',
+        },
+    ]);
+
+    await withServer(dir, async (base) => {
+        const res = await fetch(`${base}/api/groups/${encodeURIComponent(groupId)}`);
+        assert.equal(res.status, 200);
+        const payload = await res.json();
+        const serialized = JSON.stringify(payload);
+
+        assert.equal(serialized.includes(rawSender), false, 'response leaked raw WhatsApp sender id');
+        assert.equal(serialized.includes(rawLid), false, 'response leaked raw WhatsApp lid sender id');
+        assert.equal(serialized.includes(rawEmail), false, 'response leaked raw email from message body');
+        assert.equal(serialized.includes(rawPhone), false, 'response leaked raw phone from message body');
+        assert.equal(serialized.includes('group-detail-lid-secret'), false, 'response leaked raw anonymous message body');
+        assert.equal(payload.messages[0].from, undefined, 'message envelope should not expose raw from');
+        assert.equal(payload.messages[0].body, undefined, 'message envelope should not expose raw body');
+        assert.equal(typeof payload.messages[0].snippet, 'string');
+    });
+});
+
 test('GET /api/export uses stable public error when bundle generation fails', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-export-bad-json-'));
     seedDataDir(dir, []);

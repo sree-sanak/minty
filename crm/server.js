@@ -1374,14 +1374,23 @@ function extractGroupSignals(messages) {
         const foundUrls = text.match(urlRe);
         if (foundUrls) {
             for (const url of foundUrls) {
-                if (urls.length < 20) urls.push({ url, snippet: text.slice(0, 100), timestamp: m.timestamp });
+                if (urls.length < 20) urls.push({ url: redactDirectContactDetails(url), snippet: safeGroupSignalSnippet('Link shared'), timestamp: m.timestamp });
             }
         }
-        if (hiringRe.test(text) && hiring.length < 10) hiring.push({ snippet: text.slice(0, 140), timestamp: m.timestamp });
-        if (eventRe.test(text) && events.length < 10) events.push({ snippet: text.slice(0, 140), timestamp: m.timestamp });
-        if (introRe.test(text) && intros.length < 10) intros.push({ snippet: text.slice(0, 140), timestamp: m.timestamp });
+        if (hiringRe.test(text) && hiring.length < 10) hiring.push({ snippet: safeGroupSignalSnippet('Hiring signal detected'), timestamp: m.timestamp });
+        if (eventRe.test(text) && events.length < 10) events.push({ snippet: safeGroupSignalSnippet('Event signal detected'), timestamp: m.timestamp });
+        if (introRe.test(text) && intros.length < 10) intros.push({ snippet: safeGroupSignalSnippet('Introduction signal detected'), timestamp: m.timestamp });
     }
     return { urls, hiring, events, intros };
+}
+
+function safeGroupMessageSnippet(body) {
+    if (!body) return '';
+    return 'Message content omitted for privacy';
+}
+
+function safeGroupSignalSnippet(label) {
+    return label;
 }
 
 function loadGroupMemberships() {
@@ -1672,9 +1681,9 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
     const senderStats = {}; // sender id → { count, sample, kind }
     for (const m of sorted) {
         if (!m.from) continue;
-        if (!senderStats[m.from]) senderStats[m.from] = { id: m.from, count: 0, sample: '', kind: null };
+        if (!senderStats[m.from]) senderStats[m.from] = { count: 0, sample: '', kind: null };
         senderStats[m.from].count++;
-        if (!senderStats[m.from].sample && m.body) senderStats[m.from].sample = m.body.slice(0, 80);
+        if (!senderStats[m.from].sample && m.body) senderStats[m.from].sample = safeGroupMessageSnippet(m.body);
     }
     const seenContactIds = new Set();
     for (const sid of Object.keys(senderStats)) {
@@ -1683,8 +1692,10 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
         senderStats[sid].name = r.name;
         if (r.contactId) seenContactIds.add(r.contactId);
     }
-    const unresolvedSenders = Object.values(senderStats)
-        .filter(s => s.kind === 'anon-lid' || (s.kind === 'phone' && s.id && s.id.endsWith('@lid')))
+    const unresolvedSenders = Object.entries(senderStats)
+        .map(([rawId, stats], index) => ({ ...stats, rawId, senderRef: `sender-${index + 1}` }))
+        .filter(s => s.kind === 'anon-lid' || (s.kind === 'phone' && s.rawId && s.rawId.endsWith('@lid')))
+        .map(({ rawId, ...safe }) => safe)
         .sort((a, b) => b.count - a.count);
     // Suggest roster members not already attributed to any sender — most likely
     // candidates for the @lid behind the messages.
@@ -1700,18 +1711,23 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
             const r = resolveFrom(m.from);
             return {
                 timestamp: m.timestamp,
-                from: m.from,
                 fromName: r.name,
                 fromContactId: r.contactId,
                 fromKind: r.kind,
-                body: m.body || '',
+                snippet: safeGroupMessageSnippet(m.body),
             };
         }),
         unresolvedSenders,
         suggestedContacts: candidateRoster,
         pinnedMessages: pinnedMessages.map(m => {
             const r = resolveFrom(m.from || m.author);
-            return { ...m, fromName: r.name, fromContactId: r.contactId, fromKind: r.kind };
+            return {
+                timestamp: m.timestamp,
+                fromName: r.name,
+                fromContactId: r.contactId,
+                fromKind: r.kind,
+                snippet: safeGroupMessageSnippet(m.body || m.text),
+            };
         }),
         rosterCount: membership?.size || 0,
         roster,
@@ -1786,8 +1802,8 @@ function buildWhatsappFromResolver(paths) {
                 return { name: 'Group member', contactId: null, kind: 'anon-lid' };
             }
             if (rawFrom.endsWith('@c.us')) {
-                const digits = rawFrom.split('@')[0];
-                return { name: formatPhoneNumber('+' + digits), contactId: null, kind: 'phone' };
+                const digits = rawFrom.split('@')[0].replace(/\D/g, '');
+                return { name: digits ? formatPhoneNumber('+' + digits) : 'Group member', contactId: null, kind: digits ? 'phone' : 'unknown' };
             }
             if (rawFrom.endsWith('@g.us')) {
                 // Should never reach the message-from path after the merge.js
