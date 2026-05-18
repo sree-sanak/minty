@@ -98,9 +98,9 @@ Prepare for an upcoming calendar meeting. Returns opaque event/contact refs, red
 
 - **Demo-ready:** `npm run seed:demo`, `npm run mcp`, and `npm run agent -- "investors in London"` work against synthetic data.
 - **Dogfood-ready:** `npm run memory:refresh` succeeds against real local data, `source_health` reports fresh/evidence-bearing sources, and outputs omit direct contact details.
-- **Hermes-native:** this skill is installed and the Minty MCP server is registered, so Hermes can call `search_network`, `person_context`, `workflow_brief`, `goal_next_actions`, `intro_paths`, `source_health`, and `meeting_prep` without shelling into the repo.
+- **Hermes-native:** dogfood-ready data plus this installed, in-sync skill and a registered Minty MCP server, so Hermes can call `search_network`, `person_context`, `workflow_brief`, `goal_next_actions`, `intro_paths`, `source_health`, and `meeting_prep` without shelling into the repo.
 
-Use `npm run hermes:doctor` to inspect readiness before claiming Minty is usable in a Hermes workflow. Use `npm run gbrain:export` only for privacy-safe durable-memory export, not raw contact/message dumps.
+Use `npm run hermes:doctor` to inspect `readiness.demo`, `readiness.dogfood`, and `readiness.hermesNative` before claiming Minty is usable in a Hermes workflow. Missing or stale installed skills must be treated as not Hermes-native even if the local data itself is ready. Use `npm run gbrain:export` only for privacy-safe durable-memory export, not raw contact/message dumps.
 
 ## Source health preflight
 

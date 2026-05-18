@@ -78,34 +78,35 @@ function extractSkillTools(content) {
  *
  * @returns {{ name: string, status: string, detail: string }}
  */
-function checkSkillDrift() {
-    const repoExists = fs.existsSync(REPO_SKILL_PATH);
+function checkSkillDrift(opts = {}) {
+    const repoSkillPath = opts.repoSkillPath || REPO_SKILL_PATH;
+    const installedSkillPath = opts.installedSkillPath || INSTALLED_SKILL_PATH;
+    const repoExists = fs.existsSync(repoSkillPath);
     if (!repoExists) {
         return { name: 'skill_drift', status: 'warn', detail: 'Repo skill not found — cannot check drift' };
     }
 
     let repoContent;
     try {
-        repoContent = fs.readFileSync(REPO_SKILL_PATH, 'utf8');
+        repoContent = fs.readFileSync(repoSkillPath, 'utf8');
     } catch {
         return { name: 'skill_drift', status: 'warn', detail: 'Repo skill unreadable' };
     }
 
     const repoTools = extractSkillTools(repoContent);
-    const installedExists = fs.existsSync(INSTALLED_SKILL_PATH);
+    const installedExists = fs.existsSync(installedSkillPath);
 
-    // Installed skill not present — not a failure, just informational
     if (!installedExists) {
         return {
             name: 'skill_drift',
-            status: 'pass',
-            detail: 'Installed skill not present — run "hermes skills install minty" to track drift',
+            status: 'warn',
+            detail: 'Installed skill not present. Update: hermes skills install minty-network-memory',
         };
     }
 
     let installedContent;
     try {
-        installedContent = fs.readFileSync(INSTALLED_SKILL_PATH, 'utf8');
+        installedContent = fs.readFileSync(installedSkillPath, 'utf8');
     } catch {
         return { name: 'skill_drift', status: 'warn', detail: 'Installed skill unreadable' };
     }
@@ -141,13 +142,16 @@ function checkSkillDrift() {
  * @returns {{ level, checks, toolNames, dataDir, dataKind, nextActions }}
  */
 function evaluateReadiness(opts = {}) {
-    const { dataDir, dataKind: kindOverride } = opts;
+    const { dataDir, dataKind: kindOverride, skillDrift: skillDriftOptions = {} } = opts;
     const toolNames = TOOLS.map(t => t.name);
+
+    const baseReadiness = { demo: false, dogfood: false, hermesNative: false };
 
     // No data directory at all
     if (!dataDir) {
         return {
             level: 'not-ready',
+            readiness: baseReadiness,
             checks: [{ name: 'dataDir', status: 'fail', detail: 'No data directory found' }],
             toolNames,
             dataDir: '(none)',
@@ -160,7 +164,7 @@ function evaluateReadiness(opts = {}) {
 
     const dataKind = kindOverride || 'user';
     const fileChecks = REQUIRED_FILES.map(spec => checkFile(dataDir, spec));
-    const skillDriftCheck = checkSkillDrift();
+    const skillDriftCheck = checkSkillDrift(skillDriftOptions);
     const checks = [...fileChecks, skillDriftCheck];
 
     const fails = checks.filter(c => c.status === 'fail');
@@ -185,8 +189,16 @@ function evaluateReadiness(opts = {}) {
         nextActions.push(`Update Hermes Minty skill: hermes skills install minty-network-memory`);
     }
 
+    const dataReady = level === 'ready';
+    const readiness = {
+        demo: dataReady && dataKind === 'demo',
+        dogfood: dataReady && dataKind !== 'demo',
+        hermesNative: dataReady && dataKind !== 'demo' && skillDriftCheck.status === 'pass',
+    };
+
     return {
         level,
+        readiness,
         checks,
         toolNames,
         dataDir: redactPath(dataDir),
