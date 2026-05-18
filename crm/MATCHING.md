@@ -71,17 +71,24 @@ For each candidate pair (one WhatsApp, one LinkedIn), reason over these signals:
 | Signal | Weight | Notes |
 |---|---|---|
 | Cleaned first name exact match | High | Case-insensitive |
-| Last name match (after cleaning) | High | Fuzzy ok — "Rivera" vs "Rivera 山田" |
+| Last name exact match (after cleaning) | High | Strong evidence |
+| Last name initial match | Low | Weak partial evidence, e.g. `Alex R` vs `Alex Rivera` |
+| Last name fuzzy match | Medium | Allowed only for distinctive surnames; short surnames and common first names stay conservative |
 | Phone country code matches LinkedIn location | Medium | +44 → UK, +91 → India, etc. |
 | LinkedIn company matches WhatsApp suffix | Medium | "Acme" in WA name + Acme on LinkedIn |
 | LinkedIn position matches context | Low | "Uni CS" → student at that uni → LinkedIn shows same uni |
 | First name is very common (Ali, James, Sara) | Negative | Lower confidence without corroborating signal |
 
 Classify each pair as:
-- `"confirmed"` — high confidence, merge automatically (≥2 strong signals)
-- `"likely"` — merge automatically but flag for review (1 strong + 1 medium)
-- `"possible"` — write to file but DO NOT auto-merge, needs human review
+- `"confirmed"` — high-confidence suggestion from multiple strong signals
+- `"likely"` — plausible suggestion with strong supporting evidence
+- `"possible"` — weak suggestion that needs human review
 - `"skip"` — clearly different people
+
+Generated cross-source candidates are suggestions only. `crm/match.js` writes them
+through `reviewOverrideFromMatch(...)`, which stores `confidence: "possible"` plus
+`suggestedConfidence` for reviewer context. Exact phone/email unification happens in
+`crm/merge.js`; fuzzy/name-based candidates must not auto-confirm identities.
 
 ---
 
@@ -92,7 +99,8 @@ Write matches to `data/unified/match_overrides.json`:
 ```json
 [
   {
-    "confidence": "confirmed",
+    "confidence": "possible",
+    "suggestedConfidence": "confirmed",
     "ids": ["c_0042", "c_1837"],
     "reason": "First name 'Alex' matches after stripping Uni CS suffix; phone country code matches LinkedIn location; company on LinkedIn matches engineering context",
     "sources_linked": ["whatsapp", "linkedin"]
@@ -140,7 +148,7 @@ After adding Telegram or Email:
 1. Run the relevant importer (`npm run telegram` / `npm run email`)
 2. Run `node crm/merge.js` to get fresh unified contacts
 3. Re-run this matching process for the new source vs existing sources
-4. Append new matches to `match_overrides.json` (don't overwrite — existing matches stay)
+4. Append new matches to `match_overrides.json` for review (don't overwrite — existing matches stay)
 
 ---
 
@@ -153,8 +161,8 @@ Claude Code will:
 1. Read the unified contacts
 2. Block by first name
 3. Reason over candidates
-4. Write/update `data/unified/match_overrides.json`
-5. Run `node crm/merge.js`
+4. Write/update `data/unified/match_overrides.json` with review-required suggestions
+5. Run `node crm/merge.js` only after the user has reviewed/confirmed any real-data overrides
 
 ---
 

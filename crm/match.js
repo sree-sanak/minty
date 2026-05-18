@@ -95,7 +95,7 @@ function cleanWaName(name) {
         if (
             INSTITUTION_ABBREVS.has(last) ||
             RELATION_WORDS.has(last) ||
-            (original === original.toUpperCase() && original.length <= 6 && /^[A-Z0-9]+$/.test(original))
+            (original === original.toUpperCase() && original.length > 1 && original.length <= 6 && /^[A-Z0-9]+$/.test(original))
         ) {
             kept.pop();
         } else {
@@ -159,9 +159,29 @@ function lev(a, b) {
 function fuzzyMatch(a, b) {
     if (!a || !b) return false;
     if (a === b) return true;
+    const minLen = Math.min(a.length, b.length);
+    if (minLen < 5) return false;
     const dist = lev(a, b);
     const maxLen = Math.max(a.length, b.length);
     return dist <= Math.max(1, Math.floor(maxLen * 0.2));
+}
+
+function scoreLastNameEvidence(lastA, lastB) {
+    if (!lastA || !lastB) return { score: 0, reasons: [], fuzzy: false };
+    if (lastA === lastB) return { score: 40, reasons: [`Last name exact: '${lastA}'`], fuzzy: false };
+    if (lastA.length === 1 && lastB.startsWith(lastA)) {
+        return { score: 10, reasons: [`Last name initial matches: '${lastA}' -> '${lastB}'`], fuzzy: false };
+    }
+    if (lastB.length === 1 && lastA.startsWith(lastB)) {
+        return { score: 10, reasons: [`Last name initial matches: '${lastB}' -> '${lastA}'`], fuzzy: false };
+    }
+    if (lev(lastA, lastB) <= 1 && Math.min(lastA.length, lastB.length) < 5) {
+        return { score: 0, reasons: [`Short last name fuzzy ignored: '${lastA}' vs '${lastB}'`], fuzzy: false };
+    }
+    if (fuzzyMatch(lastA, lastB)) {
+        return { score: 30, reasons: [`Last name fuzzy: '${lastA}' ~ '${lastB}'`], fuzzy: true };
+    }
+    return { score: -20, reasons: [`Last name mismatch: '${lastA}' vs '${lastB}'`], fuzzy: false };
 }
 
 function inferCountryFromPhone(phone) {
@@ -248,18 +268,13 @@ function scoreGenericPair(contactA, srcA, contactB, srcB) {
     // --- Last name match ---
     const lastA = cleanA.lastName;
     const lastB = cleanB.lastName;
+    let fuzzyLastName = false;
 
     if (lastA && lastB) {
-        if (lastA === lastB) {
-            reasons.push(`Last name exact: '${lastA}'`);
-            score += 40;
-        } else if (fuzzyMatch(lastA, lastB)) {
-            reasons.push(`Last name fuzzy: '${lastA}' ~ '${lastB}'`);
-            score += 30;
-        } else {
-            reasons.push(`Last name mismatch: '${lastA}' vs '${lastB}'`);
-            score -= 20;
-        }
+        const lastEvidence = scoreLastNameEvidence(lastA, lastB);
+        reasons.push(...lastEvidence.reasons);
+        score += lastEvidence.score;
+        fuzzyLastName = lastEvidence.fuzzy;
     } else if (lastA && !lastB) {
         score -= 5;
     }
@@ -321,6 +336,10 @@ function scoreGenericPair(contactA, srcA, contactB, srcB) {
 
     // --- Common name penalty ---
     if (firstA && COMMON_NAMES.has(firstA)) {
+        if (fuzzyLastName) {
+            reasons.push(`Common first name '${firstA}' requires corroboration for fuzzy last name`);
+            score -= 15;
+        }
         reasons.push(`Common first name '${firstA}' — lower confidence without corroboration`);
         score -= 15;
     }
