@@ -239,17 +239,19 @@ test('GET /api/meta and /api/settings do not expose absolute local data paths', 
     });
 });
 
-test('GET /api/groups/:chatId redacts message bodies and raw sender source IDs', async () => {
+test('GET /api/groups and /api/groups/:chatId use a strict privacy envelope', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'minty-group-detail-safe-'));
     const rawSender = 'raw-sender-5550101@c.us';
     const rawLid = 'raw-lid-5550102@lid';
     const rawEmail = 'group-detail-private@example.com';
     const rawPhone = '+1 415 555 0199';
-    const rawBody = `please email ${rawEmail} or call ${rawPhone} about the role`;
+    const phoneLikeContactName = '+1 206 555 0101';
+    const rawUrl = 'https://private.example.com/secret-path';
+    const rawBody = `please email ${rawEmail} or call ${rawPhone} about the role ${rawUrl}`;
     const groupId = 'synthetic-group-privacy@g.us';
     seedDataDir(dir, [
         {
-            id: 'group-msg-1',
+            id: 'group-msg-1-private-id',
             source: 'whatsapp',
             chatId: groupId,
             chatName: 'Synthetic privacy group',
@@ -258,7 +260,7 @@ test('GET /api/groups/:chatId redacts message bodies and raw sender source IDs',
             timestamp: '2026-05-16T12:00:00.000Z',
         },
         {
-            id: 'group-msg-2',
+            id: 'group-msg-2-private-id',
             source: 'whatsapp',
             chatId: groupId,
             chatName: 'Synthetic privacy group',
@@ -267,21 +269,61 @@ test('GET /api/groups/:chatId redacts message bodies and raw sender source IDs',
             timestamp: '2026-05-16T12:01:00.000Z',
         },
     ]);
+    const contactsPath = path.join(dir, 'unified/contacts.json');
+    const contacts = JSON.parse(fs.readFileSync(contactsPath, 'utf8'));
+    contacts.push({
+        id: 'wa_phone_like_private_name',
+        name: phoneLikeContactName,
+        phones: [],
+        emails: [],
+        sources: { whatsapp: { id: rawSender } },
+        relationshipScore: 1,
+        isGroup: false,
+    });
+    writeJson(contactsPath, contacts);
+    writeJson(path.join(dir, 'unified/group-memberships.json'), {
+        [groupId]: {
+            name: 'Synthetic privacy group',
+            size: 1,
+            members: ['wa_phone_like_private_name'],
+        },
+    });
 
     await withServer(dir, async (base) => {
-        const res = await fetch(`${base}/api/groups/${encodeURIComponent(groupId)}`);
+        const listRes = await fetch(`${base}/api/groups`);
+        assert.equal(listRes.status, 200);
+        const listPayload = await listRes.json();
+        const group = listPayload.groups.find(g => g.name === 'Synthetic privacy group');
+        assert.ok(group, 'seeded group should appear in group list');
+        assert.match(group.groupRef, /^group:[a-f0-9]{12}$/);
+        assert.equal(group.chatId, undefined, 'group list should not expose raw chat id');
+        assert.equal(group.lastSnippet, 'Message content omitted for privacy');
+
+        const listText = JSON.stringify(listPayload);
+        for (const sentinel of [groupId, '@g.us', rawSender, rawLid, '@c.us', '@lid', rawEmail, rawPhone, phoneLikeContactName, rawUrl, 'group-detail-lid-secret']) {
+            assert.equal(listText.includes(sentinel), false, `group list leaked ${sentinel}`);
+        }
+
+        const res = await fetch(`${base}/api/groups/${encodeURIComponent(group.groupRef)}`);
         assert.equal(res.status, 200);
         const payload = await res.json();
         const serialized = JSON.stringify(payload);
 
-        assert.equal(serialized.includes(rawSender), false, 'response leaked raw WhatsApp sender id');
-        assert.equal(serialized.includes(rawLid), false, 'response leaked raw WhatsApp lid sender id');
-        assert.equal(serialized.includes(rawEmail), false, 'response leaked raw email from message body');
-        assert.equal(serialized.includes(rawPhone), false, 'response leaked raw phone from message body');
-        assert.equal(serialized.includes('group-detail-lid-secret'), false, 'response leaked raw anonymous message body');
+        for (const sentinel of [groupId, '@g.us', rawSender, rawLid, '@c.us', '@lid', rawEmail, rawPhone, phoneLikeContactName, rawUrl, 'group-detail-lid-secret', 'group-msg-1-private-id']) {
+            assert.equal(serialized.includes(sentinel), false, `group detail leaked ${sentinel}`);
+        }
+        assert.match(payload.groupRef, /^group:[a-f0-9]{12}$/);
+        assert.equal(payload.chatId, undefined, 'detail envelope should not expose raw chat id');
+        assert.equal(payload.owner, undefined, 'detail envelope should omit owner metadata');
+        assert.equal(payload.description, undefined, 'detail envelope should omit group description');
         assert.equal(payload.messages[0].from, undefined, 'message envelope should not expose raw from');
         assert.equal(payload.messages[0].body, undefined, 'message envelope should not expose raw body');
-        assert.equal(typeof payload.messages[0].snippet, 'string');
+        assert.equal(payload.messages[0].fromContactId, undefined, 'message envelope should not expose raw contact id');
+        assert.match(payload.messages[0].senderRef, /^sender:[a-f0-9]{12}$/);
+        assert.equal(payload.messages[0].snippet, 'Message content omitted for privacy');
+        assert.equal(payload.signals.urls[0].url, undefined, 'signals should not expose raw URLs');
+        assert.equal(payload.signals.urls[0].snippet, undefined, 'signals should not expose body-derived snippets');
+        assert.equal(payload.signals.urls[0].detail, 'Link shared in group conversation');
     });
 });
 
