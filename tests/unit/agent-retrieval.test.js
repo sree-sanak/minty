@@ -223,6 +223,35 @@ describe('agent-retrieval: queryNetwork()', () => {
         assert.equal(out.diagnostics.contactEvidenceContacts, 0);
     });
 
+    it('does not return nameless contacts as actionable agent results', () => {
+        const contacts = [
+            {
+                id: 'c_named', name: 'Nadia London',
+                sources: { linkedin: { location: 'London, UK', position: 'Founder', company: 'Nadia Labs' } },
+                relationshipScore: 12, daysSinceContact: 120, interactionCount: 1, activeChannels: ['linkedin'],
+                emails: [], phones: [],
+            },
+            {
+                id: 'c_blank', name: '',
+                sources: { linkedin: { location: 'London, UK' } },
+                relationshipScore: 95, daysSinceContact: 1, interactionCount: 40, activeChannels: ['linkedin'],
+                emails: [], phones: [],
+            },
+            {
+                id: 'c_redacted_name', name: 'private@example.com',
+                sources: { linkedin: { location: 'London, UK' } },
+                relationshipScore: 90, daysSinceContact: 2, interactionCount: 20, activeChannels: ['linkedin'],
+                emails: [], phones: [],
+            },
+        ];
+
+        const out = queryNetwork('London founders to meet', { contacts, limit: 10 });
+
+        assert.deepEqual(out.results.map(r => r.name), ['Nadia London']);
+        assert.equal(JSON.stringify(out).includes('(no name)'), false);
+        assert.equal(out.diagnostics.contactsConsidered, 1);
+    });
+
     it('uses privacy-safe interaction evidence from non-LinkedIn sources', () => {
         const contacts = [
             {

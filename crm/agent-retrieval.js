@@ -16,7 +16,7 @@ const { scoreContactForGoal } = require('./utils');
 const { matchContactEvidence } = require('./contact-evidence');
 const { buildSourceEvents, summarizeSourceCoverage, safeContactRef } = require('./source-events');
 const { buildHybridIndex, queryHybridIndex } = require('./hybrid-index');
-const { redactDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail } = require('./privacy-envelope');
+const { redactDirectContactDetails, stripDirectContactDetails, agentSafetyEnvelope, safeEvidenceDetail } = require('./privacy-envelope');
 const { buildAgentSourceHealth, buildSourceAnswerability } = require('./agent-source-health');
 
 // ---------------------------------------------------------------------------
@@ -468,8 +468,15 @@ function normalizeSourceFilter(opts) {
     return { sources: [...sources].sort(), invalid: [...invalid].sort() };
 }
 
+function hasSafeDisplayName(c) {
+    const name = typeof c.name === 'string' ? c.name.trim() : '';
+    if (!name) return false;
+    return !!stripDirectContactDetails(name).trim();
+}
+
 function isPersonContactRow(c) {
     if (!c || typeof c !== 'object' || Array.isArray(c) || c.isGroup || c.isChannel || c.isBroadcast || c.isList || c.isMailingList) return false;
+    if (!hasSafeDisplayName(c)) return false;
     const type = String(c.type || c.kind || c.contactType || c.threadType || '').toLowerCase();
     return !['group', 'channel', 'broadcast', 'list', 'mailing_list', 'mailing-list', 'distribution_list', 'distribution-list'].includes(type);
 }
