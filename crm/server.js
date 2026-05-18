@@ -1408,6 +1408,27 @@ function extractGroupSignals(messages) {
     return { urls, hiring, events, intros };
 }
 
+const OPAQUE_REF_KEY = crypto.randomBytes(32);
+
+function shortHash(value) {
+    return crypto.createHmac('sha256', OPAQUE_REF_KEY).update(String(value)).digest('hex').slice(0, 12);
+}
+
+function opaqueGroupRef(value) {
+    if (!value) return null;
+    return `group:${shortHash(value)}`;
+}
+
+function opaqueSenderRef(value) {
+    if (!value) return null;
+    return `sender:${shortHash(value)}`;
+}
+
+function opaqueContactRef(value) {
+    if (!value) return null;
+    return `contact:${shortHash(value)}`;
+}
+
 function safeGroupMessageSnippet(body) {
     if (!body) return '';
     return 'Message content omitted for privacy';
@@ -1415,6 +1436,53 @@ function safeGroupMessageSnippet(body) {
 
 function safeGroupSignalSnippet(label) {
     return label;
+}
+
+function isPhoneLikeDisplayName(value) {
+    if (!value || typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    const digits = trimmed.replace(/\D/g, '');
+    return trimmed.startsWith('+') || digits.length >= 7;
+}
+
+function safeGroupDisplayName(resolved) {
+    if (!resolved || resolved.kind === 'phone' || resolved.kind === 'raw') return 'Group member';
+    if (isPhoneLikeDisplayName(resolved.name)) return 'Group member';
+    return resolved.name || 'Group member';
+}
+
+function safeGroupSignalRows(signals) {
+    const generic = detail => item => ({ timestamp: item.timestamp || null, detail });
+    return {
+        urls: (signals.urls || []).map(generic('Link shared in group conversation')),
+        hiring: (signals.hiring || []).map(generic('Hiring signal detected')),
+        events: (signals.events || []).map(generic('Event signal detected')),
+        intros: (signals.intros || []).map(generic('Introduction signal detected')),
+    };
+}
+
+function safeGroupRosterRow(contact) {
+    if (!contact) return null;
+    return {
+        memberRef: opaqueContactRef(contact.id),
+        name: safeGroupDisplayName({ name: contact.name, kind: contact.name ? 'named' : 'unknown' }),
+        position: contact.sources?.linkedin?.position || contact.sources?.googleContacts?.title || null,
+        company: contact.sources?.linkedin?.company || contact.sources?.googleContacts?.org || null,
+        relationshipScore: contact.relationshipScore || 0,
+    };
+}
+
+function safeGroupMessageRow(message, resolveFrom) {
+    const rawSender = message.from || message.author;
+    const resolved = resolveFrom(rawSender);
+    return {
+        timestamp: message.timestamp || null,
+        senderRef: opaqueSenderRef(rawSender || message.id),
+        fromName: safeGroupDisplayName(resolved),
+        fromKind: resolved.kind,
+        fromContactRef: opaqueContactRef(resolved.contactId),
+        snippet: safeGroupMessageSnippet(message.body || message.text || message.message),
+    };
 }
 
 function loadGroupMemberships() {
@@ -1431,17 +1499,16 @@ function handleGetGroups(req, res, params, paths, uuid) {
     for (const [chatId, g] of Object.entries(memberships)) {
         if (!chatId.endsWith('@g.us')) continue;
         groupMap[chatId] = {
-            chatId,
-            name: g.name || chatId,
+            rawChatId: chatId,
+            groupRef: opaqueGroupRef(chatId),
+            name: g.name || 'Group conversation',
             messageCount: 0,
             lastMessageAt: null,
             lastSnippet: '',
             rosterCount: g.size || 0,
             posterCount: 0,
             category: inferGroupCategory(g.name || chatId),
-            owner: g.owner || null,
             createdAt: g.createdAt || null,
-            labels: g.labels || [],
         };
     }
 
@@ -1452,22 +1519,35 @@ function handleGetGroups(req, res, params, paths, uuid) {
         const name = sorted[0]?.chatName || chatId;
         const posters = new Set(msgs.map(m => m.from).filter(Boolean));
         const existing = groupMap[chatId] || {
-            chatId, name, rosterCount: 0, posterCount: 0,
-            category: inferGroupCategory(name), owner: null, createdAt: null, labels: [],
+            rawChatId: chatId,
+            groupRef: opaqueGroupRef(chatId),
+            name,
+            rosterCount: 0,
+            posterCount: 0,
+            category: inferGroupCategory(name),
+            createdAt: null,
         };
         groupMap[chatId] = {
             ...existing,
             name: existing.name || name,
             messageCount: msgs.length,
             lastMessageAt: sorted[0]?.timestamp || null,
-            lastSnippet: (sorted[0]?.body || '').slice(0, 100),
+            lastSnippet: safeGroupMessageSnippet(sorted[0]?.body),
             posterCount: posters.size,
         };
     }
 
     // Back-compat: keep participantCount as the higher of roster/poster counts.
     const groups = Object.values(groupMap).map(g => ({
-        ...g,
+        groupRef: g.groupRef,
+        name: g.name,
+        messageCount: g.messageCount || 0,
+        lastMessageAt: g.lastMessageAt || null,
+        lastSnippet: g.lastSnippet || '',
+        rosterCount: g.rosterCount || 0,
+        posterCount: g.posterCount || 0,
+        category: g.category,
+        createdAt: g.createdAt || null,
         participantCount: Math.max(g.rosterCount || 0, g.posterCount || 0),
     })).sort((a, b) => {
         if (!a.lastMessageAt && !b.lastMessageAt) {
@@ -1653,10 +1733,28 @@ async function handleSaveLidMap(req, res, _params, paths) {
     json(res, { ok: true, added, removed, totalMappings: Object.keys(current).length });
 }
 
-function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
+function resolveGroupChatId(ref, idx, memberships, rawChats) {
+    if (!ref) return ref;
+    if (String(ref).endsWith('@g.us')) return ref;
+    const candidates = new Set([
+        ...Object.keys(idx.byChatId || {}),
+        ...Object.keys(memberships || {}),
+    ]);
+    for (const entry of Object.values(rawChats || {})) {
+        if (entry?.meta?.id) candidates.add(entry.meta.id);
+    }
+    for (const candidate of candidates) {
+        if (opaqueGroupRef(candidate) === ref) return candidate;
+    }
+    return ref;
+}
+
+function handleGetGroupDetail(req, res, [chatIdParam], paths, uuid) {
     const idx = getInteractionIndex(paths, uuid);
-    const msgs = idx.byChatId[chatId] || [];
     const rawChats = loadWhatsAppChatsRaw();
+    const memberships = loadGroupMemberships();
+    const chatId = resolveGroupChatId(chatIdParam, idx, memberships, rawChats);
+    const msgs = idx.byChatId[chatId] || [];
 
     // Find the raw chat entry (keyed by name in chats.json) whose meta.id matches.
     let rawChatEntry = null;
@@ -1664,7 +1762,6 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
         if (entry?.meta?.id === chatId) { rawChatEntry = entry; break; }
     }
 
-    const memberships = loadGroupMemberships();
     const membership = memberships[chatId] || null;
 
     // If there are no messages AND no roster record, treat as not found.
@@ -1673,9 +1770,9 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
     }
 
     const sorted = [...msgs].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    const name = sorted[0]?.chatName || rawChatEntry?.meta?.name || membership?.name || chatId;
+    const name = sorted[0]?.chatName || rawChatEntry?.meta?.name || membership?.name || 'Group conversation';
     const category = inferGroupCategory(name);
-    const signals = extractGroupSignals(sorted);
+    const signals = safeGroupSignalRows(extractGroupSignals(sorted));
     const pinnedMessages = rawChatEntry?.meta?.pinnedMessages || [];
 
     // Resolve `from` (WA ids like 12847989915@c.us) to contact display name
@@ -1685,18 +1782,10 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
     // Roster: hydrate member contact ids → name + role for the participant list.
     const contacts = loadContacts(paths);
     const byContactId = new Map(contacts.map(c => [c.id, c]));
-    const roster = (membership?.members || []).map(cid => {
-        const c = byContactId.get(cid);
-        if (!c) return null;
-        return {
-            id: c.id,
-            name: c.name || formatPhoneFallback(c) || '(unknown)',
-            phones: c.phones || [],
-            position: c.sources?.linkedin?.position || c.sources?.googleContacts?.title || null,
-            company: c.sources?.linkedin?.company || c.sources?.googleContacts?.org || null,
-            relationshipScore: c.relationshipScore || 0,
-        };
-    }).filter(Boolean);
+    const rawRosterContacts = (membership?.members || [])
+        .map(cid => byContactId.get(cid))
+        .filter(Boolean);
+    const roster = rawRosterContacts.map(safeGroupRosterRow).filter(Boolean);
 
     // Aggregate unresolved @lid senders so the UI can offer a labelling
     // affordance. For each anon-lid id we surface message count + a sample
@@ -1717,47 +1806,34 @@ function handleGetGroupDetail(req, res, [chatId], paths, uuid) {
         if (r.contactId) seenContactIds.add(r.contactId);
     }
     const unresolvedSenders = Object.entries(senderStats)
-        .map(([rawId, stats], index) => ({ ...stats, rawId, senderRef: `sender-${index + 1}` }))
-        .filter(s => s.kind === 'anon-lid' || (s.kind === 'phone' && s.rawId && s.rawId.endsWith('@lid')))
-        .map(({ rawId, ...safe }) => safe)
+        .map(([rawId, stats]) => ({
+            senderRef: opaqueSenderRef(rawId),
+            count: stats.count || 0,
+            name: safeGroupDisplayName(stats),
+            kind: stats.kind === 'contact' ? 'known' : 'unknown',
+            sample: stats.sample || '',
+        }))
+        .filter(s => s.kind === 'unknown')
         .sort((a, b) => b.count - a.count);
-    // Suggest roster members not already attributed to any sender — most likely
-    // candidates for the @lid behind the messages.
-    const candidateRoster = roster.filter(r => !seenContactIds.has(r.id));
+    // Suggest roster members not already attributed to any sender without exposing raw contact ids.
+    const candidateRoster = rawRosterContacts
+        .filter(c => !seenContactIds.has(c.id))
+        .map(safeGroupRosterRow)
+        .filter(Boolean);
 
     json(res, {
-        chatId,
+        groupRef: opaqueGroupRef(chatId),
         name,
         category,
         messageCount: msgs.length,
         lastMessageAt: sorted[0]?.timestamp || null,
-        messages: sorted.slice(0, 50).map(m => {
-            const r = resolveFrom(m.from);
-            return {
-                timestamp: m.timestamp,
-                fromName: r.name,
-                fromContactId: r.contactId,
-                fromKind: r.kind,
-                snippet: safeGroupMessageSnippet(m.body),
-            };
-        }),
+        messages: sorted.slice(0, 50).map(m => safeGroupMessageRow(m, resolveFrom)),
         unresolvedSenders,
         suggestedContacts: candidateRoster,
-        pinnedMessages: pinnedMessages.map(m => {
-            const r = resolveFrom(m.from || m.author);
-            return {
-                timestamp: m.timestamp,
-                fromName: r.name,
-                fromContactId: r.contactId,
-                fromKind: r.kind,
-                snippet: safeGroupMessageSnippet(m.body || m.text),
-            };
-        }),
-        rosterCount: membership?.size || 0,
+        pinnedMessages: pinnedMessages.map(m => safeGroupMessageRow(m, resolveFrom)),
+        rosterCount: membership?.size || roster.length,
         roster,
-        owner: membership?.owner || rawChatEntry?.meta?.owner || null,
         createdAt: membership?.createdAt || rawChatEntry?.meta?.createdAt || null,
-        description: membership?.description || rawChatEntry?.meta?.description || null,
         signals,
     });
 }

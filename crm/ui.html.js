@@ -3685,7 +3685,8 @@ function renderGroupsList(groups) {
   el.innerHTML = groups.map(g => {
     const lastAt = g.lastMessageAt ? new Date(g.lastMessageAt).toLocaleDateString('en-GB', { day:'numeric', month:'short' }) : '—';
     const catCls = catColors[g.category] || 'cat-other';
-    return \`<div class="group-item" id="gi-\${esc(g.chatId)}" onclick="loadGroupDetail('\${esc(g.chatId)}')">
+    const groupRef = g.groupRef || g.chatId;
+    return \`<div class="group-item" id="gi-\${esc(groupRef)}" onclick="loadGroupDetail('\${jsAttr(groupRef)}')">
       <div class="group-item-top">
         <span class="group-name">\${esc(g.name)}</span>
         <span class="group-cat \${catCls}">\${esc(g.category)}</span>
@@ -3745,13 +3746,11 @@ async function loadGroupDetail(chatId) {
     const t = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' }) : '';
     // Server-resolved fromName keeps raw sender identifiers out of the browser payload.
     const display = m.fromName || 'Group member';
-    const safeSnippet = m.snippet || m.body || '';
-    const clickable = m.fromContactId
-      ? \`<span class="group-msg-from group-msg-from-link" onclick="event.stopPropagation();openContact('\${jsAttr(m.fromContactId)}')">\${esc(display)}</span>\`
-      : \`<span class="group-msg-from">\${esc(display)}</span>\`;
+    const safeSnippet = m.snippet || '';
+    const senderRef = m.senderRef ? \` <span style="color:var(--text-muted);font-weight:400">\${esc(m.senderRef)}</span>\` : '';
     return \`<div class="group-msg">
       <div class="group-msg-meta">
-        \${clickable}
+        <span class="group-msg-from">\${esc(display)}\${senderRef}</span>
         <span>\${d} \${t}</span>
       </div>
       <div class="group-msg-body">\${esc(safeSnippet)}</div>
@@ -3771,17 +3770,17 @@ async function loadGroupDetail(chatId) {
   const urlSection = sig.urls.length ? \`<div class="signal-section">
     <div class="signal-title">🔗 Links <span style="color:#374151">\${sig.urls.length}</span></div>
     \${sig.urls.map(u => \`<div class="signal-item">
-      <a href="\${esc(u.url)}" target="_blank">\${esc(u.url.replace(/^https?:\\/\\//, '').slice(0, 50))}</a>
+      \${esc(u.detail || 'Link shared in group conversation')}
       <span class="signal-date">\${fmtDate(u.timestamp)}</span>
     </div>\`).join('')}
   </div>\` : '';
 
   const hiringSection = sigSection('Hiring signals', '💼', sig.hiring, h =>
-    \`<div class="signal-item">\${esc(h.snippet)}<span class="signal-date">\${fmtDate(h.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(h.detail || 'Hiring signal detected')}<span class="signal-date">\${fmtDate(h.timestamp)}</span></div>\`);
   const eventSection = sigSection('Events', '📅', sig.events, e =>
-    \`<div class="signal-item">\${esc(e.snippet)}<span class="signal-date">\${fmtDate(e.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(e.detail || 'Event signal detected')}<span class="signal-date">\${fmtDate(e.timestamp)}</span></div>\`);
   const introSection = sigSection('Intros', '🤝', sig.intros, i =>
-    \`<div class="signal-item">\${esc(i.snippet)}<span class="signal-date">\${fmtDate(i.timestamp)}</span></div>\`);
+    \`<div class="signal-item">\${esc(i.detail || 'Introduction signal detected')}<span class="signal-date">\${fmtDate(i.timestamp)}</span></div>\`);
 
   const noSignals = !sig.urls.length && !sig.hiring.length && !sig.events.length && !sig.intros.length;
 
@@ -3805,9 +3804,7 @@ async function loadGroupDetail(chatId) {
   if (g.messageCount) metaHeaderParts.push(\`\${g.messageCount} messages\`);
   if (lastAt !== '—') metaHeaderParts.push(\`Last active \${lastAt}\`);
   const metaHeader = metaHeaderParts.join(' · ');
-  const descHtml = g.description
-    ? \`<p style="color:var(--text-muted);font-size:0.82rem;margin-top:4px;font-style:italic">"\${esc(g.description.slice(0, 200))}"</p>\`
-    : '';
+  const descHtml = '';
   const createdStr = g.createdAt
     ? \` · Created \${new Date(g.createdAt).toLocaleDateString('en-GB', { month:'short', year:'numeric' })}\`
     : '';
@@ -3830,16 +3827,14 @@ async function loadGroupDetail(chatId) {
     \${unresolved.length > 12 ? '<div class="lid-label-more">+ ' + (unresolved.length - 12) + ' more — top 12 shown.</div>' : ''}
   </div>\` : '';
 
-  // Roster — show known members as clickable chips, anonymous LIDs as a count
+  // Roster — show safe known-member labels without raw contact ids or click-throughs.
   const roster = g.roster || [];
-  const namedMembers = roster.filter(r => r.name && !/^\\+/.test(r.name) && r.name !== '(unknown)');
-  const phoneOnly = roster.filter(r => r.name && /^\\+/.test(r.name));
-  const anonCount = (g.rosterCount || roster.length) - namedMembers.length - phoneOnly.length;
+  const namedMembers = roster.filter(r => r.name && r.name !== 'Group member');
+  const anonCount = Math.max(0, (g.rosterCount || roster.length) - namedMembers.length);
   const rosterHtml = roster.length ? \`<div class="group-roster">
     <div class="group-roster-title">Roster — \${g.rosterCount || roster.length} member\${(g.rosterCount || roster.length) === 1 ? '' : 's'}</div>
-    \${namedMembers.slice(0, 60).map(r => \`<span class="group-roster-chip" onclick="openContact('\${jsAttr(r.id)}')">\${esc(r.name)}\${r.company ? ' · ' + esc(r.company) : ''}</span>\`).join('')}
-    \${phoneOnly.slice(0, 20).map(r => \`<span class="group-roster-chip" onclick="openContact('\${jsAttr(r.id)}')">\${esc(r.name)}</span>\`).join('')}
-    \${anonCount > 0 ? \`<span class="group-roster-chip group-roster-chip-anon">+\${anonCount} anonymous</span>\` : ''}
+    \${namedMembers.slice(0, 60).map(r => \`<span class="group-roster-chip">\${esc(r.name)}\${r.company ? ' · ' + esc(r.company) : ''}</span>\`).join('')}
+    \${anonCount > 0 ? \`<span class="group-roster-chip group-roster-chip-anon">+\${anonCount} private member\${anonCount === 1 ? '' : 's'}</span>\` : ''}
   </div>\` : '';
 
   detail.innerHTML = \`
