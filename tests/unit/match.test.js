@@ -201,9 +201,14 @@ test('fuzzyMatch: null input → false', () => {
     assert.equal(fuzzyMatch(null, 'alice'), false);
 });
 
-test('fuzzyMatch: short strings with 1 diff → true', () => {
-    // "sam" vs "sim" — dist 1, max 3, threshold max(1, floor(0.6))=1
-    assert.equal(fuzzyMatch('sam', 'sim'), true);
+test('fuzzyMatch: short first names with one edit are too risky', () => {
+    assert.equal(fuzzyMatch('sam', 'sim'), false);
+    assert.equal(fuzzyMatch('tom', 'tim'), false);
+});
+
+test('fuzzyMatch: longer one-edit names can still match', () => {
+    assert.equal(fuzzyMatch('alexander', 'alexender'), true);
+    assert.equal(fuzzyMatch('jonathan', 'johnathan'), true);
 });
 
 test('fuzzyMatch: short strings with 2 diff → false', () => {
@@ -630,6 +635,14 @@ test('scoreGenericPair: fuzzy nickname match (firstA ~ nickB)', () => {
     assert.ok(r.reasons.some(r => r.includes('fuzzy-matches nickname')));
 });
 
+test('scoreGenericPair: short nickname typo is not enough for a candidate', () => {
+    const wa = waContact('Jim');
+    const li = liContact('Robert (Tim) Patel');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.equal(r.confidence, 'skip');
+    assert.equal(r.score, 0);
+});
+
 // ---------------------------------------------------------------------------
 // scoreGenericPair — lastA present, lastB missing
 // ---------------------------------------------------------------------------
@@ -697,13 +710,34 @@ test('scoreGenericPair: likely confidence for exact common first + fuzzy last', 
     const wa = waContact('James Smyth');
     const li = liContact('James Smith');
     const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
-    assert.equal(r.confidence, 'likely');
-    assert.equal(r.score, 55);
+    assert.equal(r.confidence, 'possible');
+    assert.equal(r.score, 40);
     assert.deepEqual(r.reasons, [
         "First name exact: 'james'",
         "Last name fuzzy: 'smyth' ~ 'smith'",
+        "Common first name 'james' requires corroboration for fuzzy last name",
         "Common first name 'james' — lower confidence without corroboration",
     ]);
+});
+
+test('scoreGenericPair: last-name initial is weak evidence, not full fuzzy evidence', () => {
+    const wa = waContact('Alex R');
+    const li = liContact('Alex Rivera');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.ok(r.reasons.some(reason => reason.includes("Last name initial matches: 'r' -> 'rivera'")));
+    assert.equal(r.reasons.some(reason => reason.includes('Last name fuzzy')), false);
+    assert.equal(r.score, 35);
+    assert.equal(r.confidence, 'possible');
+});
+
+test('scoreGenericPair: short last-name fuzzy is ignored with an explanation', () => {
+    const wa = waContact('Sam Rao');
+    const li = liContact('Sam Rau');
+    const r = scoreGenericPair(wa, 'whatsapp', li, 'linkedin');
+    assert.ok(r.reasons.some(reason => reason.includes("Short last name fuzzy ignored: 'rao' vs 'rau'")));
+    assert.equal(r.reasons.some(reason => reason.includes('Last name fuzzy')), false);
+    assert.equal(r.score, 25);
+    assert.equal(r.confidence, 'possible');
 });
 
 // ---------------------------------------------------------------------------
