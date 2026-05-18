@@ -37,6 +37,7 @@ function run() {
     // Human output
     const label = LEVEL_LABELS[result.level] || result.level;
     console.log(`Hermes readiness: ${label}  (data: ${result.dataKind})`);
+    console.log(`Readiness levels: demo=${result.readiness.demo ? 'ready' : 'not-ready'}; dogfood=${result.readiness.dogfood ? 'ready' : 'not-ready'}; hermes-native=${result.readiness.hermesNative ? 'ready' : 'not-ready'}`);
     console.log('');
     for (const c of result.checks) {
         const icon = c.status === 'pass' ? '  ✓' : c.status === 'warn' ? '  ⚠' : '  ✗';

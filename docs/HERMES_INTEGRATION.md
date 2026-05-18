@@ -62,11 +62,11 @@ Before telling an agent that Minty is ready, run:
 npm run hermes:doctor
 ```
 
-Interpret readiness at three levels:
+Interpret readiness at three levels. In JSON output these are exposed as `readiness.demo`, `readiness.dogfood`, and `readiness.hermesNative`, so agents do not confuse data readiness with Hermes-native readiness.
 
 - **Demo-ready:** demo fixtures plus `npm run mcp` / `npm run agent` return plausible source-backed results.
 - **Dogfood-ready:** real local data is refreshed with `npm run memory:refresh`, source health is fresh/evidence-bearing, and outputs omit direct contact details.
-- **Hermes-native:** the MCP server is registered and the `minty-network-memory` skill is installed so Hermes can call tools directly.
+- **Hermes-native:** dogfood-ready data plus an installed, in-sync `minty-network-memory` skill so Hermes can call tools directly.
 
 ### Test the MCP server directly
 

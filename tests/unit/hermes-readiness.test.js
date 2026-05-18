@@ -24,6 +24,16 @@ function seedUnified(dir, files = {}) {
     }
 }
 
+function seedSkillPair(dir, { repoTools = ['search_network', 'source_health'], installedTools = repoTools } = {}) {
+    const repoSkillPath = path.join(dir, 'repo-skill.md');
+    const installedSkillPath = path.join(dir, 'installed-skill.md');
+    fs.writeFileSync(repoSkillPath, repoTools.map(t => `### ${t}`).join('\n'));
+    if (installedTools !== null) {
+        fs.writeFileSync(installedSkillPath, installedTools.map(t => `### ${t}`).join('\n'));
+    }
+    return { repoSkillPath, installedSkillPath };
+}
+
 // ---------------------------------------------------------------------------
 // Core shape
 // ---------------------------------------------------------------------------
@@ -82,8 +92,9 @@ test('[HermesReadiness]: full data yields level "ready"', () => {
             'contact-evidence.json': { c_001: {} },
             'hybrid-index.json': { version: 1 },
         });
-        const result = evaluateReadiness({ dataDir: dir });
+        const result = evaluateReadiness({ dataDir: dir, skillDrift: seedSkillPair(dir) });
         assert.equal(result.level, 'ready');
+        assert.deepEqual(result.readiness, { demo: false, dogfood: true, hermesNative: true });
         assert.equal(result.nextActions.length, 0);
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -311,6 +322,75 @@ test('[HermesReadiness]: skill_drift output is privacy-safe', () => {
         assert.equal(json.includes('/root/'), false, 'no private paths in drift check');
         assert.equal(json.includes('alice@secret.com'), false, 'no emails in drift check');
         assert.equal(json.includes('HERMES_HOME'), false, 'no envvar names in drift check');
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('[HermesReadiness]: missing installed skill warns and blocks Hermes-native readiness without reading real home', () => {
+    const dir = tmpDir();
+    try {
+        seedUnified(dir, {
+            'contacts.json': [{ id: 'c_001', name: 'Alice' }],
+            'interactions.json': [{ id: 'i_001' }],
+            'contact-evidence.json': { c_001: {} },
+            'hybrid-index.json': { version: 1 },
+        });
+        const skillDrift = seedSkillPair(dir, { installedTools: null });
+        const result = evaluateReadiness({ dataDir: dir, skillDrift });
+        const driftCheck = result.checks.find(c => c.name === 'skill_drift');
+
+        assert.equal(result.level, 'ready');
+        assert.equal(result.readiness.dogfood, true);
+        assert.equal(result.readiness.hermesNative, false);
+        assert.equal(driftCheck.status, 'warn');
+        assert.match(driftCheck.detail, /Installed skill not present/);
+        assert.ok(result.nextActions.some(a => a.includes('Update Hermes Minty skill')));
+        const serialized = JSON.stringify(result);
+        assert.equal(serialized.includes(dir), false, 'must not expose temp absolute paths');
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('[HermesReadiness]: stale installed skill warns and blocks Hermes-native readiness', () => {
+    const dir = tmpDir();
+    try {
+        seedUnified(dir, {
+            'contacts.json': [{ id: 'c_001', name: 'Alice' }],
+            'interactions.json': [{ id: 'i_001' }],
+            'contact-evidence.json': { c_001: {} },
+            'hybrid-index.json': { version: 1 },
+        });
+        const skillDrift = seedSkillPair(dir, {
+            repoTools: ['search_network', 'source_health', 'meeting_prep'],
+            installedTools: ['search_network'],
+        });
+        const result = evaluateReadiness({ dataDir: dir, skillDrift });
+        const driftCheck = result.checks.find(c => c.name === 'skill_drift');
+
+        assert.equal(result.level, 'ready');
+        assert.equal(result.readiness.hermesNative, false);
+        assert.equal(driftCheck.status, 'warn');
+        assert.match(driftCheck.detail, /missing 2 tool\(s\): source_health, meeting_prep/);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test('[HermesReadiness]: demo data can be data-ready without being dogfood or Hermes-native ready', () => {
+    const dir = tmpDir();
+    try {
+        seedUnified(dir, {
+            'contacts.json': [{ id: 'c_001', name: 'Alice' }],
+            'interactions.json': [{ id: 'i_001' }],
+            'contact-evidence.json': { c_001: {} },
+            'hybrid-index.json': { version: 1 },
+        });
+        const result = evaluateReadiness({ dataDir: dir, dataKind: 'demo', skillDrift: seedSkillPair(dir) });
+
+        assert.equal(result.level, 'ready');
+        assert.deepEqual(result.readiness, { demo: true, dogfood: false, hermesNative: false });
     } finally {
         fs.rmSync(dir, { recursive: true, force: true });
     }
